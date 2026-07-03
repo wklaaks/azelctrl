@@ -1932,6 +1932,7 @@ void loop() {
   
   // Calibration mode
   if (calState != CAL_IDLE) {
+    readPositions();  // Keep ADC readings fresh during calibration
     updateCalibrationState();
     displayCalibrationScreen();
     return;
