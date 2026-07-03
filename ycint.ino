@@ -1544,7 +1544,7 @@ void updateRotatorDisplay() {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
     display.setCursor(0, 56);
-    display.println("1.Cycle 2!Go");
+    display.println("1.Cycle 2!Go 2+1|RST");
   }
   
   display.display();
@@ -1670,11 +1670,31 @@ void handleButtons() {
   // ============================================
   
   // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
-  if (btn1 && !btn1WasPressed && (now - btn1LastPress > BTN_DEBOUNCE_MS)) {
-    rotatorMenuSelection = (rotatorMenuSelection + 1) % 5;
-    btn1LastPress = now;
-    Serial.print("Menu: ");
-    Serial.println(directions[rotatorMenuSelection]);
+  // ALSO: restart sequence - when IDLE selected, hold Btn2 + long-press Btn1
+  if (btn1 && !btn1WasPressed) {
+    btn1PressStart = now;
+    btn1LongPressTriggered = false;
+  }
+  
+  // Long press Btn1 while Btn2 held + IDLE selected = restart
+  if (btn1 && (now - btn1PressStart >= BTN_LONG_MS) && !btn1LongPressTriggered) {
+    if (rotatorMenuSelection == 0 && btn2Physical) {
+      btn1LongPressTriggered = true;
+      Serial.println("RESTART: Btn2 held + Btn1 long-press - restarting from scratch");
+      Menu::drawQuickNotice("Restarting", "...", "", true);
+      delay(1000);
+      ESP.restart();
+    }
+  }
+  
+  // Short press Btn1 = cycle directions (only if not long-pressed)
+  if (!btn1 && btn1WasPressed && !btn1LongPressTriggered && (now - btn1PressStart < BTN_LONG_MS)) {
+    if (now - btn1LastPress > BTN_DEBOUNCE_MS) {
+      rotatorMenuSelection = (rotatorMenuSelection + 1) % 5;
+      btn1LastPress = now;
+      Serial.print("Menu: ");
+      Serial.println(directions[rotatorMenuSelection]);
+    }
   }
   btn1WasPressed = btn1;
   
