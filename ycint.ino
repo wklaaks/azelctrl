@@ -1126,6 +1126,16 @@ void displayCalibrationScreen() {
     case CAL_CHECK_STABILITY:
       display.setCursor(2, y);
       display.println("Checking cable...");
+      y += 11;
+      display.setCursor(2, y);
+      // Show current movement direction
+      if (calDirection == -1) {
+        if (calCurrentAxis == 0) display.println("Trying CCW...");
+        else display.println("Trying DOWN...");
+      } else if (calDirection == 1) {
+        if (calCurrentAxis == 0) display.println("Trying CW...");
+        else display.println("Trying UP...");
+      }
       break;
       
     case CAL_SWEEP_MIN:
