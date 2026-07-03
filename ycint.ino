@@ -1712,18 +1712,16 @@ void updateRotatorDisplay() {
     display.setTextSize(2);
     display.setCursor(0, 0);
     display.print("Az:");
-    int x;  // Arrow x position (shared with El)
     if (adsPresent) {
       display.print(azVal);
       // Movement indicator for Azimuth — use font characters
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
-        display.print(" >");
+        display.print(">");
       } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
-        display.print(" <");
+        display.print("<");
       }
-      display.println("");
     } else {
-      display.println("  N/A");
+      display.print("  N/A");
     }
     
     // El line
@@ -1733,13 +1731,12 @@ void updateRotatorDisplay() {
       display.print(elVal);
       // Movement indicator for Elevation — use font characters
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
-        display.print(" ^");
+        display.print("^");
       } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
-        display.print(" v");
+        display.print("v");
       }
-      display.println("");
     } else {
-      display.println("  N/A");
+      display.print("  N/A");
     }
     
     // Moving/Selected just above footer
