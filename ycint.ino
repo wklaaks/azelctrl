@@ -1137,9 +1137,6 @@ void displayCalibrationScreen() {
     case CAL_WAIT_TIMEOUT_MIN:
       display.setCursor(2, y);
       display.println("Timeout - not at limit");
-      y += 11;
-      display.setCursor(2, y);
-      display.println("1:Proceed 2:Cancel");
       break;
       
     case CAL_SWEEP_MAX:
@@ -1161,9 +1158,6 @@ void displayCalibrationScreen() {
       display.print("Min: ");
       display.print(calMinVoltage, 3);
       display.println("V");
-      y += 11;
-      display.setCursor(2, y);
-      display.println("1:Proceed 2:Cancel");
       break;
       
     case CAL_COMPLETE:
@@ -1186,20 +1180,17 @@ void displayCalibrationScreen() {
       y += 11;
       display.setCursor(2, y);
       display.println(calErrorMessage);
-      y += 11;
-      display.setCursor(2, y);
-      display.println("1:Retry 2:Back");
       break;
   }
   
   // Show AZ and EL readings with voltages
-  display.setCursor(0, 40);
+  display.setCursor(0, 32);
   display.print("AZ:");
   display.print(String(currentAz, 0));
   display.print("(");
   display.print((int)(azVoltage * 1000));
   display.println("mV)");
-  display.setCursor(0, 51);
+  display.setCursor(0, 43);
   display.print("EL:");
   display.print(String(currentEl, 0));
   display.print("(");
@@ -1211,10 +1202,13 @@ void displayCalibrationScreen() {
     display.drawPixel(x, 53, SSD1306_WHITE);
   }
   
-  // Footer
+  // Footer - context-sensitive
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 53);
-  display.println("1.Scan 2.Back");
+  display.setCursor(0, 56);
+  if (calState == CAL_COMPLETE) display.println("1.Done 2.Back");
+  else if (calState == CAL_ERROR) display.println("1.Retry 2.Back");
+  else if (calState == CAL_WAIT_TIMEOUT_MIN || calState == CAL_WAIT_TIMEOUT_MAX) display.println("1.Proceed 2.Cancel");
+  else display.println("1.Exit 2.Back");
   
   display.display();
 }
