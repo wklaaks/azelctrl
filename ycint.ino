@@ -1770,7 +1770,7 @@ void updateRotatorDisplay() {
       display.print(elVal);
       // Movement indicator — draw arrow near right edge
       int ex = 114;  // Near right edge (128px - 9px arrow - 2px margin)
-      int ey = 18;
+      int ey = 20;
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
         // Up arrow: ↑ (9 wide, 12 tall)
         // Arrowhead y=0..4 (triangular), shaft y=5..8
