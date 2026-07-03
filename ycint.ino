@@ -1711,7 +1711,7 @@ void updateRotatorDisplay() {
     // Az line
     display.setTextSize(2);
     display.setCursor(0, 0);
-    display.print("Az");
+    display.print("Az:");
     if (adsPresent) {
       display.print(azVal);
       // Movement indicator for Azimuth
@@ -1727,7 +1727,7 @@ void updateRotatorDisplay() {
     
     // El line
     display.setCursor(0, 18);
-    display.print("El");
+    display.print("El:");
     if (adsPresent) {
       display.print(elVal);
       // Movement indicator for Elevation
