@@ -1811,6 +1811,9 @@ void handleButtons() {
         calVSampleIdx = 0;
         calMinVoltage = 0;
         calMaxVoltage = 0;
+        calDirection = 0;
+        calStabilityMax = 0;
+        calStabilityMin = 32767;
         calErrorMessage = "";
       } else if (calState == CAL_WAIT_TIMEOUT_MIN) {
         // Proceed to sweep max with current reading as min
