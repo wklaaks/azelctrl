@@ -975,17 +975,25 @@ void updateCalibrationState() {
   
   switch (calState) {
     case CAL_CHECK_STABILITY:
-      // Move motor and check if voltage changes — detects unplugged cable
+      // Move motor in both directions to detect cable connection.
+      // Phase 1: CCW/DOWN for 1.5s, Phase 2: CW/UP for 1.5s
+      // If voltage doesn't change in either direction, cable is unplugged.
       if (calVSampleIdx == 0) {
-        // First iteration: capture initial voltage, then start moving
+        // First iteration: capture initial voltage, start moving CCW
         calStabilityMax = vRaw;
         calStabilityMin = vRaw;
-        setCalDirection(-1);  // Start moving CCW/DOWN
-        Serial.println("CAL: Checking cable (moving motor)...");
+        setCalDirection(-1);
+        Serial.println("CAL: Checking cable (moving CCW)...");
       }
       // Track voltage range
       if (vRaw > calStabilityMax) calStabilityMax = vRaw;
       if (vRaw < calStabilityMin) calStabilityMin = vRaw;
+      
+      // After 1.5s, reverse direction
+      if (millis() - calPhaseStart >= 1500 && calDirection == -1) {
+        setCalDirection(1);
+        Serial.println("CAL: Checking cable (moving CW)...");
+      }
       
       if (millis() - calPhaseStart >= CAL_DETECT_TIME) {
         // Check if voltage changed enough to confirm cable is connected
@@ -995,7 +1003,7 @@ void updateCalibrationState() {
         Serial.println(" mV");
         
         if (change < CAL_DETECT_MIN_CHANGE) {
-          // Voltage didn't change — cable unplugged or pot disconnected
+          // Voltage didn't change in either direction — cable unplugged
           calState = CAL_ERROR;
           calErrorMessage = "No voltage change";
           stopAll();
@@ -1006,7 +1014,10 @@ void updateCalibrationState() {
           calState = CAL_SWEEP_MIN;
           calPhaseStart = millis();
           calVSampleIdx = 0;
-          // Already moving CCW/DOWN, continue
+          stopAll();
+          calDirection = 0;
+          // Start fresh moving CCW/DOWN
+          setCalDirection(-1);
           Serial.println("CAL: Cable confirmed, starting sweep to minimum");
         }
       }
