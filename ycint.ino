@@ -1144,7 +1144,7 @@ void displayCalibrationScreen() {
   
   switch (calState) {
     case CAL_CHECK_STABILITY:
-      // Show movement direction
+      display.setCursor(2, y);
       if (calDirection == -1) {
         if (calCurrentAxis == 0) display.println("Trying CCW...");
         else display.println("Trying DOWN...");
@@ -1160,16 +1160,19 @@ void displayCalibrationScreen() {
       break;
       
     case CAL_WAIT_TIMEOUT_MIN:
+      display.setCursor(2, y);
       display.println("Not at limit");
       break;
       
     case CAL_SWEEP_MAX:
+      display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
       display.println("V");
       break;
       
     case CAL_WAIT_TIMEOUT_MAX:
+      display.setCursor(2, y);
       display.println("Not at limit");
       y += 11;
       display.setCursor(2, y);
@@ -1189,6 +1192,7 @@ void displayCalibrationScreen() {
       break;
       
     case CAL_ERROR:
+      display.setCursor(2, y);
       display.println(calErrorMessage);
       break;
   }
