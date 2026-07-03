@@ -661,10 +661,11 @@ void checkPauseComplete() {
 
 // ==================== CALIBRATION CONSTANTS ====================
 const unsigned long CAL_SWEEP_TIMEOUT = 120000;  // 2 minutes per sweep
-const unsigned long CAL_STABILITY_TIME = 1000;   // 1 second stability check
+const unsigned long CAL_STABILITY_TIME = 2000;   // 2 second stability check
 const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
 const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
 const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
+const float CAL_UNPLUGGED_THRESHOLD = 30.0F;     // mV - unplugged cable detection
 #define CAL_V_SAMPLES 20
 #define CAL_EEPROM_AZ_MIN    67
 #define CAL_EEPROM_AZ_MAX    71
@@ -988,7 +989,7 @@ void updateCalibrationState() {
         }
         
         // If fluctuation is too high, cable might be unplugged
-        if (fluctuation > 100) {  // 100mV threshold for unplugged detection
+        if (fluctuation > CAL_UNPLUGGED_THRESHOLD) {
           calState = CAL_ERROR;
           calErrorMessage = "Unstable voltage";
           Serial.println("CAL: ERROR - Voltage unstable, check cable");
