@@ -1106,21 +1106,12 @@ void displayCalibrationScreen() {
     case CAL_CHECK_STABILITY:
       display.setCursor(2, y);
       display.println("Checking cable...");
-      y += 11;
-      display.setCursor(2, y);
-      display.print("Voltage: ");
-      display.print(vRaw, 3);
-      display.println("V");
       break;
       
     case CAL_SWEEP_MIN:
       display.setCursor(2, y);
-      display.println("Sweeping CCW/DN...");
-      y += 11;
-      display.setCursor(2, y);
-      display.print("Voltage: ");
-      display.print(vRaw, 3);
-      display.println("V");
+      if (calCurrentAxis == 0) display.println("Sweeping CCW...");
+      else display.println("Sweeping DOWN...");
       break;
       
     case CAL_WAIT_TIMEOUT_MIN:
@@ -1128,26 +1119,17 @@ void displayCalibrationScreen() {
       display.println("Timeout - not at limit");
       y += 11;
       display.setCursor(2, y);
-      display.print("Voltage: ");
-      display.print(vRaw, 3);
-      display.println("V");
-      y += 11;
-      display.setCursor(2, y);
       display.println("1:Proceed 2:Cancel");
       break;
       
     case CAL_SWEEP_MAX:
       display.setCursor(2, y);
-      display.println("Sweeping CW/UP...");
+      if (calCurrentAxis == 0) display.println("Sweeping CW...");
+      else display.println("Sweeping UP...");
       y += 11;
       display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
-      display.println("V");
-      y += 11;
-      display.setCursor(2, y);
-      display.print("Voltage: ");
-      display.print(vRaw, 3);
       display.println("V");
       break;
       
@@ -1158,11 +1140,6 @@ void displayCalibrationScreen() {
       display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
-      display.println("V");
-      y += 11;
-      display.setCursor(2, y);
-      display.print("Voltage: ");
-      display.print(vRaw, 3);
       display.println("V");
       y += 11;
       display.setCursor(2, y);
@@ -1180,11 +1157,6 @@ void displayCalibrationScreen() {
       display.print("Min: ");
       display.print(calMinVoltage, 3);
       display.println("V");
-      y += 11;
-      display.setCursor(2, y);
-      display.print("Max: ");
-      display.print(calMaxVoltage, 3);
-      display.println("V");
       break;
       
     case CAL_ERROR:
@@ -1201,21 +1173,17 @@ void displayCalibrationScreen() {
       break;
   }
   
-  // Show voltages
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(2, 40);
-  display.print("AZ: ");
-  display.print(currentAz);
-  display.print("  (");
+  // Show AZ and EL readings with voltages
+  display.setCursor(0, 32);
+  display.print("AZ:");
+  display.print(String(currentAz, 1));
+  display.print("(");
   display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
-  display.print("V)");
-  display.setCursor(2, 51);
-  display.print("EL: ");
-  display.print(currentEl);
-  display.print("  (");
+  display.print("V)  EL:");
+  display.print(String(currentEl, 1));
+  display.print("(");
   display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
-  display.print("V)");
+  display.println("V)");
   
   // Dotted separator above footer
   for (int x = 0; x < 128; x += 3) {
