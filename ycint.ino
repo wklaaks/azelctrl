@@ -1712,14 +1712,36 @@ void updateRotatorDisplay() {
     display.setTextSize(2);
     display.setCursor(0, 0);
     display.print("Az:");
+    int x;  // Arrow x position
     if (adsPresent) {
       display.print(azVal);
-      // Movement indicator for Azimuth
-      if (currentMove.compareTo("RIGHT") == 0) display.print("+");
-      else if (currentMove.compareTo("LEFT") == 0) display.print("-");
-      else if (currentMove.compareTo("AZ POT") == 0 && calDirection > 0) display.print("+");
-      else if (currentMove.compareTo("AZ POT") == 0 && calDirection < 0) display.print("-");
-      else display.print(" ");
+      // Movement indicator for Azimuth — draw arrows
+      x = 3 * 6 + azVal.length() * 6;  // x after label + value
+      if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
+        // Right arrow: ► (centered at y=0..11)
+        display.drawPixel(x+4, 3, SSD1306_WHITE);
+        display.drawPixel(x+4, 8, SSD1306_WHITE);
+        display.drawPixel(x+3, 4, SSD1306_WHITE);
+        display.drawPixel(x+3, 7, SSD1306_WHITE);
+        display.drawPixel(x+2, 2, SSD1306_WHITE);
+        display.drawPixel(x+2, 9, SSD1306_WHITE);
+        display.drawPixel(x+1, 2, SSD1306_WHITE);
+        display.drawPixel(x+1, 9, SSD1306_WHITE);
+        display.drawPixel(x, 0, SSD1306_WHITE);
+        display.drawPixel(x, 11, SSD1306_WHITE);
+      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
+        // Left arrow: ◄
+        display.drawPixel(x, 3, SSD1306_WHITE);
+        display.drawPixel(x, 8, SSD1306_WHITE);
+        display.drawPixel(x+1, 4, SSD1306_WHITE);
+        display.drawPixel(x+1, 7, SSD1306_WHITE);
+        display.drawPixel(x+2, 2, SSD1306_WHITE);
+        display.drawPixel(x+2, 9, SSD1306_WHITE);
+        display.drawPixel(x+3, 2, SSD1306_WHITE);
+        display.drawPixel(x+3, 9, SSD1306_WHITE);
+        display.drawPixel(x+4, 0, SSD1306_WHITE);
+        display.drawPixel(x+4, 11, SSD1306_WHITE);
+      }
       display.println("");
     } else {
       display.println("  N/A");
@@ -1730,12 +1752,40 @@ void updateRotatorDisplay() {
     display.print("El:");
     if (adsPresent) {
       display.print(elVal);
-      // Movement indicator for Elevation
-      if (currentMove.compareTo("UP") == 0) display.print("+");
-      else if (currentMove.compareTo("DOWN") == 0) display.print("-");
-      else if (currentMove.compareTo("EL POT") == 0 && calDirection > 0) display.print("+");
-      else if (currentMove.compareTo("EL POT") == 0 && calDirection < 0) display.print("-");
-      else display.print(" ");
+      // Movement indicator for Elevation — draw arrows
+      x = 3 * 6 + elVal.length() * 6;
+      int ey = 18;  // El text starts at y=18
+      if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
+        // Up arrow: ▲ (centered at y=18..29)
+        display.drawPixel(x+2, ey+0, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+1, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+1, SSD1306_WHITE);
+        display.drawPixel(x, ey+2, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+2, SSD1306_WHITE);
+        display.drawPixel(x, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+3, SSD1306_WHITE);
+        display.drawPixel(x, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+4, SSD1306_WHITE);
+      } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
+        // Down arrow: ▼
+        display.drawPixel(x, ey+5, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+5, SSD1306_WHITE);
+        display.drawPixel(x, ey+6, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+6, SSD1306_WHITE);
+        display.drawPixel(x, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+7, SSD1306_WHITE);
+        display.drawPixel(x, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+9, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+9, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+10, SSD1306_WHITE);
+      }
       display.println("");
     } else {
       display.println("  N/A");
