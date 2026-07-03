@@ -658,6 +658,21 @@ void checkPauseComplete() {
   }
 }
 
+// ==================== CALIBRATION CONSTANTS ====================
+const unsigned long CAL_SWEEP_TIMEOUT = 120000;  // 2 minutes per sweep
+const unsigned long CAL_STABILITY_TIME = 1000;   // 1 second stability check
+const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
+const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
+const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
+#define CAL_V_SAMPLES 20
+#define CAL_EEPROM_AZ_MIN    67
+#define CAL_EEPROM_AZ_MAX    71
+#define CAL_EEPROM_EL_MIN    75
+#define CAL_EEPROM_EL_MAX    79
+#define CAL_EEPROM_MAGIC     83
+#define CAL_EEPROM_MAGIC_VAL 0xCA
+#define CAL_EEPROM_SIZE      84
+
 // ====================== MOVEMENT CONTROL ======================
 void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
@@ -680,6 +695,16 @@ void stopAll() {
 
 void executeAzimuthMove(String dir) {
   stopAzimuth();
+  
+  // Check voltage safety before moving
+  if (adsPresent && calAzValid) {
+    float azVoltage = (float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F;
+    if (dir == "RIGHT" && azVoltage >= CAL_MAX_SAFE_V) {
+      Serial.println("SAFETY: AZ voltage at limit, cannot move RIGHT");
+      return;
+    }
+  }
+  
   if (currentMove == "IDLE" || currentMove == "UP" || currentMove == "DOWN") {
     currentMove = dir;
   }
@@ -699,6 +724,16 @@ void executeAzimuthMove(String dir) {
 
 void executeElevationMove(String dir) {
   stopElevation();
+  
+  // Check voltage safety before moving
+  if (adsPresent && calElValid) {
+    float elVoltage = (float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F;
+    if (dir == "UP" && elVoltage >= CAL_MAX_SAFE_V) {
+      Serial.println("SAFETY: EL voltage at limit, cannot move UP");
+      return;
+    }
+  }
+  
   if (currentMove == "IDLE" || currentMove == "LEFT" || currentMove == "RIGHT") {
     currentMove = dir;
   }
@@ -763,41 +798,104 @@ void startMove(String dir) {
   }
 }
 
-// ====================== CALIBRATION (NEW STATE MACHINE) ======================
+// ====================== CALIBRATION (VOLTAGE-BASED) ======================
+// Calibration finds min/max voltages by sweeping to hard limits.
+// AZ: CCW→min (~0V at -180°), CW→max (~3.2V at +180°)
+// EL: DOWN→min (~0V at 0°), UP→max (~3.2V at 90°)
+// Safety: never exceed CAL_MAX_SAFE_V (3.250V)
+// Results saved to EEPROM so calibration persists across reboots.
+
 enum CalState {
   CAL_IDLE,
-  CAL_DETECTING,      // 5s CW movement to detect voltage change
-  CAL_FINDING_MIN,    // Move to find minimum voltage
-  CAL_FINDING_MAX,    // Move to find maximum voltage
-  CAL_MOVING_TO_HALF, // Move to half-way point
-  CAL_CONFIRMING,     // Confirm half-way point
-  CAL_COMPLETE,       // Calibration complete
-  CAL_ERROR           // Error state
+  CAL_CHECK_STABILITY,  // Measure voltage for 1s to detect unplugged cable
+  CAL_SWEEP_MIN,        // Move CCW/DOWN until voltage stabilizes
+  CAL_WAIT_TIMEOUT_MIN, // Timeout waiting for min - ask user
+  CAL_SWEEP_MAX,        // Move CW/UP until voltage stabilizes or hits safety limit
+  CAL_WAIT_TIMEOUT_MAX, // Timeout waiting for max - ask user
+  CAL_COMPLETE,         // Calibration complete, saved to EEPROM
+  CAL_ERROR             // Error state with message
 };
 
 CalState calState = CAL_IDLE;
 int calCurrentAxis = -1;  // 0=AZ, 1=EL, -1=none
 int calDirection = 0;     // 1=CW/UP, -1=CCW/DOWN
-unsigned long calMoveStartTime = 0;
-const unsigned long calMoveDuration = 5000;  // 5 seconds
-float calMoveStartVoltage = 0;
-bool calInitialVoltageCaptured = false;
-bool calVoltageChangeDetected = false;
+unsigned long calPhaseStart = 0;
+
 float calMinVoltage = 0;
 float calMaxVoltage = 0;
-float calHalfVoltage = 0;
+float calStabilityMax = 0;
+float calStabilityMin = 0;
+unsigned long calStabilityStart = 0;
+String calErrorMessage = "";
+
+// Voltage samples for stability detection
+float calVoltageSamples[CAL_V_SAMPLES];
+int calVSampleIdx = 0;
+
+// Calibrated voltage ranges (loaded from EEPROM)
+float calAzMinV = 0.0F, calAzMaxV = 3.2F;
+float calElMinV = 0.0F, calElMaxV = 3.2F;
+bool calAzValid = false, calElValid = false;
+
+void loadCalibration() {
+  if (EEPROM.read(CAL_EEPROM_MAGIC) != CAL_EEPROM_MAGIC_VAL) {
+    Serial.println("CAL: No calibration data in EEPROM");
+    return;
+  }
+  uint8_t* bytes = (uint8_t*)&calAzMinV;
+  for (int i = 0; i < 4; i++) bytes[i] = EEPROM.read(CAL_EEPROM_AZ_MIN + i);
+  bytes = (uint8_t*)&calAzMaxV;
+  for (int i = 0; i < 4; i++) bytes[i] = EEPROM.read(CAL_EEPROM_AZ_MAX + i);
+  bytes = (uint8_t*)&calElMinV;
+  for (int i = 0; i < 4; i++) bytes[i] = EEPROM.read(CAL_EEPROM_EL_MIN + i);
+  bytes = (uint8_t*)&calElMaxV;
+  for (int i = 0; i < 4; i++) bytes[i] = EEPROM.read(CAL_EEPROM_EL_MAX + i);
+  
+  calAzValid = (calAzMaxV - calAzMinV > CAL_MIN_RANGE);
+  calElValid = (calElMaxV - calElMinV > CAL_MIN_RANGE);
+  
+  Serial.print("CAL: Loaded AZ min=");
+  Serial.print(calAzMinV, 3);
+  Serial.print(" max=");
+  Serial.print(calAzMaxV, 3);
+  Serial.print(" EL min=");
+  Serial.print(calElMinV, 3);
+  Serial.println(" max=");
+  Serial.println(calElMaxV, 3);
+}
+
+void saveCalibration() {
+  uint8_t* bytes;
+  if (calCurrentAxis == 0) {
+    bytes = (uint8_t*)&calAzMinV;
+    for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MIN + i, bytes[i]);
+    bytes = (uint8_t*)&calAzMaxV;
+    for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MAX + i, bytes[i]);
+    calAzValid = true;
+  } else {
+    bytes = (uint8_t*)&calElMinV;
+    for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MIN + i, bytes[i]);
+    bytes = (uint8_t*)&calElMaxV;
+    for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MAX + i, bytes[i]);
+    calElValid = true;
+  }
+  EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
+  EEPROM.commit();
+  Serial.println("CAL: Calibration saved to EEPROM");
+}
 
 void enterCalibrationMode(int axis) {
-  calState = CAL_DETECTING;
+  calState = CAL_CHECK_STABILITY;
   calCurrentAxis = axis;
   calDirection = 0;
-  calMoveStartTime = millis();  // Must be set to millis() when entering calibration mode
-  calMoveStartVoltage = 0;
-  calInitialVoltageCaptured = false;
-  calVoltageChangeDetected = false;
+  calPhaseStart = millis();
   calMinVoltage = 0;
   calMaxVoltage = 0;
-  calHalfVoltage = 0;
+  calStabilityMax = 0;
+  calStabilityMin = 32767;
+  calStabilityStart = millis();
+  calVSampleIdx = 0;
+  calErrorMessage = "";
   stopAll();
   currentMenu = nullptr;  // Skip menu handler during calibration mode
   
@@ -834,108 +932,140 @@ void setCalDirection(int dir) {
   }
 }
 
+// Check if voltage has stabilized (change < threshold over recent samples)
+bool isVoltageStable(float currentV) {
+  if (calVSampleIdx < CAL_V_SAMPLES) return false;
+  
+  float minV = currentV, maxV = currentV;
+  for (int i = 0; i < CAL_V_SAMPLES; i++) {
+    if (calVoltageSamples[i] < minV) minV = calVoltageSamples[i];
+    if (calVoltageSamples[i] > maxV) maxV = calVoltageSamples[i];
+  }
+  // Include current reading
+  if (currentV < minV) minV = currentV;
+  if (currentV > maxV) maxV = currentV;
+  
+  float range = (maxV - minV) * 1000;  // Convert to mV
+  return range < CAL_STABILITY_THRESHOLD;
+}
+
 void updateCalibrationState() {
   if (calState == CAL_IDLE) return;
   
   float v = (calCurrentAxis == 0) ? currentAz : currentEl;
-  float target = 0;
+  float vRaw = (calCurrentAxis == 0) ? 
+    ((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F) :
+    ((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F);
+  
+  // Add to voltage samples for stability detection
+  if (calVSampleIdx < CAL_V_SAMPLES) {
+    calVoltageSamples[calVSampleIdx++] = vRaw;
+  } else {
+    // Shift samples
+    for (int i = 0; i < CAL_V_SAMPLES - 1; i++) {
+      calVoltageSamples[i] = calVoltageSamples[i + 1];
+    }
+    calVoltageSamples[CAL_V_SAMPLES - 1] = vRaw;
+  }
   
   switch (calState) {
-    case CAL_DETECTING:
-      // Capture initial voltage on first iteration
-      if (!calInitialVoltageCaptured) {
-        calMoveStartVoltage = v;
-        calInitialVoltageCaptured = true;
-        // Start motor moving CW for 5 seconds
-        calDirection = 1;
-        setCalDirection(1);
-        calMoveStartTime = millis();
-        Serial.println("CAL: Starting 5s CW detection");
-      }
-      
-      // Check if 5 seconds have elapsed
-      if (millis() - calMoveStartTime >= calMoveDuration) {
-        float voltageChange = v - calMoveStartVoltage;
-        if (voltageChange < 0) voltageChange = -voltageChange;
+    case CAL_CHECK_STABILITY:
+      // Measure voltage for 1 second to check cable connection
+      if (millis() - calPhaseStart >= CAL_STABILITY_TIME) {
+        // Check voltage fluctuation during stability check
+        float fluctuation = 0;
+        if (calVSampleIdx >= 2) {
+          float minV = calVoltageSamples[0], maxV = calVoltageSamples[0];
+          for (int i = 1; i < calVSampleIdx; i++) {
+            if (calVoltageSamples[i] < minV) minV = calVoltageSamples[i];
+            if (calVoltageSamples[i] > maxV) maxV = calVoltageSamples[i];
+          }
+          fluctuation = (maxV - minV) * 1000;  // mV
+        }
         
-        if (voltageChange < 50) {  // 50mV threshold - pot not connected
-          // No significant change - pot not connected
+        // If fluctuation is too high, cable might be unplugged
+        if (fluctuation > 100) {  // 100mV threshold for unplugged detection
           calState = CAL_ERROR;
-          Serial.println("CAL: ERROR - No voltage change detected");
+          calErrorMessage = "Unstable voltage";
+          Serial.println("CAL: ERROR - Voltage unstable, check cable");
         } else {
-          // Voltage changed - pot is connected
-          calVoltageChangeDetected = true;
-          calState = CAL_FINDING_MIN;
-          Serial.print("CAL: Voltage change detected: ");
-          Serial.println(voltageChange);
-          calMoveStartTime = millis();
+          // Voltage is stable, proceed to sweep min
+          calState = CAL_SWEEP_MIN;
+          calPhaseStart = millis();
+          calVSampleIdx = 0;
+          // Start moving CCW/DOWN
+          setCalDirection(-1);
+          Serial.println("CAL: Starting sweep to minimum");
         }
       }
       break;
       
-    case CAL_FINDING_MIN:
-      // Move in direction that decreases voltage (CCW for AZ, DOWN for EL)
-      if (calDirection != -1) {
-        calDirection = -1;
-        setCalDirection(-1);
-        calMoveStartTime = millis();
-        Serial.println("CAL: Finding minimum voltage");
-      }
-      
-      // Check if voltage has stabilized or moved in wrong direction
-      if (millis() - calMoveStartTime >= calMoveDuration) {
-        calMinVoltage = v;
-        calState = CAL_FINDING_MAX;
-        calMoveStartTime = millis();
-        Serial.print("CAL: Min voltage: ");
-        Serial.println(calMinVoltage);
-      }
-      break;
-      
-    case CAL_FINDING_MAX:
-      // Move in direction that increases voltage (CW for AZ, UP for EL)
-      if (calDirection != 1) {
-        calDirection = 1;
+    case CAL_SWEEP_MIN:
+      // Monitor for voltage stabilization or timeout
+      if (isVoltageStable(vRaw)) {
+        // Voltage stabilized - we hit the minimum limit
+        calMinVoltage = vRaw;
+        stopAll();
+        calDirection = 0;
+        Serial.print("CAL: Min voltage found: ");
+        Serial.println(calMinVoltage, 3);
+        
+        // Proceed to sweep max
+        calState = CAL_SWEEP_MAX;
+        calPhaseStart = millis();
+        calVSampleIdx = 0;
         setCalDirection(1);
-        calMoveStartTime = millis();
-        Serial.println("CAL: Finding maximum voltage");
-      }
-      
-      // Check if voltage has stabilized or moved in wrong direction
-      if (millis() - calMoveStartTime >= calMoveDuration) {
-        calMaxVoltage = v;
-        calState = CAL_MOVING_TO_HALF;
-        calHalfVoltage = (calMinVoltage + calMaxVoltage) / 2;
-        calMoveStartTime = millis();
-        Serial.print("CAL: Max voltage: ");
-        Serial.println(calMaxVoltage);
+        Serial.println("CAL: Starting sweep to maximum");
+      } else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+        // Timeout - ask user
+        calState = CAL_WAIT_TIMEOUT_MIN;
+        calMinVoltage = vRaw;  // Use current reading as best guess
+        stopAll();
+        calDirection = 0;
+        Serial.println("CAL: Timeout sweeping to minimum");
       }
       break;
       
-    case CAL_MOVING_TO_HALF:
-      {
-        float target = calHalfVoltage;
-        if (calDirection == 0) {
-          calDirection = (v < target) ? 1 : -1;
-          setCalDirection(calDirection);
-          calMoveStartTime = millis();
-          Serial.println("CAL: Moving to half-way point");
-        }
-        // Check if we've reached the target
-        if (millis() - calMoveStartTime >= calMoveDuration) {
-          calState = CAL_CONFIRMING;
-          calMoveStartTime = millis();
-          Serial.println("CAL: Reached half-way point");
-        }
-      }
+    case CAL_WAIT_TIMEOUT_MIN:
+      // Wait for user input - handled in button handler
       break;
       
-    case CAL_CONFIRMING:
-      // Confirm half-way point
-      if (millis() - calMoveStartTime >= 2000) {
+    case CAL_SWEEP_MAX:
+      // Monitor for voltage stabilization, safety limit, or timeout
+      if (vRaw >= CAL_MAX_SAFE_V) {
+        // Hit safety voltage limit
+        calMaxVoltage = vRaw;
+        stopAll();
+        calDirection = 0;
+        Serial.print("CAL: Max voltage hit safety limit: ");
+        Serial.println(calMaxVoltage, 3);
+        
+        // Save calibration
+        saveCalibration();
         calState = CAL_COMPLETE;
-        Serial.println("CAL: Calibration complete");
+      } else if (isVoltageStable(vRaw)) {
+        // Voltage stabilized - we hit the maximum limit
+        calMaxVoltage = vRaw;
+        stopAll();
+        calDirection = 0;
+        Serial.print("CAL: Max voltage found: ");
+        Serial.println(calMaxVoltage, 3);
+        
+        // Save calibration
+        saveCalibration();
+        calState = CAL_COMPLETE;
+      } else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+        // Timeout - ask user
+        calState = CAL_WAIT_TIMEOUT_MAX;
+        calMaxVoltage = vRaw;  // Use current reading as best guess
+        stopAll();
+        calDirection = 0;
+        Serial.println("CAL: Timeout sweeping to maximum");
       }
+      break;
+      
+    case CAL_WAIT_TIMEOUT_MAX:
+      // Wait for user input - handled in button handler
       break;
       
     case CAL_COMPLETE:
@@ -949,7 +1079,9 @@ void updateCalibrationState() {
 }
 
 void displayCalibrationScreen() {
-  String axisName = (calCurrentAxis == 0) ? "AZ" : "EL";
+  float vRaw = (calCurrentAxis == 0) ? 
+    ((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F) :
+    ((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F);
   
   display.clearDisplay();
   display.setTextSize(1);
@@ -968,52 +1100,70 @@ void displayCalibrationScreen() {
   display.setTextColor(SSD1306_WHITE);
   
   switch (calState) {
-    case CAL_DETECTING:
+    case CAL_CHECK_STABILITY:
       display.setCursor(2, y);
-      display.println("Detecting position...");
+      display.println("Checking cable...");
       y += 11;
       display.setCursor(2, y);
-      display.print("Time: ");
-      display.print((calMoveDuration - (millis() - calMoveStartTime)) / 1000);
-      display.println("s");
+      display.print("Voltage: ");
+      display.print(vRaw, 3);
+      display.println("V");
       break;
       
-    case CAL_FINDING_MIN:
+    case CAL_SWEEP_MIN:
       display.setCursor(2, y);
-      display.println("Finding minimum...");
+      display.println("Sweeping CCW/DN...");
       y += 11;
       display.setCursor(2, y);
-      display.print("Direction: ");
-      display.println(calCurrentAxis == 0 ? "CCW" : "DOWN");
+      display.print("Voltage: ");
+      display.print(vRaw, 3);
+      display.println("V");
       break;
       
-    case CAL_FINDING_MAX:
+    case CAL_WAIT_TIMEOUT_MIN:
       display.setCursor(2, y);
-      display.println("Finding maximum...");
+      display.println("Timeout - not at limit");
       y += 11;
       display.setCursor(2, y);
-      display.print("Direction: ");
-      display.println(calCurrentAxis == 0 ? "CW" : "UP");
+      display.print("Voltage: ");
+      display.print(vRaw, 3);
+      display.println("V");
+      y += 11;
+      display.setCursor(2, y);
+      display.println("1:Proceed 2:Cancel");
       break;
       
-    case CAL_MOVING_TO_HALF:
+    case CAL_SWEEP_MAX:
       display.setCursor(2, y);
-      display.println("Moving to half...");
+      display.println("Sweeping CW/UP...");
       y += 11;
       display.setCursor(2, y);
       display.print("Min: ");
-      display.print(calMinVoltage);
-      display.print("  Max: ");
-      display.println(calMaxVoltage);
-      break;
-      
-    case CAL_CONFIRMING:
-      display.setCursor(2, y);
-      display.println("Confirming...");
+      display.print(calMinVoltage, 3);
+      display.println("V");
       y += 11;
       display.setCursor(2, y);
-      display.print("Half: ");
-      display.println(calHalfVoltage);
+      display.print("Voltage: ");
+      display.print(vRaw, 3);
+      display.println("V");
+      break;
+      
+    case CAL_WAIT_TIMEOUT_MAX:
+      display.setCursor(2, y);
+      display.println("Timeout - not at limit");
+      y += 11;
+      display.setCursor(2, y);
+      display.print("Min: ");
+      display.print(calMinVoltage, 3);
+      display.println("V");
+      y += 11;
+      display.setCursor(2, y);
+      display.print("Voltage: ");
+      display.print(vRaw, 3);
+      display.println("V");
+      y += 11;
+      display.setCursor(2, y);
+      display.println("1:Proceed 2:Cancel");
       break;
       
     case CAL_COMPLETE:
@@ -1025,9 +1175,13 @@ void displayCalibrationScreen() {
       y += 11;
       display.setCursor(2, y);
       display.print("Min: ");
-      display.print(calMinVoltage);
-      display.print("  Max: ");
-      display.println(calMaxVoltage);
+      display.print(calMinVoltage, 3);
+      display.println("V");
+      y += 11;
+      display.setCursor(2, y);
+      display.print("Max: ");
+      display.print(calMaxVoltage, 3);
+      display.println("V");
       break;
       
     case CAL_ERROR:
@@ -1037,7 +1191,10 @@ void displayCalibrationScreen() {
       display.setTextColor(SSD1306_WHITE);
       y += 11;
       display.setCursor(2, y);
-      display.println("Check connection");
+      display.println(calErrorMessage);
+      y += 11;
+      display.setCursor(2, y);
+      display.println("1:Retry 2:Back");
       break;
   }
   
@@ -1075,16 +1232,32 @@ void readPositions() {
     lastAzRead = now;
     int16_t adcAz = ads.readADC_SingleEnded(0);
     adcAz = constrain(adcAz, 0, 32767);
-    float azFraction = (float)adcAz / 32767.0;
-    currentAz = azFraction * 360.0;
+    float azVoltage = (float)adcAz / 32767.0 * 4.096F;
+    
+    if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
+      float fraction = (azVoltage - calAzMinV) / (calAzMaxV - calAzMinV);
+      fraction = constrain(fraction, 0, 1);
+      currentAz = -180.0F + (fraction * 360.0F);
+    } else {
+      float azFraction = (float)adcAz / 32767.0;
+      currentAz = azFraction * 360.0;
+    }
   }
   
   if (now - lastElRead >= ADC_INTERVAL) {
     lastElRead = now;
     int16_t adcEl = ads.readADC_SingleEnded(1);
     adcEl = constrain(adcEl, 0, 32767);
-    float elFraction = (float)adcEl / 32767.0;
-    currentEl = elFraction * 90.0;
+    float elVoltage = (float)adcEl / 32767.0 * 4.096F;
+    
+    if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
+      float fraction = (elVoltage - calElMinV) / (calElMaxV - calElMinV);
+      fraction = constrain(fraction, 0, 1);
+      currentEl = fraction * 90.0F;
+    } else {
+      float elFraction = (float)adcEl / 32767.0;
+      currentEl = elFraction * 90.0;
+    }
   }
 }
 
@@ -1530,6 +1703,17 @@ void updateRotatorDisplay() {
     
     // Moving/Selected just above footer
     display.setTextSize(1);
+    display.setCursor(0, 40);
+    if (adsPresent) {
+      display.print("AzV: ");
+      display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
+      display.print("V  ElV: ");
+      display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
+      display.println("V");
+    } else {
+      display.println("N/A");
+    }
+    
     display.setCursor(0, 43);
     if (currentMove.compareTo("IDLE") != 0) {
       display.print("Moving: ");
@@ -1612,11 +1796,39 @@ void handleButtons() {
   // CALIBRATION MODE BUTTON HANDLING
   // ============================================
   if (calState != CAL_IDLE) {
-    // Btn1: exit calibration
+    unsigned long now = millis();
+    
+    // Btn1: exit calibration, retry on error, or proceed on timeout
     if (btn1 && !btn1WasPressed && (now - btn1LastPress > BTN_DEBOUNCE_MS)) {
-      exitCalibrationMode();
-      currentMenu = &calPotsMenu;
-      currentMenu->init();
+      if (calState == CAL_ERROR) {
+        // Retry calibration
+        calState = CAL_CHECK_STABILITY;
+        calPhaseStart = millis();
+        calVSampleIdx = 0;
+        calMinVoltage = 0;
+        calMaxVoltage = 0;
+        calErrorMessage = "";
+      } else if (calState == CAL_WAIT_TIMEOUT_MIN) {
+        // Proceed to sweep max with current reading as min
+        calState = CAL_SWEEP_MAX;
+        calPhaseStart = millis();
+        calVSampleIdx = 0;
+        setCalDirection(1);
+      } else if (calState == CAL_WAIT_TIMEOUT_MAX) {
+        // Proceed to complete with current reading as max
+        saveCalibration();
+        calState = CAL_COMPLETE;
+      } else if (calState == CAL_COMPLETE || calState == CAL_CHECK_STABILITY || 
+                 calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX) {
+        // Exit calibration
+        exitCalibrationMode();
+        currentMenu = &calPotsMenu;
+        currentMenu->init();
+        btn1LastPress = now;
+        btn1WasPressed = btn1;
+        btn2WasPressed = btn2;
+        return;
+      }
       btn1LastPress = now;
       btn1WasPressed = btn1;
       btn2WasPressed = btn2;
@@ -1624,7 +1836,7 @@ void handleButtons() {
     }
     btn1WasPressed = btn1;
     
-    // Btn2: start/stop scan, reverse direction, or exit in terminal states
+    // Btn2: stop movement, exit in terminal states, or cancel on timeout
     if (btn2 && !btn2WasPressed) {
       btn2PressStart = now;
       btn2LongPressTriggered = false;
@@ -1638,31 +1850,19 @@ void handleButtons() {
         return;
       }
       
-      if (calState == CAL_DETECTING || calState == CAL_FINDING_MIN || 
-          calState == CAL_FINDING_MAX || calState == CAL_MOVING_TO_HALF) {
-        // Stop movement
+      if (calState == CAL_WAIT_TIMEOUT_MIN || calState == CAL_WAIT_TIMEOUT_MAX) {
+        // Cancel calibration
+        exitCalibrationMode();
+        currentMenu = &calPotsMenu;
+        currentMenu->init();
+        btn2WasPressed = btn2;
+        return;
+      }
+      
+      if (calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX) {
+        // Stop movement during sweep
         stopAll();
         calDirection = 0;
-      }
-    }
-    
-    if (!btn2 && btn2WasPressed) {
-      unsigned long pressDuration = now - btn2PressStart;
-      
-      if (calState == CAL_DETECTING || calState == CAL_FINDING_MIN || 
-          calState == CAL_FINDING_MAX || calState == CAL_MOVING_TO_HALF) {
-        if (pressDuration >= BTN2_LONG_MS) {
-          // Long press - reverse direction
-          calDirection = -calDirection;
-          Serial.print("CAL: Direction reversed to ");
-          if (calCurrentAxis == 0) {
-            Serial.println(calDirection > 0 ? "RIGHT" : "LEFT");
-          } else {
-            Serial.println(calDirection > 0 ? "UP" : "DOWN");
-          }
-          setCalDirection(calDirection);
-          calMoveStartTime = millis();
-        }
       }
     }
     
@@ -1834,8 +2034,9 @@ void setup() {
   display.setTextColor(SSD1306_WHITE);
   
   // Load saved WiFi credentials
-  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.begin(CAL_EEPROM_SIZE);
   loadWifiCredentials();
+  loadCalibration();
   Serial.print("Saved SSID: ");
   Serial.println(savedSsid.length() > 0 ? savedSsid : "(none)");
   
