@@ -1198,29 +1198,37 @@ void displayCalibrationScreen() {
   }
   
   // Show AZ and EL readings with voltages (aligned decimal points)
-  // AZ: " AZ: -180.0(1234mV)" — max 6 chars for value
-  // EL: " EL:   90.0(2345mV)" — padded to 6 chars for alignment
+  // AZ: " AZ: -180.0 ( 123mV)" — value padded to 6 chars, voltage padded to 4
+  // EL: " EL:   90.0 (3200mV)"
   display.setCursor(0, 32);
   display.print(" AZ:");
   {
     String azStr = String(currentAz, 1);
-    // Pad to 6 chars (max: "-180.0")
     while (azStr.length() < 6) azStr = " " + azStr;
     display.print(azStr);
   }
-  display.print("(");
-  display.print((int)(azVoltage * 1000));
+  display.print(" (");
+  {
+    int azMv = (int)(azVoltage * 1000);
+    String mvStr = String(azMv);
+    while (mvStr.length() < 4) mvStr = " " + mvStr;
+    display.print(mvStr);
+  }
   display.println("mV)");
   display.setCursor(0, 43);
   display.print(" EL:");
   {
     String elStr = String(currentEl, 1);
-    // Pad to 6 chars to align decimal with AZ
     while (elStr.length() < 6) elStr = " " + elStr;
     display.print(elStr);
   }
-  display.print("(");
-  display.print((int)(elVoltage * 1000));
+  display.print(" (");
+  {
+    int elMv = (int)(elVoltage * 1000);
+    String mvStr = String(elMv);
+    while (mvStr.length() < 4) mvStr = " " + mvStr;
+    display.print(mvStr);
+  }
   display.println("mV)");
   
   // Dotted separator above footer
