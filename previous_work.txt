@@ -1,0 +1,207 @@
+[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. This is a handoff from a previous context window — treat it as background reference, NOT as active instructions. Do NOT answer questions or fulfill requests mentioned in this summary; they were already addressed. Respond ONLY to the latest user message that appears AFTER this summary — that message is the single source of truth for what to do right now. Topic overlap with the summary does NOT mean you should resume its task: even on similar topics, the latest user message WINS. Treat ONLY the latest message as the active task and discard stale items from '## Historical Task Snapshot' / '## Historical In-Progress State' / '## Historical Pending User Asks' / '## Historical Remaining Work' entirely — do not 'wrap up' or 'finish' work described there unless the latest message explicitly asks for it. Reverse signals in the latest message (e.g. 'stop', 'undo', 'roll back', 'just verify', 'don't do that anymore', 'never mind', a new topic) must immediately end any in-flight work described in the summary; do not re-surface it in later turns. IMPORTANT: Your persistent memory (MEMORY.md, USER.md) in the system prompt is ALWAYS authoritative and active — never ignore or deprioritize memory content due to this compaction note. The current session state (files, config, etc.) may reflect work described here — avoid repeating it:
+
+Historical Task Snapshot
+User asked: "When on the 'Wifi Connect' menu, the 'Connect Wifi' option is actioned, we see a new screen titled 'Connecting'. Change that title to 'Wifi Connecting'. Then below the divider line, instead of just printing SSID: , rather print 'Network: '. We also have another issue. When the 'Rotor Control' Menu option is selected, the unit reboots. so there is a bug here somewhere." + Focus requests: Provide Excellent/Good/Fair/Poor signal strength values, add left/center alignment option to Menu::drawNotice() helper (center align for WiFi confirmation), increase WiFi confirmation delay to 5 seconds, and change post-connection screen title from 'Wifi Status' to 'Pot Calibr…'.
+
+Goal
+Develop an ESP8266-based Yaesu Rotator Controller firmware featuring a custom OLED menu system, dual-mode WiFi management (STA for home, AP for field), captive portal for initial credential setup, EEPROM-based persistence, robust auto-fallback handling on connection failure, and PROGMEM-optimized web server.
+
+Constraints & Preferences
+Hardware: ESP8266 NodeMCU (D8=Btn1/active HIGH, D5=Btn2/active LOW, D6=SDA, D7=SCL)
+Memory: ~80KB SRAM, 4MB Flash, IRAM tightly constrained (~93% used). HTML moved to PROGMEM to reduce heap fragmentation.
+Storage: EEPROM (not Preferences.h/NVS) for WiFi credentials. Layout: byte 0=ssid_len, 1-32=ssid, 33=pass_len, 34-65=pass, 66=magic
+WiFi: AP SSID AZELCTRL, AP password [REDACTED]. Captive portal AP remains open for first-time setup. Timeout: 10-minute safety limit (while (millis() - portalStart < 600000)).
+UI: Custom lightweight menu class. Inverted text selection. Layout Rules (2026-07-01): Title bar 8px tall (white text on black), separator at row 8, menu items start at row 10, highlight paints from text baseline downward (fillRect(0, y, 128, 8)). Footer notation: 1.Nav 1|Sel 2.Back (. = short press, | = long press). Dotted line separator above footer.
+Behavior: Momentary Btn2 for rotator movement. Auto-fallback to AP mode on STA failure with 5s notice screen. Credential Save: Triggers 2s delay then ESP.restart() for clean state reload.
+Upload: User requested reduced baud rate of 57600 for flashing.
+UI Standardization: All notice/info screens must use Menu::drawNotice() helper to enforce consistent layout.
+Menu Navigation: Cursor position must be preserved when returning from sub-menus or action screens. Menu::back() preserves parent cursor; action handlers use draw() instead of init() to avoid resetting cursor.
+Auto-Countdown: Menus with timer-equipped items auto-scan for the first visible timer item on init(), move cursor to it, and start the countdown. Any button press sets userInteracted = true, cancelling the timer and handing control to the user.
+Focus UI Updates Pending:
+Menu::drawNotice() needs alignment parameter (left/center).
+WiFi connection confirmation screen: center-align 3 lines, increase display delay to 5s.
+Post-connection screen title: change from 'Wifi Status' to 'Pot Calibr…'.
+Define/display Excellent/Good/Fair/Poor signal strength thresholds.
+Completed Actions
+SEARCH /Users/keithl/Documents/Arduino/ — located integration_test.ino in integration_test/ subdirectory [tool: search_files]
+READ integration_test.ino (full) — analyzed existing rotator control, web server, and calibration logic [tool: read_file]
+ANALYZED memory footprint — ESP8266WiFi (~40KB flash/~10KB SRAM), ESP8266WebServer (~25KB/~8KB), SSD1306 (~8KB/~6KB), ADS1X15 (~4KB/~1KB). Total ~150-180KB flash, ~30-35KB SRAM.
+PATCH integration_test.ino — replaced Preferences.h with EEPROM.h for ESP8266 compatibility [tool: patch]
+PATCH integration_test.ino — renamed WifiMode enum to DeviceWifiMode to resolve collision with ESP8266WiFi.h [tool: patch]
+PATCH integration_test.ino — fixed min() type mismatch by casting strlen() result and limit to (size_t) [tool: patch]
+PATCH integration_test.ino — added AP password [REDACTED] to WiFi.softAP() calls, kept captive portal open [tool: patch]
+PATCH integration_test.ino — restructured "WiFi Failed" menu to include Rotator Control, Stay AP Mode, Retry Home WiFi, Calibrate Pots [tool: patch]
+COMPILED via arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 . — successful, RAM 39%, IRAM 93%, Flash 29% [tool: terminal]
+UPLOAD & TEST — user flashed firmware on 2026-06-30, observed "First Time Setup" menu and AZELCTRL SSID broadcast [tool: manual]
+PATCH integration_test.ino — renamed wifiFailedMenu to apModeMenu and actionStayApMode to actionApStatus per user feedback on naming clarity [tool: patch]
+SEARCH integration_test.ino — located 1 remaining wifiFailedMenu reference (line 1029) and 3 WIFI_FAILED enum references [tool: search_files]
+PATCH integration_test.ino:1029 — updated currentMenu = &wifiFailedMenu to &apModeMenu to resolve dangling reference [tool: patch]
+PATCH actionConnectWifi — replaced inline "WiFi Failed" display with notice screen logic: 5s countdown, Btn1 retry, Btn2 skip, auto-transition to AP Mode menu. [tool: patch]
+PATCH actionApMode — updated transition target from wifiStatusMenu to apModeMenu for consistency. [tool: patch]
+COMPILED — clean build after notice screen patches. [tool: terminal]
+PATCH HTML to PROGMEM — moved html_portal, html_rotator, html_saved to PROGMEM arrays, implemented sendProgmemHTML helper using sendContent_P(), removed runtime String concatenation to eliminate heap allocation. [tool: patch]
+COMPILED — clean build, Flash ~305.8KB (slight decrease), RAM static unchanged (heap benefit), IRAM 93%. [tool: terminal]
+PATCH Captive Portal Debounce — added 500ms sustained hold requirement for Btn2 skip in captive portal web loop to prevent accidental teardown from bounce/interrupts. [tool: patch]
+PATCH handleSaveWifi — added fallback to return portal page on empty SSID to prevent silent hangs from captive portal detection requests. [tool: patch]
+COMPILED — clean build. [tool: terminal]
+PATCH Captive Portal Timeout — removed 60s hard limit (while (millis() - portalStart < 60000)) replaced with while (true) to allow indefinite setup time per user report of premature navigation. [tool: patch]
+PATCH Scope Fix — restored btn2PressStart and BTN2_DEBOUNCE variables to correct scope after timeout removal patch. [tool: terminal]
+COMPILED — clean build. [tool: terminal]
+PATCH captive portal timeout — replaced while(true) with 10-minute safety timeout (while (millis() - portalStart < 600000)) on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH handleSaveWifi — added 2s delay then ESP.restart() after successful credential save to prevent display corruption and reload fresh state on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED menu draw() — fixed selected item highlight bleeding into line above by adjusting fillRect to paint from text baseline downward (fillRect(0, y, 128, 8)) on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED title bar — reduced height from 10px to 8px (7px font + 1px margin), moved separator to row 8 on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED menu spacing — moved item start Y from 18 to 12 to reduce gap below header and prevent footer overlap on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED title & footer — changed title to white text on black background, added dotted line separator above footer, simplified footer to 1:Nav/Select 2:Back on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH actionSetWifi() & actionReviewWifi() — fixed immediate return/blink issue by adding blocking loops and 500ms button-release wait to prevent long-press carryover on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED menu spacing — reduced item start Y to 10 for single blank line below separator on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH OLED footer — updated notation to 1.Nav 1|Sel 2.Back (short press ., long press |) on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH actionReviewWifi() — increased debounce to 500ms + explicit button-release wait loop on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH actionSetWifi() & actionApStatus() — applied same button-release wait pattern to all blocking action handlers on 2026-07-01 [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH actionApStatus() — replaced 10s timeout loop with while(true) to wait indefinitely for user input [tool: patch]
+PATCH actionReviewWifi() — replaced 10s timeout loop with while(true) to wait indefinitely for user input [tool: patch]
+PATCH actionReviewWifi() — removed unused waitStart variable [tool: patch]
+COMPILED — clean build after indefinite wait patches [tool: terminal]
+ANALYZED UI consistency — user noted notice screens lacked standard layout/footer compared to "WiFi Connect" screen [tool: manual]
+PATCH Menu class — added drawNotice() static helper to standardize title bar, separator, content area, and dotted footer [tool: patch]
+PATCH Menu class — restored member variables and fixed draw() method after helper extraction [tool: patch]
+COMPILED — clean build [tool: terminal]
+PATCH actionSetWifi() — converted hand-drawn captive portal screen to Menu::drawNotice() [tool: patch]
+PATCH actionReviewWifi() — converted to Menu::drawNotice() [tool: patch]
+PATCH actionApStatus() — converted to Menu::drawNotice() [tool: patch]
+PATCH actionConnectWifi() — converted connecting screen to Menu::drawNotice() [tool: patch]
+PATCH actionConnectWifi() failure — converted WiFi failed notice to Menu::drawNotice() [tool: patch]
+PATCH setup() — converted boot captive portal screen to Menu::drawNotice() [tool: patch]
+PATCH calibration & rotator screens — updated inline button text to consistent footer notation (1.Cycle 2.Go, 1.Continue 2.Exit, etc.) [tool: patch]
+COMPILED — clean build [tool: terminal]
+DEBUG actionReviewWifi() — identified dangling pointer bug: .c_str() on temporary String objects caused garbage display ("Wifi Creds" repeated) [tool: read_file]
+PATCH actionReviewWifi() — fixed by storing concatenated strings in named local String variables to keep pointers valid [tool: patch]
+PATCH actionConnectWifi() & actionApStatus() — applied same String lifetime fix to prevent dangling pointers [tool: patch]
+PATCH WiFi failed notice — applied same String lifetime fix [tool: patch]
+COMPILED — clean build [tool: terminal]
+DEBUG actionSetWifi() — user reported Btn2 short-press not working on Captive Portal screen (only long-press works) [tool: manual]
+PATCH integration_test.ino — removed unused btn2PressStart variable after debounce logic update [tool: patch]
+COMPILED — clean build [tool: terminal]
+UPLOAD — port /dev/cu.usbserial-0001 busy, killed PID 69590 (serial-mo), retried upload at 57600 baud, success [tool: terminal]
+DEBUG Menu Cursor Reset — user reported cursor resets to 0 on back. back() called parent->init(). Patched back() to parent->cursor = cursor; parent->draw() [tool: patch]
+PATCH back() — refined to not overwrite parent cursor if parent exists, just parent->draw() [tool: patch]
+DEBUG Action Handlers — currentMenu->init() in handlers reset cursor. Patched actionReviewWifi() and actionConnectWifi() cancel to use currentMenu->draw() [tool: patch]
+COMPILED — clean build [tool: terminal]
+UPLOAD — verified cursor preservation works [tool: manual]
+DEBUG Auto-Countdown — user requested auto-start timer on boot, cancel on interaction. init() starts timer on items[cursor] (index 0), but timer item at index 2. Added userInteracted flag. Patched init() to scan for first visible timer item, move cursor, start timer. Patched navigation/button inputs to set userInteracted = true and cancel timer [tool: patch]
+COMPILED — clean build [tool: terminal]
+UPLOAD — verified auto-countdown and interaction cancellation [tool: manual]
+DEBUG CAL button handling — identified currentMenu was not null during calibration, causing menu handler to intercept buttons before calibration handler [tool: read_file]
+PATCH enterCalibrationMode() — set currentMenu = nullptr to skip menu handler during calibration mode [tool: patch]
+PATCH CAL_READY display — removed redundant "1.Start Scan" text from content area, relying on footer 1.Scan 2|:Exit [tool: patch]
+DEBUG compilation — fixed extern Menu* currentMenu; forward declaration scope issues and Menu::back() parent access violations [tool: terminal]
+PATCH Menu class — added getParent() method, updated back() to redraw parent, modified button handler to update currentMenu post-back [tool: patch]
+PATCH calPotsItems — removed "Back to Main" menu item, updated array size to 2 [tool: patch]
+PATCH actionConnectWifi() — changed notice title to "WiFi Connecting", updated SSID line to "Network: " [tool: patch]
+DEBUG Rotator Control reboot — investigated actionRotatorControl() and updateRotatorDisplay(), suspected watchdog/heap crash, not yet resolved [tool: read_file]
+Active State
+Working directory: /Users/keithl/Documents/Arduino/integration_test/
+Modified file: integration_test.ino (last patched 2026-07-01 with CAL button fixes, currentMenu nulling during cal, Menu::back() parent update, "WiFi Connecting" text updates).
+Memory: RAM 39%, IRAM 93%, Flash ~29%.
+Hardware status: ESP8266 flashed.
+Active Bugs/Requests:
+Rotator Control Reboot: Selecting "Rotator Control" triggers immediate device reboot. Suspected watchdog timeout or heap corruption in updateRotatorDisplay() / button handler loop.
+WiFi Confirmation UI: User requests center alignment for the 3 content lines, 5-second display delay, and definition/display of Excellent/Good/Fair/Poor signal strength thresholds.
+Post-Connection Screen: Title must change from 'Wifi Status' to 'Pot Calibr…'.
+Menu::drawNotice() Helper: Needs alignment parameter (left/center) to support the WiFi confirmation screen requirement.
+Historical In-Progress State
+Fix CAL: AZ POT / CAL: EL POT Screens: Resolved button interception bug by nulling currentMenu. Removed redundant menu item. Footer 2.Back now works correctly.
+Rotator Control Crash: Under investigation. actionRotatorControl() sets currentMenu = nullptr, but subsequent loop/display logic likely triggers WDT or hard fault.
+Blocked
+None.
+Key Decisions
+EEPROM over Preferences: ESP8266 core lacks Preferences.h; EEPROM provides reliable persistence with manual byte mapping.
+Custom Menu Class: Avoided external libraries to save flash/SRAM. Native SSD1306 rendering.
+Dual WiFi Modes: STA for home, AP (AZELCTRL) for field. AP secured with [REDACTED].
+Auto-Fallback Logic: STA failure triggers 5s notice screen with countdown, then auto-switches to AP Mode menu.
+HTML in PROGMEM: Moved all web HTML to PROGMEM using sendContent_P(). Eliminates runtime String heap allocation.
+Captive Portal Timeout: 10-minute safety limit (600000ms) replaces indefinite loop to prevent hard hangs on AP crash.
+Credential Save Reboot: ESP.restart() triggered 2s after successful save ensures clean EEPROM read and eliminates display corruption.
+OLED Layout Standard (2026-07-01): Title 8px (white on black), separator row 8, items start row 10, highlight paints downward from baseline, footer uses 1.Nav 1|Sel 2.Back notation with dotted separator above.
+Button Release Wait Pattern: All blocking action handlers now include delay(500) + while(digitalRead(BTN1) || !digitalRead(BTN2)) to prevent long-press carryover from triggering immediate navigation back.
+Menu::drawNotice() Helper: Centralized notice screen rendering to enforce consistent layout across all non-menu screens. Pending: Add alignment parameter.
+String Lifetime Management: .c_str() on temporary String concatenations causes dangling pointers. Solution: assign concatenated strings to named local String variables before passing .c_str() to const char* arrays.
+Indefinite Menu Wait: Replaced hardcoded 10s timeouts in actionReviewWifi() and actionApStatus() with while(true) loops to wait indefinitely for user input.
+Menu Cursor Preservation: Menu::back() preserves parent cursor position. Action handlers use draw() instead of init() to return to menu without resetting cursor.
+Auto-Countdown Logic: Menu::init() scans for first visible timer item, moves cursor, starts timer. userInteracted flag disables auto-timer upon any button press.
+Calibration Mode Isolation: enterCalibrationMode() now sets currentMenu = nullptr to prevent the standard menu button handler from intercepting inputs while in calibration loops.
+Resolved Questions
+How to handle first-time WiFi setup? Captive portal in AP mode only when no credentials exist.
+What happens if home WiFi fails? Auto-switch to AP mode after 5s notice screen with retry/skip options.
+Button behavior? Btn1 (D8) cycles/selects, Btn2 (D5) confirms/start movement.
+AP password? Set to [REDACTED].
+What to name the fallback menu? "AP Mode".
+What is displayed on AP Status? Static info screen: SSID AZELCTRL, Pass [REDACTED], IP 192.168.4.1. Buttons return to menu.
+How to fix highlight bleeding? Paint fillRect from text baseline downward (y) instead of above it.
+How to handle successful WiFi save? Reboot device (ESP.restart()) for clean state.
+Footer notation standard? 1.Nav 1|Sel 2.Back (. = short, | = long).
+Why do menus immediately return after long-press? Long-press hold wasn't released before action loop started checking buttons. Fixed with 500ms delay + release wait.
+Are notice screens generated from a function or hand-drawn? Previously hand-drawn. Now refactored to use Menu::drawNotice() for consistency.
+Why did WiFi Creds screen show repeated titles instead of SSID/Pass? Dangling pointers from .c_str() on temporary String objects. Fixed by keeping String objects alive as named locals.
+How to handle menu auto-exit? Configured per-menu. "Review Creds" and "AP Status" now wait indefinitely.
+Why does cursor reset to 0 on back? init() resets cursor. Fixed by using draw() in action handlers and preserving cursor in back().
+How to auto-start countdown? Scan menu items in init() for timer, move cursor, start. Cancel on interaction via userInteracted flag.
+Why were CAL buttons unresponsive? currentMenu was still pointing to calPotsMenu, causing the menu handler to fire and return before the calibration handler ran. Fixed by setting currentMenu = nullptr in enterCalibrationMode().
+Why did "Back" footer button fail? back() redrew the parent but didn't update the global currentMenu pointer. Fixed by adding getParent() and updating currentMenu in the button handler.
+Historical Pending User Asks
+None.
+
+Relevant Files
+/Users/keithl/Documents/Arduino/integration_test/integration_test.ino — Main firmware sketch. Recently refactored with Menu::drawNotice() helper, fixed String lifetime bugs, standardized footers, removed 10s auto-exit timeouts, fixed cursor reset on back, implemented auto-countdown with interaction cancellation, fixed CAL button routing, updated "WiFi Connecting" text. Last modified 2026-07-01.
+Historical Remaining Work
+Fix CAL: AZ POT / CAL: EL POT screen layout: actions currently not in footer, require standardization to menu format.
+Fix CAL: AZ POT button responsiveness: short/long press Btn1 does nothing; Btn2 causes quick flash. Requires calibration loop/button mapping review.
+Investigate menu items with automated countdown: timer expiry currently triggers selection as if long-pressed, but behavior is inconsistent.
+Add visual STA/AP mode indicator to WiFi Status OLED screen.
+Optimize IRAM if hard faults occur (currently 93%, stable).
+Debug captive portal form submission and DNS redirection on physical device.
+Critical Context
+IRAM Architecture & Usage: IRAM (Instruction RAM) is 32KB dedicated memory for time-critical code. ESP8266 shares flash bus between CPU and WiFi radio. During WiFi DMA, flash is locked; code must run from IRAM. Consumers: WiFi radio ISRs (~10KB), TCP/IP stack ISRs (~5KB), Core runtime (~4KB), I2C handlers (~2KB), Flash cache management (~2KB), Math helpers (~1KB), SDK internals (~4KB). Total ~28KB/32KB (93%). Headroom ~4KB. DNSServer uses zero IRAM (all flash). New code must avoid ICACHE_RAM_ATTR. HTML moved to PROGMEM to save heap, not IRAM.
+
+EEPROM Layout & Credential Persistence: EEPROM_SIZE = 67. Bytes 0-32: SSID (max 32 chars). Bytes 33-65: Password (max 32 chars). Byte 66: Magic 0xAA. EEPROM.begin(67). Credentials loaded on boot; invalid magic or zero SSID length triggers captive portal.
+
+Button & I2C Pin Mapping: D8 (GPIO15) = Btn1 (active HIGH, menu cycle/select). D5 (GPIO14) = Btn2 (active LOW, confirm/start movement). I2C: D6 (SDA), D7 (SCL). OLED uses SSD1306.
+
+Memory Statistics (Compiled 2026-07-01): RAM: 31,560/80,192 B (39%). IRAM: 61,103/65,536 B (93%). Flash: ~305,892/1,048,576 B (~29%). Compilation: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 .. HTML in PROGMEM reduced flash slightly, eliminated runtime String heap allocation.
+
+Recent User Focus & Active Bugs:
+
+Rotator Control Reboot (ACTIVE): Selecting "Rotator Control" triggers immediate reboot. Suspected WDT/heap issue in display loop.
+WiFi Confirmation UI (ACTIVE): User requests center alignment for 3 content lines, 5s display delay, and Excellent/Good/Fair/Poor signal strength values/thresholds.
+Post-Connection Screen Title (ACTIVE): Change from 'Wifi Status' to 'Pot Calibr…'.
+Menu::drawNotice() Alignment (ACTIVE): Helper needs left/center alignment parameter to support WiFi confirmation screen.
+CAL: AZ POT / CAL: EL POT (RESOLVED): Fixed button routing by nulling currentMenu, removed redundant "Back to Main", fixed footer 2.Back logic.
+Captive Portal Btn2 Short-Press (RESOLVED): Fixed by removing 500ms sustained hold requirement.
+WiFi Creds Display (RESOLVED): Fixed dangling pointer bug.
+UI Standardization (RESOLVED): Menu::drawNotice() implemented.
+Menu Cursor Reset (RESOLVED): back() preserves cursor, action handlers use draw().
+Auto-Countdown (RESOLVED): init() scans for timer, userInteracted cancels on input.
+Upload Speed: Firmware upload must be executed at 57600 baud as requested.
+Captive Portal Connection Flow: DNSServer redirects UDP 53 to 192.168.4.1. HTML served from PROGMEM. Form posts to /save. handleSaveWifi checks for non-empty SSID. Empty SSID requests (detection) return portal page to prevent hangs. Loop runs for max 10 minutes (600000ms). Btn2 skip requires 500ms sustained hold in web loop. Serial logging added for debug: Btn2 pressed, Btn2 sustained, handleSaveWifi: empty SSID, Saving WiFi. On successful save: 2s delay → ESP.restart().
+
+OLED Layout Standard (2026-07-01): Title 8px (white on black), separator row 8, items start row 10, highlight paints downward from baseline, footer uses 1.Nav 1|Sel 2.Back notation with dotted separator above. Menu::drawNotice() enforces this for non-menu screens.
+
+Menu Navigation & Timer Logic:
+
+Menu::back(): If parent exists, sets parent->cursor = cursor and calls parent->draw(). If no parent, calls init().
+Action Handlers: Use currentMenu->draw() to return to menu, preserving cursor. Use currentMenu->init() only if menu structure changed (e.g., visibility).
+Menu::init(): Resets cursor to 0, scans for first visible item with timer, moves cursor to it, starts timer. Sets userInteracted = false.
+userInteracted: Flag set to true on any button press. Cancels timer. Prevents auto-fire.
+--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---
+

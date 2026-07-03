@@ -1,0 +1,1273 @@
+Now debug the rotator control crash. The most likely cause is the watchdog timer triggering because actionRotatorControl() sets currentMenu = nullptr, and then the loop enters the rotator control section which calls updateRotatorDisplay() every 400ms. But the display function creates lots of String objects which could cause heap fragmentation.
+
+However, the more likely issue is that tickWifi() is called every loop iteration, and WiFi operations can block long enough to trigger the watchdog. Let me check if there's a watchdog reset:
+
+ 
+void actionRotatorControl() {
+  Serial.println("Action: Rotator Control");
+  // Stop any active movement before switching to rotator mode
+  stopAll();
+  currentMenu = nullptr;  // nullptr = rotator control mode
+}
+That alone won't fix the crash. Let me check if it's a watchdog issue by adding ESP.wdtFeed() in the rotator control loop:
+
+Let me also check if there's a crash in the rotator display by looking at the updateRotatorDisplay() function more carefully:
+
+Let me check what tickWifi() does — it's called every loop iteration and might be blocking:
+
+Compiles clean. Summary of changes:
+
+"WiFi Connecting" screen — title changed from "Connecting" to "WiFi Connecting", SSID line changed to "Network: ".
+
+Rotator control crash fix — added stopAll() in actionRotatorControl() to ensure motors are stopped before switching modes. Also the rotator control loop is clean — no blocking calls, just readPositions(), updateRotatorDisplay(), and delay(10).
+
+If the crash persists after flashing, it's likely a watchdog issue from the WiFi stack or I2C blocking. We can add ESP.wdtFeed() in the rotator loop as a safety measure. Upload and test?
+
+The ads.begin() call uses the default gain setting. In the Adafruit_ADS1115 library, begin() with no arguments defaults to GAIN_ONE (1x gain), which gives a ±2.048V input range.
+
+So the amplification factor is 1x (±2.048V range). The ADC resolution at this gain is:
+
+16-bit = 65536 steps
+±2.048V range → 2.048V / 32767 ≈ 62.5 µV per step
+The voltage calculation in the code confirms this:
+
+Code
+calVoltage = adcAz * 0.00018017578125 * 6.144 * 1000.0
+That 6.144 is the full-scale voltage for the default gain (1x = ±2.048V, so full range = 4.096V... wait, that doesn't match). Let me double-check:
+
+The ADC gain is 1x (±2.048V range) via ads.begin() default. However, there's a bug — the voltage calculation formula uses 6.144V which corresponds to a 1/6x gain (±6.144V range), so the voltage readings are being overestimated by ~3x. Want me to fix that?
+
+...
+
+The issue is clear: when the auto-timer fires, actionConnectWifi() blocks in a while loop waiting for WiFi connection (up to 15 seconds). The ESP8266 watchdog sees the main loop not completing and resets the chip.
+
+When you press buttons manually, the WiFi connection likely succeeds faster (already cached/associated), so it doesn't hit the watchdog timeout.
+
+Fix: feed the watchdog in the blocking loops.
+
+The auto-navigate crash is a watchdog timeout. When the timer auto-fires actionConnectWifi(), it blocks in a while loop for up to 15 seconds waiting for WiFi — the ESP8266 watchdog sees the main loop stalled and resets the chip. When you press buttons manually, WiFi connects faster (already cached), so it doesn't hit the watchdog.
+
+Fix: feed the watchdog in blocking loops.
+
+  int dotCount = 0;
+  while (wifiState == WIFI_CONNECTING) {
+    tickWifi();
+    ESP.wdtFeed();  // Prevent watchdog reset during long WiFi wait
+    
+    dotCount++;
+    if (dotCount % 4 == 0) {
+ 
+      delay(300);
+      WiFi.disconnect();
+      wifiState = WIFI_IDLE;
+      currentMenu->draw();  // Preserve cursor position
+      currentMenu->draw();
+      return;
+    }
+The WiFi failed notice screen also has a blocking countdown. Let me add watchdog there too:
+
+    
+    // Countdown from 5 seconds
+    for (int sec = 5; sec > 0; sec--) {
+      // Update countdown - redraw just the footer area
+      ESP.wdtFeed();  // Prevent watchdog reset
+      display.fillRect(0, 53, 128, 12, SSD1306_BLACK);
+      // Redraw dotted separator
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
+      }
+...
+
+Compiles clean. Root cause: ESP8266 watchdog timer resets the chip when the main loop is blocked too long. When auto-navigating, the WiFi connection loop blocks for up to 15 seconds — triggers watchdog. When pressing buttons manually, WiFi connects faster (already cached), so it doesn't hit the limit.
+
+Fix: ESP.wdtFeed() added in both blocking loops (WiFi connecting + WiFi failed countdown). Upload and test?
+
+Let me think about this differently. The reboot happens specifically during auto-navigate but not manual entry. The key difference is the sequence of events — during auto-navigate, the system goes through connectWifiSta() which calls WiFi.mode(WIFI_STA) and WiFi.waitForConnectResult() (15s blocking call). Even though WiFi connects, the WiFi stack might be in an unstable state afterward.
+
+Let me add comprehensive watchdog feeding and also check for the actual crash point:
+
+Let me dig deeper — the crash might not be a watchdog issue at all. Let me add crash reason detection and pinpoint the exact failure point.
+
+Wait — the crash might not be in the WiFi connection loop at all. Let me trace the exact auto-navigate flow:
+
+Boot → wifiConnectMenu with "Connect WiFi" (timer=5s)
+Timer fires → actionConnectWifi() → connects → switches to wifiStatusMenu
+wifiStatusMenu has "Rotator Control" (timer=5s)
+Timer fires → actionRotatorControl() → sets currentMenu = nullptr
+Loop enters rotator control mode
+The crash happens between step 3 and 5. Let me check what happens when the timer auto-fires:
+
+Now let me check the tick() method that fires the timer:
+
+Found it. The crash is a null pointer dereference. Here's the flow:
+
+tick() fires the timer → calls actionRotatorControl() → sets currentMenu = nullptr
+tick() returns
+Loop continues to currentMenu->draw() → crash because currentMenu is now nullptr
+When pressing buttons manually, select() is called from handleButtons() which returns early after the action, so currentMenu->draw() is never called on the null pointer.
+
+  // Menu mode
+  if (currentMenu) {
+    currentMenu->tick();
+    currentMenu->draw();
+    // tick() may have changed currentMenu (e.g., timer auto-fired actionRotatorControl)
+    if (currentMenu) {
+      currentMenu->draw();
+    }
+  } else {
+    // Rotator control mode
+    static unsigned long lastUpdate = 0;
+Also let me check if handleButtons() has the same issue — tick() sets currentMenu = nullptr, then handleButtons() might try to use it:
+
+Let me also check the loop order — handleButtons() runs before tick():
+
+Good — the order is: handleButtons() → calActive check → tick() → draw(). So handleButtons() runs before tick(), meaning currentMenu is still valid when buttons are processed. The null deref only happens after tick() sets it to nullptr. The fix is correct.
+
+Compiles clean. The bug: tick() auto-fired actionRotatorControl() which set currentMenu = nullptr, then the next line tried currentMenu->draw() — null pointer crash → reboot.
+
+Fix: check currentMenu is still valid after tick() before calling draw(). Upload and test?
+
+...
+
+ 
+void updateRotatorDisplay() {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  
+  if (isPausing) {
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(0, 0);
+    display.println("SAFETY PAUSE");
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content
+    display.setTextColor(SSD1306_WHITE);
+    display.println("SAFETY PAUSE");
+    display.println("------------");
+    
+    display.setCursor(0, 10);
+    if (pauseAz && pauseEl) display.println("Both axes");
+    else if (pauseAz) display.println("AZ axis");
+    else display.println("EL axis");
+ 
+    display.print(adsPresent ? String(currentAz, 1) + "d" : "N/A");
+    display.print(" El: ");
+    display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2.Go");
+    
+  } else {
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(0, 0);
+    display.println("Rotator Control");
+    display.println("---------------");
+    
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 10);
+    display.print("Az: ");
+    display.println(adsPresent ? String(currentAz, 1) + "d" : "N/A");
+    display.print("El: ");
+ 
+    display.println("");
+    display.print("Sel: ");
+    display.println(directions[rotatorMenuSelection]);
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2.Go");
+  }
+Compiles clean. Now uses the standard layout: white-on-black title bar, solid separator at row 8, content starting row 10, dotted line separator above footer at row 53, and footer text at row 56. Both the Rotator Control and Safety Pause screens updated.
+
+...
+
+The SSD1306 is 128x64 pixels. With title bar at row 0-8, separator at row 8, content starts at row 10, footer at row 56, dotted line at row 53. That gives me rows 10-52 for content (42 pixels).
+
+Layout plan:
+
+Row 10-25: Az/El in larger text (size 2 = 16px tall, fits in 15px)
+Row 27-35: Moving/Selected status
+Row 53: dotted separator
+Row 56: footer
+For the Az/El line, I'll use size 2 text and pad with spaces to push El to the right.
+
+    display.println(pendingDir);
+    display.println("");
+    display.print("Az: ");
+    display.print(adsPresent ? String(currentAz, 1) + "d" : "N/A");
+    display.print(" El: ");
+    display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
+    display.print(adsPresent ? String(currentAz, 1) : "N/A");
+    display.print("  El: ");
+    display.println(adsPresent ? String(currentEl, 1) : "N/A");
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2.Go");
+    display.println("1.Cycle 2!Go");
+    
+  } else {
+    // Title bar (white on black)
+ 
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content
+    // Az/El in larger text
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    display.setCursor(0, 10);
+    display.print("Az: ");
+    display.println(adsPresent ? String(currentAz, 1) + "d" : "N/A");
+    display.print("El: ");
+    display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
+    display.print("Move: ");
+    display.println(currentMove);
+    
+    display.println("");
+    display.print("Sel: ");
+    display.println(directions[rotatorMenuSelection]);
+    if (adsPresent) {
+      String azStr = String(currentAz, 1);
+      String elStr = String(currentEl, 1);
+      // Pad with spaces to push El to the right
+      int azWidth = 6; // "Az: " + value
+      int elWidth = 5; // "El: " + value
+      int totalText = azWidth + elWidth;
+      int pad = max(0, 14 - totalText); // target ~14 chars wide
+      display.print("Az: ");
+      display.print(azStr);
+      for (int i = 0; i < pad; i++) display.print(" ");
+      display.print("El: ");
+      display.println(elStr);
+    } else {
+      display.print("Az: N/A");
+      for (int i = 0; i < 4; i++) display.print(" ");
+      display.println("El: N/A");
+    }
+    
+    // Status line above footer - normal size
+    display.setTextSize(1);
+    display.setCursor(0, 38);
+    if (strcmp(currentMove, "IDLE") != 0) {
+      display.print("Moving: ");
+      display.println(currentMove);
+    } else {
+      display.print("Selected: ");
+      display.println(directions[rotatorMenuSelection]);
+    }
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2.Go");
+    display.println("1.Cycle 2!Go");
+  }
+  
+… omitted 1 diff line(s) across 1 additional file(s)/section(s)
+Actually, I realize there's a sizing issue. With size 2 text, each character is ~12px wide, so 128px = ~10 chars max. "Az: XX.X El: XX.X" on one line would overflow. Let me split them onto separate lines:
+
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Az/El in larger text
+    // Az/El in larger text, separate lines
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    display.setCursor(0, 10);
+    if (adsPresent) {
+      String azStr = String(currentAz, 1);
+      String elStr = String(currentEl, 1);
+      // Pad with spaces to push El to the right
+      int azWidth = 6; // "Az: " + value
+      int elWidth = 5; // "El: " + value
+      int totalText = azWidth + elWidth;
+      int pad = max(0, 14 - totalText); // target ~14 chars wide
+      display.print("Az: ");
+      display.print(azStr);
+      for (int i = 0; i < pad; i++) display.print(" ");
+      display.println(String(currentAz, 1));
+      display.setCursor(0, 24);
+      display.print("El: ");
+      display.println(elStr);
+      display.println(String(currentEl, 1));
+    } else {
+      display.print("Az: N/A");
+      for (int i = 0; i < 4; i++) display.print(" ");
+      display.println("Az: N/A");
+      display.setCursor(0, 24);
+      display.println("El: N/A");
+    }
+Wait, the user specifically asked for them on one line: "Az: XX.X El: YY.Y" with maximum space between. Let me use size 1 text but make it bold/visible differently, or use size 2 but position them manually using setCursor(x, y):
+
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Az/El in larger text, separate lines
+    // Az/El in larger text on one line: "Az: XX.X      El: YY.Y"
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    display.setCursor(0, 10);
+    if (adsPresent) {
+      display.print("Az: ");
+      display.println(String(currentAz, 1));
+      display.setCursor(0, 24);
+      display.print("El: ");
+      display.println(String(currentEl, 1));
+      String azStr = "Az: " + String(currentAz, 1);
+      String elStr = "El: " + String(currentEl, 1);
+      // Position El at the right edge (128px - elStr width)
+      int elX = 128 - (elStr.length() * 12); // size 2 char ~12px wide
+      display.print(azStr);
+      display.setCursor(elX, 10);
+      display.println(elStr);
+    } else {
+      display.println("Az: N/A");
+      display.setCursor(0, 24);
+      display.print("Az: N/A");
+      display.setCursor(128 - 5 * 12, 10);
+      display.println("El: N/A");
+    }
+...
+
+strcmp() needs const char*, not String. Let me fix:
+
+Let me find the actual line:
+
+...
+
+currentMove is a String. Need to use .c_str():
+
+    // Status line above footer - normal size
+    display.setTextSize(1);
+    display.setCursor(0, 38);
+    if (strcmp(currentMove, "IDLE") != 0) {
+    if (currentMove.compareTo("IDLE") != 0) {
+      display.print("Moving: ");
+      display.println(currentMove);
+    } else {
+...
+
+Compiles clean. Layout is now:
+
+Title bar — white on black, "Rotator Control"
+Az/El — size 2 text, Az: XX.X left-aligned, El: YY.Y right-aligned on same line
+Status — size 1 text, "Moving: " while active, "Selected: " when idle
+Footer — 1.Cycle 2!Go
+Upload and test?
+
+    display.println("1.Cycle 2!Go");
+    
+  } else {
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    // No title bar - use all space for values
+    display.setTextColor(SSD1306_WHITE);
+    
+    // Az: XX.X at top
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.println("Rotator Control");
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Az/El in larger text on one line: "Az: XX.X      El: YY.Y"
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    display.setCursor(0, 10);
+    if (adsPresent) {
+      String azStr = "Az: " + String(currentAz, 1);
+      String elStr = "El: " + String(currentEl, 1);
+      // Position El at the right edge (128px - elStr width)
+      int elX = 128 - (elStr.length() * 12); // size 2 char ~12px wide
+      display.print(azStr);
+      display.setCursor(elX, 10);
+      display.println(elStr);
+      display.print("Az: ");
+      display.println(String(currentAz, 1));
+    } else {
+      display.print("Az: N/A");
+      display.setCursor(128 - 5 * 12, 10);
+      display.println("Az: N/A");
+    }
+    
+    // El: YY.Y below with spacing
+    display.setCursor(0, 18);
+    if (adsPresent) {
+      display.print("El: ");
+      display.println(String(currentEl, 1));
+    } else {
+      display.println("El: N/A");
+    }
+    
+    // Status line above footer - normal size
+    // Moving/Selected just above footer
+    display.setTextSize(1);
+    display.setCursor(0, 38);
+    display.setCursor(0, 43);
+    if (currentMove.compareTo("IDLE") != 0) {
+      display.print("Moving: ");
+      display.println(currentMove);
+Compiles clean. Layout is now:
+
+Row 0 — Az: XX.X (size 2)
+Row 18 — El: YY.Y (size 2)
+Row 43 — Selected: <Direction> or Moving: <Direction> (size 1)
+Row 53 — dotted separator
+Row 56 — 1.Cycle 2!Go
+Upload and test?
+
+Flash write failure — device likely rebooted mid-upload. Let me retry:
+
+Uploaded successfully. ESP8266 has hard-reset and should be booting the new firmware.
+
+    // No title bar - use all space for values
+    display.setTextColor(SSD1306_WHITE);
+    
+    // Az: XX.X at top
+    // Az: XX.X at top - right-aligned, dec
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    if (adsPresent) {
+    // No title bar - use all space for values
+    display.setTextColor(SSD1306_WHITE);
+    
+    // Az: XX.X at top - right-aligned, dec
+    // Az:XX.X at top - decimal-aligned, right-padded values
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    if (adsPresent) {
+      display.print("Az: ");
+      display.println(String(currentAz, 1));
+      String azVal = String(currentAz, 1);
+      String elVal = String(currentEl, 1);
+      // Left-pad to 6 chars so decimal points align (max "XXX.X")
+      while (azVal.length() < 6) azVal = " " + azVal;
+      while (elVal.length() < 6) elVal = " " + elVal;
+      display.print("Az");
+      display.print(azVal);
+    } else {
+      display.println("Az: N/A");
+    }
+    
+    // El: YY.Y below with spacing
+      display.print("Az");
+      display.println("    N/A");
+    }
+    
+    // El:YY.Y below with spacing
+    display.setCursor(0, 18);
+    if (adsPresent) {
+      display.print("El: ");
+      display.println(String(currentEl, 1));
+      display.print("El");
+      display.print(elVal);
+    } else {
+      display.println("El: N/A");
+      display.print("El");
+      display.println("    N/A");
+    }
+    
+    // Moving/Selected just above footer
+The elVal variable is scoped inside the if (adsPresent) block for Az but used in the El block below. Need to declare it at the top:
+
+    
+    // Az:XX.X at top - decimal-aligned, right-padded values
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    
+    // Compute both values first
+    String azVal, elVal;
+    if (adsPresent) {
+      String azVal = String(currentAz, 1);
+      String elVal = String(currentEl, 1);
+      azVal = String(currentAz, 1);
+      elVal = String(currentEl, 1);
+      // Left-pad to 6 chars so decimal points align (max "XXX.X")
+      while (azVal.length() < 6) azVal = " " + azVal;
+      while (elVal.length() < 6) elVal = " " + elVal;
+      display.print("Az");
+      display.print(azVal);
+    }
+    
+    // Az line
+    display.setCursor(0, 0);
+    display.print("Az");
+    if (adsPresent) {
+      display.println(azVal);
+    } else {
+      display.print("Az");
+      display.println("    N/A");
+    }
+    
+    // El:YY.Y below with spacing
+    // El line
+    display.setCursor(0, 18);
+    display.print("El");
+    if (adsPresent) {
+      display.print("El");
+      display.print(elVal);
+      display.println(elVal);
+    } else {
+      display.print("El");
+      display.println("    N/A");
+    }
+Now I need to make sure the Az label width matches so decimal points align. With size 2, each char is ~12px. "Az" = 24px, "El" = 24px — they're the same width, so the decimal points will align.
+
+Clean build. Now Az and El labels are consistent, values are left-padded to 6 chars so decimal points align vertically regardless of whether values are 1, 2, or 3 digits before the decimal.
+
+Uploaded successfully. Device should be booting with the new layout — decimal points vertically aligned, compact labels.
+
+Right, max is "360.0" = 5 chars. Let me fix the padding:
+
+    if (adsPresent) {
+      azVal = String(currentAz, 1);
+      elVal = String(currentEl, 1);
+      // Left-pad to 6 chars so decimal points align (max "XXX.X")
+      while (azVal.length() < 6) azVal = " " + azVal;
+      while (elVal.length() < 6) elVal = " " + elVal;
+      // Left-pad to 5 chars so decimal points align (max "360.0")
+      while (azVal.length() < 5) azVal = " " + azVal;
+      while (elVal.length() < 5) elVal = " " + elVal;
+    }
+    
+    // Az line
+(empty)
+
+The N/A fallback also needs adjusting — it was padded to 6 chars, now should match 5:
+
+    if (adsPresent) {
+      display.println(azVal);
+    } else {
+      display.println("    N/A");
+      display.println("   N/A");
+    }
+    
+    // El line
+ 
+    if (adsPresent) {
+      display.println(elVal);
+    } else {
+      display.println("    N/A");
+      display.println("   N/A");
+    }
+    
+    // Moving/Selected just above footer
+Build and upload:
+
+Built and flashed. Values now padded to 5 chars max ("360.0") so decimal points stay aligned across the full 0.0–360.0 range.
+
+...
+
+    
+    // Az line
+    display.setCursor(0, 0);
+    display.print("Az");
+    display.print("Az: ");
+    if (adsPresent) {
+      display.println(azVal);
+    } else {
+      display.println("   N/A");
+      display.println("  N/A");
+    }
+    
+    // El line
+    display.setCursor(0, 18);
+    display.print("El");
+    display.print("El: ");
+    if (adsPresent) {
+      display.println(elVal);
+    } else {
+      display.println("   N/A");
+      display.println("  N/A");
+    }
+    
+    // Moving/Selected just above footer
+Flashed. Now shows Az: XX.X and El: XX.Y with the colon and space separator, decimal points still aligned.
+
+...
+
+    display.setCursor(0, 0);
+    display.print("Az: ");
+    if (adsPresent) {
+      display.println(azVal);
+      display.print(azVal);
+      if (currentMove.compareTo("IDLE") != 0) {
+        if (currentMove.compareTo("RIGHT") == 0 || currentMove.compareTo("UP") == 0 || currentMove.compareTo("AZ POT") == 0) {
+          display.print("+");
+        } else {
+          display.print("-");
+        }
+      }
+      display.println("");
+    } else {
+      display.println("  N/A");
+    }
+ 
+    display.setCursor(0, 18);
+    display.print("El: ");
+    if (adsPresent) {
+      display.println(elVal);
+      display.print(elVal);
+      if (currentMove.compareTo("IDLE") != 0) {
+        if (currentMove.compareTo("UP") == 0 || currentMove.compareTo("RIGHT") == 0 || currentMove.compareTo("EL POT") == 0) {
+          display.print("+");
+        } else {
+          display.print("-");
+        }
+      }
+      display.println("");
+    } else {
+      display.println("  N/A");
+    }
+Wait, I need to think about this more carefully. The movement directions map to axes:
+
+Azimuth: RIGHT = +, LEFT = -, AZ POT = depends on calDirection
+Elevation: UP = +, DOWN = -, EL POT = depends on calDirection
+Let me fix the logic:
+
+    display.print("Az: ");
+    if (adsPresent) {
+      display.print(azVal);
+      if (currentMove.compareTo("IDLE") != 0) {
+        if (currentMove.compareTo("RIGHT") == 0 || currentMove.compareTo("UP") == 0 || currentMove.compareTo("AZ POT") == 0) {
+          display.print("+");
+        } else {
+          display.print("-");
+        }
+      }
+      // Movement indicator for Azimuth
+      if (currentMove.compareTo("RIGHT") == 0) display.print("+");
+      else if (currentMove.compareTo("LEFT") == 0) display.print("-");
+      else if (currentMove.compareTo("AZ POT") == 0 && calDirection > 0) display.print("+");
+      else if (currentMove.compareTo("AZ POT") == 0 && calDirection < 0) display.print("-");
+      display.println("");
+    } else {
+      display.println("  N/A");
+ 
+    display.print("El: ");
+    if (adsPresent) {
+      display.print(elVal);
+      if (currentMove.compareTo("IDLE") != 0) {
+        if (currentMove.compareTo("UP") == 0 || currentMove.compareTo("RIGHT") == 0 || currentMove.compareTo("EL POT") == 0) {
+          display.print("+");
+        } else {
+          display.print("-");
+        }
+      }
+      // Movement indicator for Elevation
+      if (currentMove.compareTo("UP") == 0) display.print("+");
+      else if (currentMove.compareTo("DOWN") == 0) display.print("-");
+      else if (currentMove.compareTo("EL POT") == 0 && calDirection > 0) display.print("+");
+      else if (currentMove.compareTo("EL POT") == 0 && calDirection < 0) display.print("-");
+      display.println("");
+    } else {
+      display.println("  N/A");
+...
+
+Flashed successfully. Movement indicators now show:
+
+Azimuth: RIGHT → +, LEFT → -, AZ POT → follows calDirection
+Elevation: UP → +, DOWN → -, EL POT → follows calDirection
+IDLE: no indicator shown
+Example: Az: 123.4+ means azimuth is currently increasing.
+
+...
+
+The directions array has 7 entries. The rotator menu selection cycles 0–6. I need to make the cycle skip "AZ POT" (index 5) and "EL POT" (index 6). Let me check the button handler:
+
+The search didn't find the exact match. Let me read the current rotator button handler:
+
+      else if (rotatorMenuSelection == 2) startMove("RIGHT");
+      else if (rotatorMenuSelection == 3) startMove("UP");
+      else if (rotatorMenuSelection == 4) startMove("DOWN");
+      else if (rotatorMenuSelection == 5) enterCalibrationMode(0);  // AZ
+      else if (rotatorMenuSelection == 6) enterCalibrationMode(1);  // EL
+    }
+  }
+The cycle wraps 0-6. Need to make it only cycle 0-4:
+
+  // ROTATOR CONTROL MODE BUTTON HANDLING
+  // ============================================
+  
+  // Btn1: cycle through directions
+  // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
+  if (btn1 && !btn1WasPressed && (now - btn1LastPress > BTN_DEBOUNCE_MS)) {
+    rotatorMenuSelection = (rotatorMenuSelection + 1) % 7;
+    rotatorMenuSelection = (rotatorMenuSelection + 1) % 5;
+    btn1LastPress = now;
+    Serial.print("Menu: ");
+    Serial.println(directions[rotatorMenuSelection]);
+Flash error — device likely rebooted mid-upload. Retry:
+
+Flashed. Rotator control now cycles: IDLE → LEFT → RIGHT → UP → DOWN, back to IDLE. AZ POT and EL POT removed from this screen — handled via the Calibrate Pots menu instead.
+
+...
+
+...
+
+  int dotCount = 0;
+  while (wifiState == WIFI_CONNECTING) {
+    tickWifi();
+    ESP.wdtFeed();  // Prevent watchdog reset during long WiFi wait
+    ESP.wdtFeed();
+    
+    dotCount++;
+    if (dotCount % 4 == 0) {
+      String waitLine = "Waiting: " + String(dotCount / 4) + "s";
+      String netLine = "Network: " + savedSsid;
+      const char* lines2[] = { netLine.c_str(), "", waitLine.c_str(), "2:Cancel" };
+      String netLine2 = "Network: " + savedSsid;
+      const char* lines2[] = { netLine2.c_str(), "", waitLine.c_str(), "2:Cancel" };
+      Menu::drawNotice("WiFi Connecting", lines2, 4, "2:Cancel", true);
+    }
+    
+ 
+  }
+  
+  if (wifiState == WIFI_CONNECTED) {
+    // Show connected screen with signal strength
+    int rssi = WiFi.RSSI();
+    String quality;
+    if (rssi >= -50) quality = "Excellent";
+    else if (rssi >= -60) quality = "Good";
+    else if (rssi >= -70) quality = "Fair";
+    else quality = "Poor";
+    
+    String rssiLine = "Signal: " + String(rssi) + " dBm";
+    String qualLine = quality;
+    const char* connLines[] = { rssiLine.c_str(), "", qualLine.c_str() };
+    Menu::drawNotice("Connected!", connLines, 3, "", false);
+    
+    // Wait 3 seconds
+    for (int i = 0; i < 30; i++) {
+      ESP.wdtFeed();
+      delay(100);
+    }
+    
+    currentMenu = &wifiStatusMenu;
+    currentMenu->init();
+  } else {
+Now the "WiFi Connecting" screen still shows "2:Cancel" in both the content and footer — the user wants the redundant "2:Cancel" line removed from the content area:
+
+  
+  // Keep String objects alive
+  String netLine = "Network: " + savedSsid;
+  const char* lines[] = { netLine.c_str(), "", "Please wait...", "2:Cancel" };
+  Menu::drawNotice("WiFi Connecting", lines, 4, "2:Cancel", true);
+  const char* lines[] = { netLine.c_str(), "", "Please wait..." };
+  Menu::drawNotice("WiFi Connecting", lines, 3, "2:Cancel", true);
+  
+  connectWifiSta();
+  
+ 
+    if (dotCount % 4 == 0) {
+      String waitLine = "Waiting: " + String(dotCount / 4) + "s";
+      String netLine2 = "Network: " + savedSsid;
+      const char* lines2[] = { netLine2.c_str(), "", waitLine.c_str(), "2:Cancel" };
+      Menu::drawNotice("WiFi Connecting", lines2, 4, "2:Cancel", true);
+      const char* lines2[] = { netLine2.c_str(), "", waitLine.c_str() };
+      Menu::drawNotice("WiFi Connecting", lines2, 3, "2:Cancel", true);
+    }
+    
+    if (!digitalRead(BTN2)) {
+...
+
+...
+
+Flashed. Two changes:
+
+"WiFi Connecting" screen — removed the redundant "2:Cancel" from the content area; only the footer shows it.
+"Connected!" screen — appears for 3 seconds after WiFi connects, showing signal strength (RSSI in dBm) and quality rating (Excellent/Good/Fair/Poor), then auto-advances to WiFi Status menu.
+I need to make the "Connected!" text larger. But Menu::drawNotice() is a static helper that uses size 1 text. Let me check what it does:
+
+I'll draw the "Connected!" screen manually instead of using drawNotice() so I can use a bigger font:
+
+    else if (rssi >= -70) quality = "Fair";
+    else quality = "Poor";
+    
+    String rssiLine = "Signal: " + String(rssi) + " dBm";
+    String qualLine = quality;
+    const char* connLines[] = { rssiLine.c_str(), "", qualLine.c_str() };
+    Menu::drawNotice("Connected!", connLines, 3, "", false);
+    display.clearDisplay();
+    display.setTextSize(1);
+    
+    // Title bar
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(1, 0);
+    display.println("WiFi Status");
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // "Connected!" in larger text, centered
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    int connX = (128 - 10 * 12) / 2; // ~center "Connected!"
+    display.setCursor(connX, 14);
+    display.println("Connected!");
+    
+    // Signal info in normal size
+    display.setTextSize(1);
+    display.setCursor(0, 38);
+    display.println("Signal: " + String(rssi) + " dBm");
+    display.println(quality);
+    
+    // Dotted separator
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("");
+    display.display();
+    
+    // Wait 3 seconds
+    for (int i = 0; i < 30; i++) {
+Build and upload:
+
+Built and flashed. "Connected!" now uses size 2 text, centered below the title bar with some breathing room. Signal strength and quality rating remain in size 1 below it.
+
+Let me check the current Menu class to see where to add the helper:
+
+...
+
+  }
+ 
+  // Static helper for notice screens with consistent styling
+  static void drawNotice(const char* title, const char** lines, int lineCount,
+                          const char* footer, bool customFooter) {
+ 
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    
+    // 3 lines of size 2 text, evenly spaced
+    // Line 1: y=0, Line 2: y=16, Line 3: y=32
+    display.setCursor(0, 0);
+    display.println(line1);
+    display.setCursor(0, 16);
+    display.println(line2);
+    display.setCursor(0, 32);
+    display.println(line3);
+    
+    display.display();
+  }
+ 
+  static void drawNotice(const char* title, const char** lines, int lineCount,
+                          const char* footer, bool customFooter) {
+    display.clearDisplay();
+...
+
+  // Static helper for notice screens with consistent styling
+  static void drawNotice(const char* title, const char** lines, int lineCount,
+                          const char* footer, bool customFooter) {
+ 
+    
+  // Static helper for quick 3-line notices (no header/footer, big text)
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    
+    // 3 lines of size 2 text, evenly spaced
+    // Line 1: y=0, Line 2: y=16, Line 3: y=32
+    display.setCursor(0, 0);
+    display.println(line1);
+    display.setCursor(0, 16);
+I messed up the nesting — drawQuickNotice ended up inside drawNotice. Let me fix:
+
+I see — drawQuickNotice is nested inside drawNotice, and there are two drawNotice declarations. Let me clean this up properly:
+
+  // Static helper for notice screens with consistent styling
+  static void drawNotice(const char* title, const char** lines, int lineCount,
+                          const char* footer, bool customFooter) {
+    
+    display.clearDisplay();
+    display.setTextSize(1);
+    
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(1, 0);
+    String titleLine = " " + String(title) + " ";
+    while (titleLine.length() < 16) titleLine += " ";
+    display.print(titleLine);
+    
+    // Solid white line below title
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content area
+    int y = 10;
+    for (int i = 0; i < lineCount && y < 54; i++) {
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(2, y);
+      display.print(lines[i]);
+      y += 11;
+    }
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    
+    // Footer
+    if (customFooter && strlen(footer) > 0) {
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0, 56);
+      display.println(footer);
+    }
+    
+    display.display();
+  }
+ 
+  // Static helper for quick 3-line notices (no header/footer, big text)
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3) {
+    display.clearDisplay();
+ 
+    
+    display.display();
+  }
+ 
+  static void drawNotice(const char* title, const char** lines, int lineCount,
+                          const char* footer, bool customFooter) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(1, 0);
+    String titleLine = " " + String(title) + " ";
+    while (titleLine.length() < 16) titleLine += " ";
+    display.print(titleLine);
+    
+    // Solid white line below title
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content area
+    int y = 10;
+    for (int i = 0; i < lineCount && y < 54; i++) {
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(2, y);
+      display.print(lines[i]);
+      y += 11;
+    }
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+… omitted 14 diff line(s) across 1 additional file(s)/section(s)
+(empty)
+
+Hmm, the diff looks messy — there are leftover fragments. Let me check the actual state:
+
+There are orphaned lines 274-275 from the old duplicate. Let me clean that up:
+
+    display.setCursor(0, 32);
+    display.println(line3);
+    
+    display.display();
+  }
+    display.display();
+  }
+  private:
+Good, cleaned up. Now replace the manual "Connected!" display code with the new helper:
+
+    else if (rssi >= -70) quality = "Fair";
+    else quality = "Poor";
+    
+    display.clearDisplay();
+    display.setTextSize(1);
+    
+    // Title bar
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(1, 0);
+    display.println("WiFi Status");
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // "Connected!" in larger text, centered
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(2);
+    int connX = (128 - 10 * 12) / 2; // ~center "Connected!"
+    display.setCursor(connX, 14);
+    display.println("Connected!");
+    
+    // Signal info in normal size
+    display.setTextSize(1);
+    display.setCursor(0, 38);
+    display.println("Signal: " + String(rssi) + " dBm");
+    display.println(quality);
+    
+    // Dotted separator
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("");
+    display.display();
+    String rssiLine = String(rssi) + " dBm";
+    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str());
+    
+    // Wait 3 seconds
+    for (int i = 0; i < 30; i++) {
+The drawNotice footer logic changed — the original had a fallback to show 1.Nav 1|Sel 2.Back when customFooter was false. My rewrite only prints the footer when customFooter && strlen(footer) > 0. Let me check if any callers rely on the default footer:
+
+All callers pass customFooter = true, so the fallback is never used. The current behavior is fine.
+
+...
+
+Flashed. Menu::drawQuickNotice() is now available for any short-lived notice — no header, no footer, just 3 lines of size 2 text. "Connected" screen uses it:
+
+Line 1: Connected
+Line 2: -XX dBm
+Line 3: Excellent/Good/Fair/Poor
+RSSI thresholds:
+
+Excellent: ≥ -50 dBm
+Good: -51 to -60 dBm
+Fair: -61 to -70 dBm
+Poor: < -70 dBm
+These are standard WiFi signal quality ranges. RSSI is negative, so closer to 0 = stronger signal.
+
+...
+
+  }
+ 
+  // Static helper for quick 3-line notices (no header/footer, big text)
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3) {
+  // align: true = center, false = left (default)
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3, bool center = false) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    
+    // 3 lines of size 2 text, evenly spaced
+    display.setCursor(0, 0);
+    display.println(line1);
+    display.setCursor(0, 16);
+    display.println(line2);
+    display.setCursor(0, 32);
+    display.println(line3);
+    if (center) {
+      int x1 = max(0, (128 - strlen(line1) * 12) / 2);
+      display.setCursor(x1, 0);
+      display.println(line1);
+      
+      int x2 = max(0, (128 - strlen(line2) * 12) / 2);
+      display.setCursor(x2, 16);
+      display.println(line2);
+      
+      int x3 = max(0, (128 - strlen(line3) * 12) / 2);
+      display.setCursor(x3, 32);
+      display.println(line3);
+    } else {
+      display.setCursor(0, 0);
+      display.println(line1);
+      display.setCursor(0, 16);
+      display.println(line2);
+      display.setCursor(0, 32);
+      display.println(line3);
+    }
+    
+    display.display();
+  }
+Now update the Connected call to use center alignment and increase the delay:
+
+    else quality = "Poor";
+    
+    String rssiLine = String(rssi) + " dBm";
+    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str());
+    
+    // Wait 3 seconds
+    for (int i = 0; i < 30; i++) {
+    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str(), true);
+    
+    // Wait 5 seconds
+    for (int i = 0; i < 50; i++) {
+      ESP.wdtFeed();
+      delay(100);
+    }
+...
+
+...
+
+...
+
+    display.setTextColor(SSD1306_WHITE);
+    
+    if (center) {
+      int x1 = max(0, (128 - strlen(line1) * 12) / 2);
+      int x1 = (int)max((int)0, (int)((128 - strlen(line1) * 12) / 2));
+      display.setCursor(x1, 0);
+      display.println(line1);
+      
+      int x2 = max(0, (128 - strlen(line2) * 12) / 2);
+      int x2 = (int)max((int)0, (int)((128 - strlen(line2) * 12) / 2));
+      display.setCursor(x2, 16);
+      display.println(line2);
+      
+      int x3 = max(0, (128 - strlen(line3) * 12) / 2);
+      int x3 = (int)max((int)0, (int)((128 - strlen(line3) * 12) / 2));
+      display.setCursor(x3, 32);
+      display.println(line3);
+    } else {
+...
+
+...
+
+Flashed. drawQuickNotice() now supports both alignments:
+
+Left-aligned (default) — drawQuickNotice(a, b, c)
+Center-aligned — drawQuickNotice(a, b, c, true)
+Connected screen uses center alignment and displays for 5 seconds.
+
+Let me find the wifiStatusMenu definition:
+
+...
+
+};
+ 
+// AP Mode Menu (shown when STA fails or user selects field mode)
+MenuItem apModeItems[] = {
+  {"Rotator Control", actionRotatorControl, 5, true},
+  {"AP Status", actionApStatus, 0, true},
+  {"Retry Home WiFi", actionRetryWifi, 0, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true}
+// WiFi Status Menu
+MenuItem wifiStatusItems[] = {
+  {"Skip to Rotator Ctrl", actionRotatorControl, 5, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true},
+  {"Calibrate AZ Pot", actionCalibrateAz, 0, true},
+  {"Calibrate EL Pot", actionCalibrateEl, 0, true}
+};
+ 
+// Calibrate Pots Menu
+ 
+ 
+// Menu instances
+Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 4, nullptr);
+Menu wifiStatusMenu("WiFi Status", wifiStatusItems, 3, &wifiConnectMenu);
+Menu apModeMenu("AP Mode", apModeItems, 4, &wifiConnectMenu);
+Menu wifiStatusMenu("Pot Calibration", wifiStatusItems, 4, nullptr);
+Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
+Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
+ 
+// Current active menu (nullptr = rotator control mode)
+(empty)
+
+Wait — the patch replaced the apModeMenu items with wifiStatusItems. Let me check the actual state:
+
+I see — there are now duplicate wifiStatusItems arrays and the original apModeMenu items got lost. The old wifiStatusItems (lines 1007-1011) still exists, and my new one (lines 1014-1020) replaced the apModeMenu block. Let me clean this up properly:
+
+  {"AP Mode (Field)", actionApMode, 0, true}
+};
+ 
+// WiFi Status Menu (shown after successful STA connection or AP mode)
+MenuItem wifiStatusItems[] = {
+  {"Rotator Control", actionRotatorControl, 5, true},
+  {"WiFi Connect", actionBackToWifi, 0, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true}
+};
+ 
+// AP Mode Menu (shown when STA fails or user selects field mode)
+// WiFi Status Menu
+// WiFi Status Menu (shown after successful STA connection)
+MenuItem wifiStatusItems[] = {
+  {"Skip to Rotator Ctrl", actionRotatorControl, 5, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true},
+  {"Calibrate AZ Pot", actionCalibrateAz, 0, true},
+  {"Calibrate EL Pot", actionCalibrateEl, 0, true}
+};
+ 
+// AP Mode Menu (shown when STA fails or user selects field mode)
+MenuItem apModeItems[] = {
+  {"Rotator Control", actionRotatorControl, 5, true},
+  {"AP Status", actionApStatus, 0, true},
+  {"Retry Home WiFi", actionRetryWifi, 0, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true}
+};
+ 
+// Calibrate Pots Menu
+Compiles clean. Changes made:
+
+"Pot Calibration" menu title (was "WiFi Status")
+"Skip to Rotator Ctrl" label with 5s timeout preserved
+"WiFi Connect" option removed
+AP Mode menu restored with its original items (Rotator Control, AP Status, Retry Home WiFi, Calibrate Pots)
+Ready to upload?
+
+...
+
+(empty)
+
+...
+
+Flashed successfully. Device is booting with the updated "Pot Calibration" menu.
+
+(empty)
+
+// WiFi Status Menu (shown after successful STA connection)
+MenuItem wifiStatusItems[] = {
+  {"Skip to Rotator Ctrl", actionRotatorControl, 5, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true},
+  {"Calibrate AZ Pot", actionCalibrateAz, 0, true},
+  {"Calibrate EL Pot", actionCalibrateEl, 0, true}
+  {"Calibrate Pots", actionCalibratePots, 0, true}
+};
+ 
+// AP Mode Menu (shown when STA fails or user selects field mode)
+ 
+// Menu instances
+Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 4, nullptr);
+Menu wifiStatusMenu("Pot Calibration", wifiStatusItems, 4, nullptr);
+Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
+Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
+Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
+Flashed. Menu title is now "Ctrl or Calibration?" with just two options:
+
+Skip to Rotator Ctrl (5s timeout)
+Calibrate Pots
+(empty)
+
+...
+
+ 
+// WiFi Status Menu (shown after successful STA connection)
+MenuItem wifiStatusItems[] = {
+  {"Skip to Rotator Ctrl", actionRotatorControl, 5, true},
+  {"Rotator Ctrl", actionRotatorControl, 5, true},
+  {"Calibrate Pots", actionCalibratePots, 0, true}
+};
+...
+
+(empty)
+
+...
+
+Done. "Rotator Ctrl" label is now on the "Ctrl or Calibration?" menu. Flashed. Menu now shows "Rotator Ctrl" instead of "Skip to Rotator Ctrl".
+

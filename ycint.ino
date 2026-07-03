@@ -126,10 +126,15 @@ public:
     userInteracted = true;
     timerActive = false;
     if (parent) {
+      parent->cursor = cursor;
       parent->draw();
     } else {
       init();
     }
+  }
+  
+  Menu* getParent() {
+    return parent;
   }
 
   void tick() {
@@ -212,6 +217,37 @@ public:
     display.display();
   }
 
+  // Static helper for quick 3-line notices (no header/footer, big text)
+  // center: true = center align, false = left align (default)
+  static void drawQuickNotice(const char* line1, const char* line2, const char* line3, bool center = false) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    
+    if (center) {
+      int x1 = (int)max((int)0, (int)((128 - strlen(line1) * 12) / 2));
+      display.setCursor(x1, 0);
+      display.println(line1);
+      
+      int x2 = (int)max((int)0, (int)((128 - strlen(line2) * 12) / 2));
+      display.setCursor(x2, 16);
+      display.println(line2);
+      
+      int x3 = (int)max((int)0, (int)((128 - strlen(line3) * 12) / 2));
+      display.setCursor(x3, 32);
+      display.println(line3);
+    } else {
+      display.setCursor(0, 0);
+      display.println(line1);
+      display.setCursor(0, 16);
+      display.println(line2);
+      display.setCursor(0, 32);
+      display.println(line3);
+    }
+    
+    display.display();
+  }
+  
   // Static helper for notice screens with consistent styling
   static void drawNotice(const char* title, const char** lines, int lineCount,
                           const char* footer, bool customFooter) {
@@ -755,7 +791,7 @@ void enterCalibrationMode(int axis) {
   calState = CAL_DETECTING;
   calCurrentAxis = axis;
   calDirection = 0;
-  calMoveStartTime = 0;
+  calMoveStartTime = millis();  // Must be set to millis() when entering calibration mode
   calMoveStartVoltage = 0;
   calInitialVoltageCaptured = false;
   calVoltageChangeDetected = false;
@@ -763,6 +799,7 @@ void enterCalibrationMode(int axis) {
   calMaxVoltage = 0;
   calHalfVoltage = 0;
   stopAll();
+  currentMenu = nullptr;  // Skip menu handler during calibration mode
   
   String axisName = (axis == 0) ? "AZ" : "EL";
   Serial.print("CAL: Entering ");
@@ -821,7 +858,7 @@ void updateCalibrationState() {
         float voltageChange = v - calMoveStartVoltage;
         if (voltageChange < 0) voltageChange = -voltageChange;
         
-        if (voltageChange < 300) {
+        if (voltageChange < 50) {  // 50mV threshold - pot not connected
           // No significant change - pot not connected
           calState = CAL_ERROR;
           Serial.println("CAL: ERROR - No voltage change detected");
@@ -1074,10 +1111,9 @@ MenuItem wifiConnectItems[] = {
   {"AP Mode (Field)", actionApMode, 0, true}
 };
 
-// WiFi Status Menu (shown after successful STA connection or AP mode)
+// WiFi Status Menu (shown after successful STA connection)
 MenuItem wifiStatusItems[] = {
-  {"Rotator Control", actionRotatorControl, 5, true},
-  {"WiFi Connect", actionBackToWifi, 0, true},
+  {"Rotator Ctrl", actionRotatorControl, 5, true},
   {"Calibrate Pots", actionCalibratePots, 0, true}
 };
 
@@ -1092,15 +1128,14 @@ MenuItem apModeItems[] = {
 // Calibrate Pots Menu
 MenuItem calPotsItems[] = {
   {"Calibrate AZ Pot", actionCalibrateAz, 0, true},
-  {"Calibrate EL Pot", actionCalibrateEl, 0, true},
-  {"Back to Main", actionBackToMain, 0, true}
+  {"Calibrate EL Pot", actionCalibrateEl, 0, true}
 };
 
 // Menu instances
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 4, nullptr);
-Menu wifiStatusMenu("WiFi Status", wifiStatusItems, 3, &wifiConnectMenu);
-Menu apModeMenu("AP Mode", apModeItems, 4, &wifiConnectMenu);
-Menu calPotsMenu("Calibrate Pots", calPotsItems, 3, &wifiStatusMenu);
+Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
+Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
+Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
 
 // Current active menu (nullptr = rotator control mode)
 Menu* currentMenu = &wifiConnectMenu;
@@ -1175,11 +1210,10 @@ void actionSetWifi() {
 void actionReviewWifi() {
   Serial.println("Action: Review Credentials");
   
-  const char* lines[] = {
-    ("SSID: " + savedSsid).c_str(),
-    ("Pass: " + maskPassword(savedPass)).c_str(),
-    ""
-  };
+  // Keep String objects alive to avoid dangling pointers
+  String ssidLine = "SSID: " + savedSsid;
+  String passLine = "Pass: " + maskPassword(savedPass);
+  const char* lines[] = { ssidLine.c_str(), passLine.c_str(), "" };
   Menu::drawNotice("WiFi Creds", lines, 3, "1.OK 2.Back", true);
   
   // Wait for button to fully release after long press
@@ -1192,7 +1226,7 @@ void actionReviewWifi() {
   while (true) {  // Wait indefinitely for user input
     if (digitalRead(BTN1)) {
       delay(300);
-      currentMenu->init();
+      currentMenu->draw();  // Preserve cursor position
       return;
     }
     if (!digitalRead(BTN2)) {
@@ -1207,37 +1241,30 @@ void actionReviewWifi() {
 void actionConnectWifi() {
   Serial.println("Action: Connect WiFi");
   
-  const char* lines[] = {
-    ("SSID: " + savedSsid).c_str(),
-    "",
-    "Please wait...",
-    "2:Cancel"
-  };
-  Menu::drawNotice("Connecting", lines, 4, "2:Cancel", true);
+  String netLine = "Network: " + savedSsid;
+  const char* lines[] = { netLine.c_str(), "", "Please wait..." };
+  Menu::drawNotice("WiFi Connecting", lines, 3, "2:Cancel", true);
   
   connectWifiSta();
   
   int dotCount = 0;
   while (wifiState == WIFI_CONNECTING) {
     tickWifi();
+    ESP.wdtFeed();  // Prevent watchdog reset during long WiFi wait
     
     dotCount++;
     if (dotCount % 4 == 0) {
       String waitLine = "Waiting: " + String(dotCount / 4) + "s";
-      const char* lines2[] = {
-        ("SSID: " + savedSsid).c_str(),
-        "",
-        waitLine.c_str(),
-        "2:Cancel"
-      };
-      Menu::drawNotice("Connecting", lines2, 4, "2:Cancel", true);
+      String netLine2 = "Network: " + savedSsid;
+      const char* lines2[] = { netLine2.c_str(), "", waitLine.c_str() };
+      Menu::drawNotice("WiFi Connecting", lines2, 3, "2:Cancel", true);
     }
     
     if (!digitalRead(BTN2)) {
       delay(300);
       WiFi.disconnect();
       wifiState = WIFI_IDLE;
-      currentMenu->init();
+      currentMenu->draw();  // Preserve cursor position
       return;
     }
     
@@ -1245,6 +1272,23 @@ void actionConnectWifi() {
   }
   
   if (wifiState == WIFI_CONNECTED) {
+    // Show connected screen with signal strength
+    int rssi = WiFi.RSSI();
+    String quality;
+    if (rssi >= -50) quality = "Excellent";
+    else if (rssi >= -60) quality = "Good";
+    else if (rssi >= -70) quality = "Fair";
+    else quality = "Poor";
+    
+    String rssiLine = String(rssi) + " dBm";
+    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str(), true);
+    
+    // Wait 5 seconds
+    for (int i = 0; i < 50; i++) {
+      ESP.wdtFeed();
+      delay(100);
+    }
+    
     currentMenu = &wifiStatusMenu;
     currentMenu->init();
   } else {
@@ -1255,18 +1299,22 @@ void actionConnectWifi() {
     
     // Show notice screen with countdown
     String countLine = "Continuing in 5s...";
+    String ssidLine = "SSID: " + savedSsid;
+    String apSsidLine = "SSID: " + String(AP_SSID);
+    String apPassLine = "Pass: " + String(AP_PASS);
     const char* lines[] = {
-      ("SSID: " + savedSsid).c_str(),
+      ssidLine.c_str(),
       "",
       "Switching to AP mode",
-      ("SSID: " + String(AP_SSID)).c_str(),
-      ("Pass: " + String(AP_PASS)).c_str()
+      apSsidLine.c_str(),
+      apPassLine.c_str()
     };
     Menu::drawNotice("WiFi Failed", lines, 5, countLine.c_str(), true);
     
     // Countdown from 5 seconds
     for (int sec = 5; sec > 0; sec--) {
       // Update countdown - redraw just the footer area
+      ESP.wdtFeed();  // Prevent watchdog reset
       display.fillRect(0, 53, 128, 12, SSD1306_BLACK);
       // Redraw dotted separator
       for (int x = 0; x < 128; x += 3) {
@@ -1316,6 +1364,8 @@ void actionApMode() {
 
 void actionRotatorControl() {
   Serial.println("Action: Rotator Control");
+  // Stop any active movement before switching to rotator mode
+  stopAll();
   currentMenu = nullptr;  // nullptr = rotator control mode
 }
 
@@ -1361,12 +1411,16 @@ void actionRetryWifi() {
 void actionApStatus() {
   Serial.println("Action: AP Status");
   
+  // Keep String objects alive to avoid dangling pointers
+  String ssidLine = "SSID: " + String(AP_SSID);
+  String passLine = "Pass: " + String(AP_PASS);
+  String ipLine = "IP: " + String(AP_IP);
   const char* lines[] = {
     "AP Mode Active",
     "",
-    ("SSID: " + String(AP_SSID)).c_str(),
-    ("Pass: " + String(AP_PASS)).c_str(),
-    ("IP: " + String(AP_IP)).c_str()
+    ssidLine.c_str(),
+    passLine.c_str(),
+    ipLine.c_str()
   };
   Menu::drawNotice("AP Status", lines, 5, "1.OK 2.Back", true);
   
@@ -1400,46 +1454,97 @@ const char* directions[7] = {"IDLE", "LEFT", "RIGHT", "UP", "DOWN", "AZ POT", "E
 
 void updateRotatorDisplay() {
   display.clearDisplay();
-  display.setCursor(0, 0);
   display.setTextSize(1);
   
   if (isPausing) {
-    display.setTextColor(SSD1306_WHITE);
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(0, 0);
     display.println("SAFETY PAUSE");
-    display.println("------------");
+    // Solid separator at row 8
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
     
+    // Content
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 10);
     if (pauseAz && pauseEl) display.println("Both axes");
     else if (pauseAz) display.println("AZ axis");
     else display.println("EL axis");
     
-    unsigned long elapsed = millis() - pauseStartTime;
-    unsigned long remaining = REVERSE_PAUSE_MS - elapsed;
-    if (remaining > REVERSE_PAUSE_MS) remaining = 0;
-    display.print("Remaining: ");
-    display.print(remaining);
-    display.println("ms");
-    display.print("Resume: ");
-    display.println(pendingDir);
-    display.println("");
-    display.print("Az: ");
     display.print(adsPresent ? String(currentAz, 1) + "d" : "N/A");
     display.print(" El: ");
     display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2!Go");
+    
   } else {
-    display.println("Rotator Control");
-    display.println("---------------");
+    // No title bar - use all space for values
+    display.setTextColor(SSD1306_WHITE);
     
+    // Compute both values first
+    String azVal, elVal;
+    if (adsPresent) {
+      azVal = String(currentAz, 1);
+      elVal = String(currentEl, 1);
+      // Left-pad to 5 chars so decimal points align (max "360.0")
+      while (azVal.length() < 5) azVal = " " + azVal;
+      while (elVal.length() < 5) elVal = " " + elVal;
+    }
+    
+    // Az line
+    display.setTextSize(2);
+    display.setCursor(0, 0);
     display.print("Az: ");
-    display.println(adsPresent ? String(currentAz, 1) + "d" : "N/A");
-    display.print("El: ");
-    display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
-    display.print("Move: ");
-    display.println(currentMove);
+    if (adsPresent) {
+      display.print(azVal);
+      // Movement indicator for Azimuth
+      if (currentMove.compareTo("RIGHT") == 0) display.print("+");
+      else if (currentMove.compareTo("LEFT") == 0) display.print("-");
+      else if (currentMove.compareTo("AZ POT") == 0 && calDirection > 0) display.print("+");
+      else if (currentMove.compareTo("AZ POT") == 0 && calDirection < 0) display.print("-");
+      display.println("");
+    } else {
+      display.println("  N/A");
+    }
     
-    display.println("");
-    display.print("Sel: ");
-    display.println(directions[rotatorMenuSelection]);
-    display.println("1.Cycle 2.Go");
+    // El line
+    display.setCursor(0, 18);
+    display.print("El: ");
+    if (adsPresent) {
+      display.print(elVal);
+      // Movement indicator for Elevation
+      if (currentMove.compareTo("UP") == 0) display.print("+");
+      else if (currentMove.compareTo("DOWN") == 0) display.print("-");
+      else if (currentMove.compareTo("EL POT") == 0 && calDirection > 0) display.print("+");
+      else if (currentMove.compareTo("EL POT") == 0 && calDirection < 0) display.print("-");
+      display.println("");
+    } else {
+      display.println("  N/A");
+    }
+    
+    // Moving/Selected just above footer
+    display.setTextSize(1);
+    display.setCursor(0, 43);
+    if (currentMove.compareTo("IDLE") != 0) {
+      display.print("Moving: ");
+      display.println(currentMove);
+    } else {
+      display.print("Selected: ");
+      display.println(directions[rotatorMenuSelection]);
+    }
+    
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+    display.setCursor(0, 56);
+    display.println("1.Cycle 2!Go");
   }
   
   display.display();
@@ -1564,9 +1669,9 @@ void handleButtons() {
   // ROTATOR CONTROL MODE BUTTON HANDLING
   // ============================================
   
-  // Btn1: cycle through directions
+  // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
   if (btn1 && !btn1WasPressed && (now - btn1LastPress > BTN_DEBOUNCE_MS)) {
-    rotatorMenuSelection = (rotatorMenuSelection + 1) % 7;
+    rotatorMenuSelection = (rotatorMenuSelection + 1) % 5;
     btn1LastPress = now;
     Serial.print("Menu: ");
     Serial.println(directions[rotatorMenuSelection]);
@@ -1806,7 +1911,10 @@ void loop() {
   // Menu mode
   if (currentMenu) {
     currentMenu->tick();
-    currentMenu->draw();
+    // tick() may have changed currentMenu (e.g., timer auto-fired actionRotatorControl)
+    if (currentMenu) {
+      currentMenu->draw();
+    }
   } else {
     // Rotator control mode
     static unsigned long lastUpdate = 0;
