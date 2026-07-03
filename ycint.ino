@@ -1544,7 +1544,7 @@ void updateRotatorDisplay() {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
     display.setCursor(0, 56);
-    display.println("1.Cycle 2!Go I2|1.RST");
+    display.println("1.Cycle 2!Go I2|1!RST");
   }
   
   display.display();
