@@ -1196,6 +1196,9 @@ void displayCalibrationScreen() {
     case CAL_ERROR:
       display.setCursor(2, y);
       display.println(calErrorMessage);
+      y += 11;
+      display.setCursor(2, y);
+      display.println("Check cables & pwr");
       break;
   }
   
