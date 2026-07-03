@@ -1148,14 +1148,13 @@ void displayCalibrationScreen() {
       
     case CAL_COMPLETE:
       display.setCursor(2, y);
-      display.println("CALIBRATION");
-      y += 11;
-      display.setCursor(2, y);
-      display.println("COMPLETE");
+      display.println("CALIBRATED");
       y += 11;
       display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
+      display.print("V  Max: ");
+      display.print(calMaxVoltage, 3);
       display.println("V");
       break;
       
@@ -1176,23 +1175,25 @@ void displayCalibrationScreen() {
   // Show AZ and EL readings with voltages
   display.setCursor(0, 32);
   display.print("AZ:");
-  display.print(String(currentAz, 1));
+  display.print(String(currentAz, 0));
   display.print("(");
   display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
-  display.print("V)  EL:");
-  display.print(String(currentEl, 1));
+  display.println("V)");
+  display.setCursor(0, 43);
+  display.print("EL:");
+  display.print(String(currentEl, 0));
   display.print("(");
   display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
   display.println("V)");
   
   // Dotted separator above footer
   for (int x = 0; x < 128; x += 3) {
-    display.drawPixel(x, 53, SSD1306_WHITE);
+    display.drawPixel(x, 51, SSD1306_WHITE);
   }
   
   // Footer
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 56);
+  display.setCursor(0, 53);
   display.println("1.Scan 2.Back");
   
   display.display();
