@@ -1716,9 +1716,9 @@ void updateRotatorDisplay() {
       display.print(azVal);
       // Movement indicator for Azimuth — use font characters
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
-        display.print(">");
+        display.print(" >");
       } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
-        display.print("<");
+        display.print(" <");
       }
     } else {
       display.print("  N/A");
@@ -1731,9 +1731,9 @@ void updateRotatorDisplay() {
       display.print(elVal);
       // Movement indicator for Elevation — use font characters
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
-        display.print("^");
+        display.print(" ^");
       } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
-        display.print("v");
+        display.print(" v");
       }
     } else {
       display.print("  N/A");
