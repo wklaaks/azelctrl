@@ -37,9 +37,9 @@
 #include <EEPROM.h>
 
 // ==================== PIN DEFINITIONS ====================
-const int AZ_ENABLE  = D1;   // GPIO5
+const int AZ_ENABLE  = D2;   // GPIO4
 const int AZ_DIR_CW  = D3;   // GPIO0
-const int EL_ENABLE  = D2;   // GPIO4
+const int EL_ENABLE  = D1;   // GPIO5
 const int EL_DIR_UP  = D4;   // GPIO2
 
 const int SDA_PIN = D6;      // GPIO12
