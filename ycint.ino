@@ -661,11 +661,11 @@ void checkPauseComplete() {
 
 // ==================== CALIBRATION CONSTANTS ====================
 const unsigned long CAL_SWEEP_TIMEOUT = 120000;  // 2 minutes per sweep
-const unsigned long CAL_STABILITY_TIME = 2000;   // 2 second stability check
+const unsigned long CAL_DETECT_TIME = 3000;      // 3 seconds to detect cable connection
 const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
 const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
 const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
-const float CAL_UNPLUGGED_THRESHOLD = 30.0F;     // mV - unplugged cable detection
+const float CAL_DETECT_MIN_CHANGE = 50.0F;       // mV - minimum voltage change to confirm cable
 #define CAL_V_SAMPLES 20
 #define CAL_EEPROM_AZ_MIN    67
 #define CAL_EEPROM_AZ_MAX    71
@@ -892,7 +892,7 @@ void saveCalibration() {
 void enterCalibrationMode(int axis) {
   calState = CAL_CHECK_STABILITY;
   calCurrentAxis = axis;
-  calDirection = 0;
+  calDirection = -1;  // Start CCW/DOWN
   calPhaseStart = millis();
   calMinVoltage = 0;
   calMaxVoltage = 0;
@@ -902,7 +902,7 @@ void enterCalibrationMode(int axis) {
   calVSampleIdx = 0;
   calErrorMessage = "";
   stopAll();
-  currentMenu = nullptr;  // Skip menu handler during calibration mode
+  currentMenu = nullptr;
   
   String axisName = (axis == 0) ? "AZ" : "EL";
   Serial.print("CAL: Entering ");
@@ -975,32 +975,39 @@ void updateCalibrationState() {
   
   switch (calState) {
     case CAL_CHECK_STABILITY:
-      // Measure voltage for 1 second to check cable connection
-      if (millis() - calPhaseStart >= CAL_STABILITY_TIME) {
-        // Check voltage fluctuation during stability check
-        float fluctuation = 0;
-        if (calVSampleIdx >= 2) {
-          float minV = calVoltageSamples[0], maxV = calVoltageSamples[0];
-          for (int i = 1; i < calVSampleIdx; i++) {
-            if (calVoltageSamples[i] < minV) minV = calVoltageSamples[i];
-            if (calVoltageSamples[i] > maxV) maxV = calVoltageSamples[i];
-          }
-          fluctuation = (maxV - minV) * 1000;  // mV
-        }
+      // Move motor and check if voltage changes — detects unplugged cable
+      if (calVSampleIdx == 0) {
+        // First iteration: capture initial voltage, then start moving
+        calStabilityMax = vRaw;
+        calStabilityMin = vRaw;
+        setCalDirection(-1);  // Start moving CCW/DOWN
+        Serial.println("CAL: Checking cable (moving motor)...");
+      }
+      // Track voltage range
+      if (vRaw > calStabilityMax) calStabilityMax = vRaw;
+      if (vRaw < calStabilityMin) calStabilityMin = vRaw;
+      
+      if (millis() - calPhaseStart >= CAL_DETECT_TIME) {
+        // Check if voltage changed enough to confirm cable is connected
+        float change = (calStabilityMax - calStabilityMin) * 1000;  // mV
+        Serial.print("CAL: Voltage change = ");
+        Serial.print(change);
+        Serial.println(" mV");
         
-        // If fluctuation is too high, cable might be unplugged
-        if (fluctuation > CAL_UNPLUGGED_THRESHOLD) {
+        if (change < CAL_DETECT_MIN_CHANGE) {
+          // Voltage didn't change — cable unplugged or pot disconnected
           calState = CAL_ERROR;
-          calErrorMessage = "Unstable voltage";
-          Serial.println("CAL: ERROR - Voltage unstable, check cable");
+          calErrorMessage = "No voltage change";
+          stopAll();
+          calDirection = 0;
+          Serial.println("CAL: ERROR - No voltage change detected, check cable");
         } else {
-          // Voltage is stable, proceed to sweep min
+          // Voltage changed — cable is connected, proceed to sweep min
           calState = CAL_SWEEP_MIN;
           calPhaseStart = millis();
           calVSampleIdx = 0;
-          // Start moving CCW/DOWN
-          setCalDirection(-1);
-          Serial.println("CAL: Starting sweep to minimum");
+          // Already moving CCW/DOWN, continue
+          Serial.println("CAL: Cable confirmed, starting sweep to minimum");
         }
       }
       break;
