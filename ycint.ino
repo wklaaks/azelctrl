@@ -66,6 +66,7 @@ DNSServer dnsServer;
 
 // ==================== STATE ====================
 float currentAz = 0.0, currentEl = 0.0;
+float azVoltage = 0.0, elVoltage = 0.0;  // Raw voltages from readPositions()
 String currentMove = "IDLE";
 bool adsPresent = false;
 bool moving = false;
@@ -1177,13 +1178,13 @@ void displayCalibrationScreen() {
   display.print("AZ:");
   display.print(String(currentAz, 0));
   display.print("(");
-  display.print((int)((float)ads.readADC_SingleEnded(0) / 32767.0 * 4096.0F));
+  display.print((int)(azVoltage * 1000));
   display.println("mV)");
   display.setCursor(0, 43);
   display.print("EL:");
   display.print(String(currentEl, 0));
   display.print("(");
-  display.print((int)((float)ads.readADC_SingleEnded(1) / 32767.0 * 4096.0F));
+  display.print((int)(elVoltage * 1000));
   display.println("mV)");
   
   // Dotted separator above footer
@@ -1212,7 +1213,7 @@ void readPositions() {
     lastAzRead = now;
     int16_t adcAz = ads.readADC_SingleEnded(0);
     adcAz = constrain(adcAz, 0, 32767);
-    float azVoltage = (float)adcAz / 32767.0 * 4.096F;
+    azVoltage = (float)adcAz / 32767.0 * 4.096F;
     
     if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
       float fraction = (azVoltage - calAzMinV) / (calAzMaxV - calAzMinV);
@@ -1228,7 +1229,7 @@ void readPositions() {
     lastElRead = now;
     int16_t adcEl = ads.readADC_SingleEnded(1);
     adcEl = constrain(adcEl, 0, 32767);
-    float elVoltage = (float)adcEl / 32767.0 * 4.096F;
+    elVoltage = (float)adcEl / 32767.0 * 4.096F;
     
     if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
       float fraction = (elVoltage - calElMinV) / (calElMaxV - calElMinV);
