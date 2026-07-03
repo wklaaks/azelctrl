@@ -1151,11 +1151,11 @@ void displayCalibrationScreen() {
       display.println("CALIBRATED");
       y += 11;
       display.setCursor(2, y);
-      display.print("Min: ");
-      display.print(calMinVoltage, 3);
-      display.print("V  Max: ");
-      display.print(calMaxVoltage, 3);
-      display.println("V");
+      display.print("Min:");
+      display.print((int)(calMinVoltage * 1000));
+      display.print("mV  Max:");
+      display.print((int)(calMaxVoltage * 1000));
+      display.println("mV");
       break;
       
     case CAL_ERROR:
