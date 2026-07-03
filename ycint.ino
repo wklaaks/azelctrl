@@ -1715,33 +1715,53 @@ void updateRotatorDisplay() {
     if (adsPresent) {
       display.print(azVal);
       // Movement indicator — draw arrow near right edge
-      int ax = 118;  // Near right edge (128px - 5px arrow - 2px margin)
+      int ax = 114;  // Near right edge (128px - 9px arrow - 2px margin)
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
-        display.drawPixel(ax, 0, SSD1306_WHITE);
-        display.drawPixel(ax, 11, SSD1306_WHITE);
-        display.drawPixel(ax+1, 2, SSD1306_WHITE);
-        display.drawPixel(ax+1, 9, SSD1306_WHITE);
-        display.drawPixel(ax+2, 2, SSD1306_WHITE);
-        display.drawPixel(ax+2, 9, SSD1306_WHITE);
-        display.drawPixel(ax+3, 4, SSD1306_WHITE);
-        display.drawPixel(ax+3, 7, SSD1306_WHITE);
-        display.drawPixel(ax+4, 3, SSD1306_WHITE);
-        display.drawPixel(ax+4, 5, SSD1306_WHITE);
-        display.drawPixel(ax+4, 6, SSD1306_WHITE);
-        display.drawPixel(ax+4, 8, SSD1306_WHITE);
-      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
+        // Right arrow: → (9 wide, 12 tall)
+        // Shaft at x=0..3, arrowhead at x=4..8
+        display.drawPixel(ax, 5, SSD1306_WHITE);
+        display.drawPixel(ax, 6, SSD1306_WHITE);
+        display.drawPixel(ax+1, 5, SSD1306_WHITE);
+        display.drawPixel(ax+1, 6, SSD1306_WHITE);
+        display.drawPixel(ax+2, 5, SSD1306_WHITE);
+        display.drawPixel(ax+2, 6, SSD1306_WHITE);
+        display.drawPixel(ax+3, 5, SSD1306_WHITE);
+        display.drawPixel(ax+3, 6, SSD1306_WHITE);
         display.drawPixel(ax+4, 0, SSD1306_WHITE);
         display.drawPixel(ax+4, 11, SSD1306_WHITE);
-        display.drawPixel(ax+3, 2, SSD1306_WHITE);
-        display.drawPixel(ax+3, 9, SSD1306_WHITE);
-        display.drawPixel(ax+2, 2, SSD1306_WHITE);
-        display.drawPixel(ax+2, 9, SSD1306_WHITE);
-        display.drawPixel(ax+1, 4, SSD1306_WHITE);
-        display.drawPixel(ax+1, 7, SSD1306_WHITE);
+        display.drawPixel(ax+5, 2, SSD1306_WHITE);
+        display.drawPixel(ax+5, 9, SSD1306_WHITE);
+        display.drawPixel(ax+6, 2, SSD1306_WHITE);
+        display.drawPixel(ax+6, 9, SSD1306_WHITE);
+        display.drawPixel(ax+7, 4, SSD1306_WHITE);
+        display.drawPixel(ax+7, 7, SSD1306_WHITE);
+        display.drawPixel(ax+8, 3, SSD1306_WHITE);
+        display.drawPixel(ax+8, 5, SSD1306_WHITE);
+        display.drawPixel(ax+8, 6, SSD1306_WHITE);
+        display.drawPixel(ax+8, 8, SSD1306_WHITE);
+      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
+        // Left arrow: ← (9 wide, 12 tall)
+        // Arrowhead at x=0..4, shaft at x=5..8
         display.drawPixel(ax, 3, SSD1306_WHITE);
         display.drawPixel(ax, 5, SSD1306_WHITE);
         display.drawPixel(ax, 6, SSD1306_WHITE);
         display.drawPixel(ax, 8, SSD1306_WHITE);
+        display.drawPixel(ax+1, 4, SSD1306_WHITE);
+        display.drawPixel(ax+1, 7, SSD1306_WHITE);
+        display.drawPixel(ax+2, 2, SSD1306_WHITE);
+        display.drawPixel(ax+2, 9, SSD1306_WHITE);
+        display.drawPixel(ax+3, 2, SSD1306_WHITE);
+        display.drawPixel(ax+3, 9, SSD1306_WHITE);
+        display.drawPixel(ax+4, 0, SSD1306_WHITE);
+        display.drawPixel(ax+4, 11, SSD1306_WHITE);
+        display.drawPixel(ax+5, 5, SSD1306_WHITE);
+        display.drawPixel(ax+5, 6, SSD1306_WHITE);
+        display.drawPixel(ax+6, 5, SSD1306_WHITE);
+        display.drawPixel(ax+6, 6, SSD1306_WHITE);
+        display.drawPixel(ax+7, 5, SSD1306_WHITE);
+        display.drawPixel(ax+7, 6, SSD1306_WHITE);
+        display.drawPixel(ax+8, 5, SSD1306_WHITE);
+        display.drawPixel(ax+8, 6, SSD1306_WHITE);
       }
     } else {
       display.print("  N/A");
