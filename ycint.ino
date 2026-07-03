@@ -1113,7 +1113,29 @@ void displayCalibrationScreen() {
   display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
   display.setCursor(1, 0);
-  display.print(calCurrentAxis == 0 ? " CAL: AZ POT" : " CAL: EL POT");
+  if (calState == CAL_COMPLETE) display.print("Cal-");
+  else if (calState == CAL_ERROR) display.print("Cal-");
+  else display.print("Cal-");
+  display.print(calCurrentAxis == 0 ? "AZ:" : "EL:");
+  
+  // Status text on same line as title
+  display.setCursor(display.getCursorX(), 0);
+  switch (calState) {
+    case CAL_CHECK_STABILITY: display.print("Check Cable..."); break;
+    case CAL_SWEEP_MIN:
+      if (calCurrentAxis == 0) display.print("Sweep CCW...");
+      else display.print("Sweep DOWN...");
+      break;
+    case CAL_WAIT_TIMEOUT_MIN: display.print("Timeout..."); break;
+    case CAL_SWEEP_MAX:
+      if (calCurrentAxis == 0) display.print("Sweep CW...");
+      else display.print("Sweep UP...");
+      break;
+    case CAL_WAIT_TIMEOUT_MAX: display.print("Timeout..."); break;
+    case CAL_COMPLETE: display.print("CALIBRATED"); break;
+    case CAL_ERROR: display.print("ERROR!"); break;
+    default: break;
+  }
   
   // Solid white line below title
   display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
@@ -1124,11 +1146,7 @@ void displayCalibrationScreen() {
   
   switch (calState) {
     case CAL_CHECK_STABILITY:
-      display.setCursor(2, y);
-      display.println("Checking cable...");
-      y += 11;
-      display.setCursor(2, y);
-      // Show current movement direction
+      // Show movement direction
       if (calDirection == -1) {
         if (calCurrentAxis == 0) display.println("Trying CCW...");
         else display.println("Trying DOWN...");
@@ -1141,30 +1159,20 @@ void displayCalibrationScreen() {
       break;
       
     case CAL_SWEEP_MIN:
-      display.setCursor(2, y);
-      if (calCurrentAxis == 0) display.println("Sweeping CCW...");
-      else display.println("Sweeping DOWN...");
       break;
       
     case CAL_WAIT_TIMEOUT_MIN:
-      display.setCursor(2, y);
-      display.println("Timeout - not at limit");
+      display.println("Not at limit");
       break;
       
     case CAL_SWEEP_MAX:
-      display.setCursor(2, y);
-      if (calCurrentAxis == 0) display.println("Sweeping CW...");
-      else display.println("Sweeping UP...");
-      y += 11;
-      display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
       display.println("V");
       break;
       
     case CAL_WAIT_TIMEOUT_MAX:
-      display.setCursor(2, y);
-      display.println("Timeout - not at limit");
+      display.println("Not at limit");
       y += 11;
       display.setCursor(2, y);
       display.print("Min: ");
@@ -1173,9 +1181,7 @@ void displayCalibrationScreen() {
       break;
       
     case CAL_COMPLETE:
-      display.setCursor(2, y);
-      display.println("CALIBRATED");
-      y += 11;
+      y = 10;
       display.setCursor(2, y);
       display.print("Min:");
       display.print((int)(calMinVoltage * 1000));
@@ -1185,12 +1191,6 @@ void displayCalibrationScreen() {
       break;
       
     case CAL_ERROR:
-      display.setCursor(2, y);
-      display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-      display.println("CAL ERROR!");
-      display.setTextColor(SSD1306_WHITE);
-      y += 11;
-      display.setCursor(2, y);
       display.println(calErrorMessage);
       break;
   }
