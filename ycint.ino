@@ -1703,9 +1703,9 @@ void updateRotatorDisplay() {
     if (adsPresent) {
       azVal = String(currentAz, 1);
       elVal = String(currentEl, 1);
-      // Left-pad to 5 chars so decimal points align (max "360.0")
-      while (azVal.length() < 5) azVal = " " + azVal;
-      while (elVal.length() < 5) elVal = " " + elVal;
+      // Left-pad to 6 chars so decimal points align (max "-180.0")
+      while (azVal.length() < 6) azVal = " " + azVal;
+      while (elVal.length() < 6) elVal = " " + elVal;
     }
     
     // Az line
