@@ -1714,11 +1714,35 @@ void updateRotatorDisplay() {
     display.print("Az:");
     if (adsPresent) {
       display.print(azVal);
-      // Movement indicator for Azimuth — use font characters
+      // Movement indicator — draw arrow at calculated position
+      // "Az:" = 3 chars, azVal = 6 chars, total = 9 chars × 6px = 54px start
+      int ax = 3 * 6 + azVal.length() * 6 + 2;
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
-        display.print(" >");
+        display.drawPixel(ax, 0, SSD1306_WHITE);
+        display.drawPixel(ax, 11, SSD1306_WHITE);
+        display.drawPixel(ax+1, 2, SSD1306_WHITE);
+        display.drawPixel(ax+1, 9, SSD1306_WHITE);
+        display.drawPixel(ax+2, 2, SSD1306_WHITE);
+        display.drawPixel(ax+2, 9, SSD1306_WHITE);
+        display.drawPixel(ax+3, 4, SSD1306_WHITE);
+        display.drawPixel(ax+3, 7, SSD1306_WHITE);
+        display.drawPixel(ax+4, 3, SSD1306_WHITE);
+        display.drawPixel(ax+4, 5, SSD1306_WHITE);
+        display.drawPixel(ax+4, 6, SSD1306_WHITE);
+        display.drawPixel(ax+4, 8, SSD1306_WHITE);
       } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
-        display.print(" <");
+        display.drawPixel(ax+4, 0, SSD1306_WHITE);
+        display.drawPixel(ax+4, 11, SSD1306_WHITE);
+        display.drawPixel(ax+3, 2, SSD1306_WHITE);
+        display.drawPixel(ax+3, 9, SSD1306_WHITE);
+        display.drawPixel(ax+2, 2, SSD1306_WHITE);
+        display.drawPixel(ax+2, 9, SSD1306_WHITE);
+        display.drawPixel(ax+1, 4, SSD1306_WHITE);
+        display.drawPixel(ax+1, 7, SSD1306_WHITE);
+        display.drawPixel(ax, 3, SSD1306_WHITE);
+        display.drawPixel(ax, 5, SSD1306_WHITE);
+        display.drawPixel(ax, 6, SSD1306_WHITE);
+        display.drawPixel(ax, 8, SSD1306_WHITE);
       }
     } else {
       display.print("  N/A");
@@ -1729,11 +1753,49 @@ void updateRotatorDisplay() {
     display.print("El:");
     if (adsPresent) {
       display.print(elVal);
-      // Movement indicator for Elevation — use font characters
+      // Movement indicator — draw arrow at calculated position
+      int ex = 3 * 6 + elVal.length() * 6 + 2;
+      int ey = 18;
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
-        display.print(" ^");
+        display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
+        display.drawPixel(ex+3, ey+1, SSD1306_WHITE);
+        display.drawPixel(ex+5, ey+1, SSD1306_WHITE);
+        display.drawPixel(ex+2, ey+2, SSD1306_WHITE);
+        display.drawPixel(ex+6, ey+2, SSD1306_WHITE);
+        display.drawPixel(ex+1, ey+3, SSD1306_WHITE);
+        display.drawPixel(ex+7, ey+3, SSD1306_WHITE);
+        display.drawPixel(ex+0, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+1, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+2, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+3, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+5, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+6, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+7, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+8, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+0, ey+5, SSD1306_WHITE);
+        display.drawPixel(ex+8, ey+5, SSD1306_WHITE);
       } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
-        display.print(" v");
+        display.drawPixel(ex+0, ey+6, SSD1306_WHITE);
+        display.drawPixel(ex+8, ey+6, SSD1306_WHITE);
+        display.drawPixel(ex+0, ey+7, SSD1306_WHITE);
+        display.drawPixel(ex+8, ey+7, SSD1306_WHITE);
+        display.drawPixel(ex+0, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+1, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+2, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+3, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+5, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+6, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+7, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+8, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+1, ey+9, SSD1306_WHITE);
+        display.drawPixel(ex+7, ey+9, SSD1306_WHITE);
+        display.drawPixel(ex+2, ey+10, SSD1306_WHITE);
+        display.drawPixel(ex+6, ey+10, SSD1306_WHITE);
+        display.drawPixel(ex+3, ey+11, SSD1306_WHITE);
+        display.drawPixel(ex+5, ey+11, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+12, SSD1306_WHITE);
       }
     } else {
       display.print("  N/A");
