@@ -1204,13 +1204,13 @@ void displayCalibrationScreen() {
   
   // Dashed separator above readings
   for (int x = 0; x < 128; x += 6) {
-    display.drawPixel(x, 28, SSD1306_WHITE);
+    display.drawPixel(x, 29, SSD1306_WHITE);
   }
   
   // Show AZ and EL readings with voltages (aligned decimal points)
   // AZ: " AZ: -180.0 ( 123mV)" — value padded to 6 chars, voltage padded to 4
   // EL: " EL:   90.0 (3200mV)"
-  display.setCursor(0, 31);
+  display.setCursor(0, 32);
   display.print(" AZ:");
   {
     String azStr = String(currentAz, 1);
@@ -1225,7 +1225,7 @@ void displayCalibrationScreen() {
     display.print(mvStr);
   }
   display.println("mV)");
-  display.setCursor(0, 42);
+  display.setCursor(0, 43);
   display.print(" EL:");
   {
     String elStr = String(currentEl, 1);
