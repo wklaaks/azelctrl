@@ -1113,25 +1113,23 @@ void displayCalibrationScreen() {
   display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
   display.setCursor(1, 0);
-  if (calState == CAL_COMPLETE) display.print("Cal-");
-  else if (calState == CAL_ERROR) display.print("Cal-");
-  else display.print("Cal-");
+  display.print("Cal-");
   display.print(calCurrentAxis == 0 ? "AZ:" : "EL:");
   
-  // Status text on same line as title
-  display.setCursor(display.getCursorX(), 0);
+  // Status text right after prefix
+  display.print(" ");
   switch (calState) {
-    case CAL_CHECK_STABILITY: display.print("Check Cable..."); break;
+    case CAL_CHECK_STABILITY: display.print("Check Cable"); break;
     case CAL_SWEEP_MIN:
-      if (calCurrentAxis == 0) display.print("Sweep CCW...");
-      else display.print("Sweep DOWN...");
+      if (calCurrentAxis == 0) display.print("Sweep CCW");
+      else display.print("Sweep DOWN");
       break;
-    case CAL_WAIT_TIMEOUT_MIN: display.print("Timeout..."); break;
+    case CAL_WAIT_TIMEOUT_MIN: display.print("Timeout"); break;
     case CAL_SWEEP_MAX:
-      if (calCurrentAxis == 0) display.print("Sweep CW...");
-      else display.print("Sweep UP...");
+      if (calCurrentAxis == 0) display.print("Sweep CW");
+      else display.print("Sweep UP");
       break;
-    case CAL_WAIT_TIMEOUT_MAX: display.print("Timeout..."); break;
+    case CAL_WAIT_TIMEOUT_MAX: display.print("Timeout"); break;
     case CAL_COMPLETE: display.print("CALIBRATED"); break;
     case CAL_ERROR: display.print("ERROR!"); break;
     default: break;
