@@ -1712,11 +1712,11 @@ void updateRotatorDisplay() {
     display.setTextSize(2);
     display.setCursor(0, 0);
     display.print("Az:");
-    int x;  // Arrow x position
+    int x;  // Arrow x position (shared with El)
     if (adsPresent) {
       display.print(azVal);
-      // Movement indicator for Azimuth — draw arrows
-      x = 3 * 6 + azVal.length() * 6;  // x after label + value
+      // Movement indicator for Azimuth — draw arrows right after the value
+      x = display.getCursorX();
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
         // Right arrow: ► (centered at y=0..11)
         display.drawPixel(x+4, 3, SSD1306_WHITE);
@@ -1752,8 +1752,8 @@ void updateRotatorDisplay() {
     display.print("El:");
     if (adsPresent) {
       display.print(elVal);
-      // Movement indicator for Elevation — draw arrows
-      x = 3 * 6 + elVal.length() * 6;
+      // Movement indicator for Elevation — draw arrows right after the value
+      x = display.getCursorX();
       int ey = 18;  // El text starts at y=18
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
         // Up arrow: ▲ (centered at y=18..29)
