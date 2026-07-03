@@ -1742,17 +1742,6 @@ void updateRotatorDisplay() {
     // Moving/Selected just above footer
     display.setTextSize(1);
     display.setCursor(0, 40);
-    if (adsPresent) {
-      display.print("AzV: ");
-      display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
-      display.print("V  ElV: ");
-      display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
-      display.println("V");
-    } else {
-      display.println("N/A");
-    }
-    
-    display.setCursor(0, 43);
     if (currentMove.compareTo("IDLE") != 0) {
       display.print("Moving: ");
       display.println(currentMove);
