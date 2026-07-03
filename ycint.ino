@@ -1135,6 +1135,8 @@ void displayCalibrationScreen() {
       } else if (calDirection == 1) {
         if (calCurrentAxis == 0) display.println("Trying CW...");
         else display.println("Trying UP...");
+      } else {
+        display.println("Stopped");
       }
       break;
       
@@ -1809,9 +1811,9 @@ void handleButtons() {
         calState = CAL_CHECK_STABILITY;
         calPhaseStart = millis();
         calVSampleIdx = 0;
+        calDirection = 0;  // Reset so cable check starts fresh
         calMinVoltage = 0;
         calMaxVoltage = 0;
-        calDirection = 0;
         calStabilityMax = 0;
         calStabilityMin = 32767;
         calErrorMessage = "";
