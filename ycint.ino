@@ -661,7 +661,7 @@ void checkPauseComplete() {
 
 // ==================== CALIBRATION CONSTANTS ====================
 const unsigned long CAL_SWEEP_TIMEOUT = 120000;  // 2 minutes per sweep
-const unsigned long CAL_DETECT_TIME = 3000;      // 3 seconds to detect cable connection
+const unsigned long CAL_DETECT_TIME = 6000;      // 6 seconds to detect cable connection (3s each direction)
 const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
 const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
 const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
@@ -989,8 +989,8 @@ void updateCalibrationState() {
       if (vRaw > calStabilityMax) calStabilityMax = vRaw;
       if (vRaw < calStabilityMin) calStabilityMin = vRaw;
       
-      // After 1.5s, reverse direction
-      if (millis() - calPhaseStart >= 1500 && calDirection == -1) {
+      // After 3s, reverse direction
+      if (millis() - calPhaseStart >= 3000 && calDirection == -1) {
         setCalDirection(1);
         Serial.println("CAL: Checking cable (moving CW)...");
       }
