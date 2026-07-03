@@ -673,6 +673,11 @@ const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - 
 #define CAL_EEPROM_MAGIC_VAL 0xCA
 #define CAL_EEPROM_SIZE      84
 
+// Calibrated voltage ranges (loaded from EEPROM)
+float calAzMinV = 0.0F, calAzMaxV = 3.2F;
+float calElMinV = 0.0F, calElMaxV = 3.2F;
+bool calAzValid = false, calElValid = false;
+
 // ====================== MOVEMENT CONTROL ======================
 void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
@@ -832,10 +837,8 @@ String calErrorMessage = "";
 float calVoltageSamples[CAL_V_SAMPLES];
 int calVSampleIdx = 0;
 
-// Calibrated voltage ranges (loaded from EEPROM)
-float calAzMinV = 0.0F, calAzMaxV = 3.2F;
-float calElMinV = 0.0F, calElMaxV = 3.2F;
-bool calAzValid = false, calElValid = false;
+// Calibrated voltage ranges (loaded from EEPROM) — declared with constants above
+// float calAzMinV, calAzMaxV, calElMinV, calElMaxV, calAzValid, calElValid
 
 void loadCalibration() {
   if (EEPROM.read(CAL_EEPROM_MAGIC) != CAL_EEPROM_MAGIC_VAL) {
@@ -1199,12 +1202,20 @@ void displayCalibrationScreen() {
   }
   
   // Show voltages
-  y = 40;
-  display.setCursor(2, y);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(2, 40);
   display.print("AZ: ");
   display.print(currentAz);
-  display.print("  EL: ");
-  display.println(currentEl);
+  display.print("  (");
+  display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
+  display.print("V)");
+  display.setCursor(2, 51);
+  display.print("EL: ");
+  display.print(currentEl);
+  display.print("  (");
+  display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
+  display.print("V)");
   
   // Dotted separator above footer
   for (int x = 0; x < 128; x += 3) {
