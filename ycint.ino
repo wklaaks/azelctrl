@@ -976,9 +976,9 @@ void updateCalibrationState() {
   switch (calState) {
     case CAL_CHECK_STABILITY:
       // Move motor in both directions to detect cable connection.
-      // Phase 1: CCW/DOWN for 1.5s, Phase 2: CW/UP for 1.5s
+      // Phase 1: CCW/DOWN for 3s, Phase 2: CW/UP for 3s
       // If voltage doesn't change in either direction, cable is unplugged.
-      if (calVSampleIdx == 0) {
+      if (calVSampleIdx <= 1) {
         // First iteration: capture initial voltage, start moving CCW
         calStabilityMax = vRaw;
         calStabilityMin = vRaw;
