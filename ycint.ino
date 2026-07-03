@@ -1196,14 +1196,14 @@ void displayCalibrationScreen() {
     case CAL_ERROR:
       display.setCursor(2, y);
       display.println(calErrorMessage);
-      y += 11;
+      y += 10;
       display.setCursor(2, y);
       display.println("Check cables & pwr");
       break;
   }
   
-  // Dashed separator above readings
-  for (int x = 0; x < 128; x += 6) {
+  // Dotted separator above readings
+  for (int x = 0; x < 128; x += 3) {
     display.drawPixel(x, 29, SSD1306_WHITE);
   }
   
