@@ -1718,29 +1718,33 @@ void updateRotatorDisplay() {
       // Movement indicator for Azimuth — draw arrows right after the value
       x = display.getCursorX();
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
-        // Right arrow: ► (centered at y=0..11)
-        display.drawPixel(x+4, 3, SSD1306_WHITE);
-        display.drawPixel(x+4, 8, SSD1306_WHITE);
-        display.drawPixel(x+3, 4, SSD1306_WHITE);
-        display.drawPixel(x+3, 7, SSD1306_WHITE);
-        display.drawPixel(x+2, 2, SSD1306_WHITE);
-        display.drawPixel(x+2, 9, SSD1306_WHITE);
-        display.drawPixel(x+1, 2, SSD1306_WHITE);
-        display.drawPixel(x+1, 9, SSD1306_WHITE);
+        // Right arrow: ► (5 wide, 12 tall)
         display.drawPixel(x, 0, SSD1306_WHITE);
         display.drawPixel(x, 11, SSD1306_WHITE);
-      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
-        // Left arrow: ◄
-        display.drawPixel(x, 3, SSD1306_WHITE);
-        display.drawPixel(x, 8, SSD1306_WHITE);
-        display.drawPixel(x+1, 4, SSD1306_WHITE);
-        display.drawPixel(x+1, 7, SSD1306_WHITE);
+        display.drawPixel(x+1, 2, SSD1306_WHITE);
+        display.drawPixel(x+1, 9, SSD1306_WHITE);
         display.drawPixel(x+2, 2, SSD1306_WHITE);
         display.drawPixel(x+2, 9, SSD1306_WHITE);
-        display.drawPixel(x+3, 2, SSD1306_WHITE);
-        display.drawPixel(x+3, 9, SSD1306_WHITE);
+        display.drawPixel(x+3, 4, SSD1306_WHITE);
+        display.drawPixel(x+3, 7, SSD1306_WHITE);
+        display.drawPixel(x+4, 3, SSD1306_WHITE);
+        display.drawPixel(x+4, 5, SSD1306_WHITE);
+        display.drawPixel(x+4, 6, SSD1306_WHITE);
+        display.drawPixel(x+4, 8, SSD1306_WHITE);
+      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
+        // Left arrow: ◄
         display.drawPixel(x+4, 0, SSD1306_WHITE);
         display.drawPixel(x+4, 11, SSD1306_WHITE);
+        display.drawPixel(x+3, 2, SSD1306_WHITE);
+        display.drawPixel(x+3, 9, SSD1306_WHITE);
+        display.drawPixel(x+2, 2, SSD1306_WHITE);
+        display.drawPixel(x+2, 9, SSD1306_WHITE);
+        display.drawPixel(x+1, 4, SSD1306_WHITE);
+        display.drawPixel(x+1, 7, SSD1306_WHITE);
+        display.drawPixel(x, 3, SSD1306_WHITE);
+        display.drawPixel(x, 5, SSD1306_WHITE);
+        display.drawPixel(x, 6, SSD1306_WHITE);
+        display.drawPixel(x, 8, SSD1306_WHITE);
       }
       display.println("");
     } else {
@@ -1756,35 +1760,47 @@ void updateRotatorDisplay() {
       x = display.getCursorX();
       int ey = 18;  // El text starts at y=18
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
-        // Up arrow: ▲ (centered at y=18..29)
-        display.drawPixel(x+2, ey+0, SSD1306_WHITE);
-        display.drawPixel(x+1, ey+1, SSD1306_WHITE);
+        // Up arrow: ▲ (9 wide, 12 tall)
+        display.drawPixel(x+4, ey+0, SSD1306_WHITE);
         display.drawPixel(x+3, ey+1, SSD1306_WHITE);
-        display.drawPixel(x, ey+2, SSD1306_WHITE);
-        display.drawPixel(x+4, ey+2, SSD1306_WHITE);
-        display.drawPixel(x, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+5, ey+1, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+2, SSD1306_WHITE);
+        display.drawPixel(x+6, ey+2, SSD1306_WHITE);
         display.drawPixel(x+1, ey+3, SSD1306_WHITE);
-        display.drawPixel(x+2, ey+3, SSD1306_WHITE);
-        display.drawPixel(x+3, ey+3, SSD1306_WHITE);
-        display.drawPixel(x+4, ey+3, SSD1306_WHITE);
-        display.drawPixel(x, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+7, ey+3, SSD1306_WHITE);
+        display.drawPixel(x+0, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+4, SSD1306_WHITE);
         display.drawPixel(x+4, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+5, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+6, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+7, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+8, ey+4, SSD1306_WHITE);
+        display.drawPixel(x+0, ey+5, SSD1306_WHITE);
+        display.drawPixel(x+8, ey+5, SSD1306_WHITE);
       } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
         // Down arrow: ▼
-        display.drawPixel(x, ey+5, SSD1306_WHITE);
-        display.drawPixel(x+4, ey+5, SSD1306_WHITE);
-        display.drawPixel(x, ey+6, SSD1306_WHITE);
-        display.drawPixel(x+4, ey+6, SSD1306_WHITE);
-        display.drawPixel(x, ey+7, SSD1306_WHITE);
-        display.drawPixel(x+1, ey+7, SSD1306_WHITE);
-        display.drawPixel(x+2, ey+7, SSD1306_WHITE);
-        display.drawPixel(x+3, ey+7, SSD1306_WHITE);
-        display.drawPixel(x+4, ey+7, SSD1306_WHITE);
-        display.drawPixel(x, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+0, ey+6, SSD1306_WHITE);
+        display.drawPixel(x+8, ey+6, SSD1306_WHITE);
+        display.drawPixel(x+0, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+8, ey+7, SSD1306_WHITE);
+        display.drawPixel(x+0, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+1, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+2, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+8, SSD1306_WHITE);
         display.drawPixel(x+4, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+5, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+6, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+7, ey+8, SSD1306_WHITE);
+        display.drawPixel(x+8, ey+8, SSD1306_WHITE);
         display.drawPixel(x+1, ey+9, SSD1306_WHITE);
-        display.drawPixel(x+3, ey+9, SSD1306_WHITE);
+        display.drawPixel(x+7, ey+9, SSD1306_WHITE);
         display.drawPixel(x+2, ey+10, SSD1306_WHITE);
+        display.drawPixel(x+6, ey+10, SSD1306_WHITE);
+        display.drawPixel(x+3, ey+11, SSD1306_WHITE);
+        display.drawPixel(x+5, ey+11, SSD1306_WHITE);
+        display.drawPixel(x+4, ey+12, SSD1306_WHITE);
       }
       display.println("");
     } else {
