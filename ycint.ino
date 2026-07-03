@@ -1624,10 +1624,19 @@ void handleButtons() {
     }
     btn1WasPressed = btn1;
     
-    // Btn2: start/stop scan or reverse direction
+    // Btn2: start/stop scan, reverse direction, or exit in terminal states
     if (btn2 && !btn2WasPressed) {
       btn2PressStart = now;
       btn2LongPressTriggered = false;
+      
+      if (calState == CAL_COMPLETE || calState == CAL_ERROR) {
+        // Exit calibration in terminal states
+        exitCalibrationMode();
+        currentMenu = &calPotsMenu;
+        currentMenu->init();
+        btn2WasPressed = btn2;
+        return;
+      }
       
       if (calState == CAL_DETECTING || calState == CAL_FINDING_MIN || 
           calState == CAL_FINDING_MAX || calState == CAL_MOVING_TO_HALF) {
