@@ -1005,7 +1005,9 @@ void updateCalibrationState() {
         if (change < CAL_DETECT_MIN_CHANGE) {
           // Voltage didn't change in either direction — cable unplugged
           calState = CAL_ERROR;
-          calErrorMessage = "No voltage change";
+          char buf[30];
+          snprintf(buf, sizeof(buf), "dV (%.0fmV) too small", change);
+          calErrorMessage = String(buf);
           stopAll();
           calDirection = 0;
           Serial.println("CAL: ERROR - No voltage change detected, check cable");
