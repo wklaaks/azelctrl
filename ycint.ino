@@ -1193,13 +1193,13 @@ void displayCalibrationScreen() {
   }
   
   // Show AZ and EL readings with voltages
-  display.setCursor(0, 32);
+  display.setCursor(0, 40);
   display.print("AZ:");
   display.print(String(currentAz, 0));
   display.print("(");
   display.print((int)(azVoltage * 1000));
   display.println("mV)");
-  display.setCursor(0, 43);
+  display.setCursor(0, 51);
   display.print("EL:");
   display.print(String(currentEl, 0));
   display.print("(");
@@ -1208,7 +1208,7 @@ void displayCalibrationScreen() {
   
   // Dotted separator above footer
   for (int x = 0; x < 128; x += 3) {
-    display.drawPixel(x, 51, SSD1306_WHITE);
+    display.drawPixel(x, 53, SSD1306_WHITE);
   }
   
   // Footer
