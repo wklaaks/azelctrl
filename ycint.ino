@@ -1177,14 +1177,14 @@ void displayCalibrationScreen() {
   display.print("AZ:");
   display.print(String(currentAz, 0));
   display.print("(");
-  display.print((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F, 3);
-  display.println("V)");
+  display.print((int)((float)ads.readADC_SingleEnded(0) / 32767.0 * 4096.0F));
+  display.println("mV)");
   display.setCursor(0, 43);
   display.print("EL:");
   display.print(String(currentEl, 0));
   display.print("(");
-  display.print((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F, 3);
-  display.println("V)");
+  display.print((int)((float)ads.readADC_SingleEnded(1) / 32767.0 * 4096.0F));
+  display.println("mV)");
   
   // Dotted separator above footer
   for (int x = 0; x < 128; x += 3) {
