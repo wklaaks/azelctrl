@@ -1772,6 +1772,8 @@ void updateRotatorDisplay() {
       int ex = 114;  // Near right edge (128px - 9px arrow - 2px margin)
       int ey = 18;
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
+        // Up arrow: ↑ (9 wide, 12 tall)
+        // Arrowhead y=0..4 (triangular), shaft y=5..8
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
         display.drawPixel(ex+3, ey+1, SSD1306_WHITE);
         display.drawPixel(ex+5, ey+1, SSD1306_WHITE);
@@ -1780,37 +1782,28 @@ void updateRotatorDisplay() {
         display.drawPixel(ex+1, ey+3, SSD1306_WHITE);
         display.drawPixel(ex+7, ey+3, SSD1306_WHITE);
         display.drawPixel(ex+0, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+1, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+2, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+3, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+4, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+5, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+6, ey+4, SSD1306_WHITE);
-        display.drawPixel(ex+7, ey+4, SSD1306_WHITE);
         display.drawPixel(ex+8, ey+4, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+5, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+6, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+7, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+8, SSD1306_WHITE);
+      } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
+        // Down arrow: ↓ (9 wide, 12 tall)
+        // Shaft y=0..4, arrowhead y=5..8 (triangular)
+        display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+1, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+2, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+3, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+4, SSD1306_WHITE);
         display.drawPixel(ex+0, ey+5, SSD1306_WHITE);
         display.drawPixel(ex+8, ey+5, SSD1306_WHITE);
-      } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
-        display.drawPixel(ex+0, ey+6, SSD1306_WHITE);
-        display.drawPixel(ex+8, ey+6, SSD1306_WHITE);
-        display.drawPixel(ex+0, ey+7, SSD1306_WHITE);
-        display.drawPixel(ex+8, ey+7, SSD1306_WHITE);
-        display.drawPixel(ex+0, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+1, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+2, ey+8, SSD1306_WHITE);
+        display.drawPixel(ex+1, ey+6, SSD1306_WHITE);
+        display.drawPixel(ex+7, ey+6, SSD1306_WHITE);
+        display.drawPixel(ex+2, ey+7, SSD1306_WHITE);
+        display.drawPixel(ex+6, ey+7, SSD1306_WHITE);
         display.drawPixel(ex+3, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+4, ey+8, SSD1306_WHITE);
         display.drawPixel(ex+5, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+6, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+7, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+8, ey+8, SSD1306_WHITE);
-        display.drawPixel(ex+1, ey+9, SSD1306_WHITE);
-        display.drawPixel(ex+7, ey+9, SSD1306_WHITE);
-        display.drawPixel(ex+2, ey+10, SSD1306_WHITE);
-        display.drawPixel(ex+6, ey+10, SSD1306_WHITE);
-        display.drawPixel(ex+3, ey+11, SSD1306_WHITE);
-        display.drawPixel(ex+5, ey+11, SSD1306_WHITE);
-        display.drawPixel(ex+4, ey+12, SSD1306_WHITE);
+        display.drawPixel(ex+4, ey+9, SSD1306_WHITE);
       }
     } else {
       display.print("  N/A");
