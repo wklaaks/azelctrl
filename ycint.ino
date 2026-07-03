@@ -1714,9 +1714,8 @@ void updateRotatorDisplay() {
     display.print("Az:");
     if (adsPresent) {
       display.print(azVal);
-      // Movement indicator — draw arrow at calculated position
-      // "Az:" = 3 chars, azVal = 6 chars, total = 9 chars × 6px = 54px start
-      int ax = 3 * 6 + azVal.length() * 6 + 2;
+      // Movement indicator — draw arrow near right edge
+      int ax = 118;  // Near right edge (128px - 5px arrow - 2px margin)
       if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
         display.drawPixel(ax, 0, SSD1306_WHITE);
         display.drawPixel(ax, 11, SSD1306_WHITE);
@@ -1753,8 +1752,8 @@ void updateRotatorDisplay() {
     display.print("El:");
     if (adsPresent) {
       display.print(elVal);
-      // Movement indicator — draw arrow at calculated position
-      int ex = 3 * 6 + elVal.length() * 6 + 2;
+      // Movement indicator — draw arrow near right edge
+      int ex = 114;  // Near right edge (128px - 9px arrow - 2px margin)
       int ey = 18;
       if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
