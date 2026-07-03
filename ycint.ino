@@ -665,7 +665,7 @@ const unsigned long CAL_DETECT_TIME = 6000;      // 6 seconds to detect cable co
 const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
 const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
 const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
-const float CAL_DETECT_MIN_CHANGE = 50.0F;       // mV - minimum voltage change to confirm cable
+const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change to confirm cable
 #define CAL_V_SAMPLES 20
 #define CAL_EEPROM_AZ_MIN    67
 #define CAL_EEPROM_AZ_MAX    71
