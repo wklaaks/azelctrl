@@ -71,8 +71,8 @@ String currentMove = "IDLE";
 bool adsPresent = false;
 bool moving = false;
 
-// WiFi mode: STA (connect to home) or AP (field mode)
-enum DeviceWifiMode { MODE_STA, MODE_AP };
+// WiFi mode: STA (connect to home), AP (field mode), or DISABLED
+enum DeviceWifiMode { MODE_STA, MODE_AP, MODE_DISABLED };
 DeviceWifiMode deviceWifiMode = MODE_STA;
 
 // ==================== MENU SYSTEM ====================
@@ -674,12 +674,17 @@ const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change 
 #define CAL_EEPROM_MAGIC     83
 #define CAL_EEPROM_MAGIC_VAL 0xCA
 
+// WiFi mode config in EEPROM
+#define WIFI_MODE_EEPROM    84
+#define WIFI_MODE_MAGIC     85
+#define WIFI_MODE_MAGIC_VAL 0x4D
+
 // Rotator model config in EEPROM
-#define ROT_EEPROM_FACING    84   // 0=North, 1=South
-#define ROT_EEPROM_EXTENDED  85   // 0=No, 1=Yes (only if South)
-#define ROT_EEPROM_MAGIC     86
+#define ROT_EEPROM_FACING    86
+#define ROT_EEPROM_EXTENDED  87
+#define ROT_EEPROM_MAGIC     88
 #define ROT_EEPROM_MAGIC_VAL 0x5A
-#define CAL_EEPROM_SIZE      87
+#define CAL_EEPROM_SIZE      89
 
 // Rotator model
 enum RotFacing { FACING_NORTH, FACING_SOUTH };
@@ -900,6 +905,34 @@ void saveCalibration() {
   EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
   EEPROM.commit();
   Serial.println("CAL: Calibration saved to EEPROM");
+}
+
+void loadWifiMode() {
+  if (EEPROM.read(WIFI_MODE_MAGIC) != WIFI_MODE_MAGIC_VAL) {
+    Serial.println("WIFI: No WiFi mode in EEPROM - defaulting to STA");
+    deviceWifiMode = MODE_STA;
+    return;
+  }
+  deviceWifiMode = (DeviceWifiMode)EEPROM.read(WIFI_MODE_EEPROM);
+  Serial.print("WIFI: Loaded mode = ");
+  if (deviceWifiMode == MODE_STA) Serial.println("STA");
+  else if (deviceWifiMode == MODE_AP) Serial.println("AP");
+  else Serial.println("DISABLED");
+}
+
+void saveWifiMode() {
+  EEPROM.write(WIFI_MODE_EEPROM, (uint8_t)deviceWifiMode);
+  EEPROM.write(WIFI_MODE_MAGIC, WIFI_MODE_MAGIC_VAL);
+  EEPROM.commit();
+  Serial.println("WIFI: WiFi mode saved to EEPROM");
+}
+
+bool hasRotatorModel() {
+  return EEPROM.read(ROT_EEPROM_MAGIC) == ROT_EEPROM_MAGIC_VAL;
+}
+
+bool hasAnySettings() {
+  return hasRotatorModel() && EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL;
 }
 
 void loadRotatorModel() {
@@ -1589,6 +1622,33 @@ void actionBackToMain();
 void actionRetryWifi();
 void actionApStatus();
 void actionRotatorModel();
+void actionBootSkip();
+void actionBootSetup();
+void actionSetupRotator();
+void actionSetupWifi();
+void actionWifiModeSta();
+void actionWifiModeAp();
+void actionWifiModeDisable();
+void actionWifiModeSelect();
+
+// Boot Menu (first screen after boot)
+MenuItem bootItems[] = {
+  {"Skip", actionBootSkip, 3, true},    // 3s timeout auto-select
+  {"Setup", actionBootSetup, 0, true}
+};
+
+// Setup Menu
+MenuItem setupItems[] = {
+  {"Rotator", actionSetupRotator, 5, true},  // 5s timeout if not yet configured
+  {"WiFi", actionSetupWifi, 0, true}
+};
+
+// WiFi Mode Menu
+MenuItem wifiModeItems[] = {
+  {"Station", actionWifiModeSta, 0, true},
+  {"Access Point", actionWifiModeAp, 0, true},
+  {"Disable", actionWifiModeDisable, 0, true}
+};
 
 // WiFi Connect Menu
 MenuItem wifiConnectItems[] = {
@@ -1620,13 +1680,16 @@ MenuItem calPotsItems[] = {
 };
 
 // Menu instances
+Menu bootMenu("Boot", bootItems, 2, nullptr);
+Menu setupMenu("Setup", setupItems, 2, nullptr);
+Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, nullptr);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
 Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
 
 // Current active menu (nullptr = rotator control mode)
-Menu* currentMenu = &wifiConnectMenu;
+Menu* currentMenu = &bootMenu;
 
 // ====================== MENU ACTIONS ======================
 void actionSetWifi() {
@@ -1981,6 +2044,84 @@ void actionRotatorModel() {
     }
     delay(50);
   }
+}
+
+// ====================== BOOT & SETUP ACTIONS ======================
+
+void actionBootSkip() {
+  Serial.println("BOOT: Skip selected - going to main menu");
+  // Apply saved WiFi mode
+  if (deviceWifiMode == MODE_STA && hasWifiCredentials()) {
+    connectWifiSta();
+    currentMenu = &wifiStatusMenu;
+  } else if (deviceWifiMode == MODE_AP) {
+    startApMode();
+    currentMenu = &apModeMenu;
+  } else {
+    // Disabled or no credentials
+    currentMenu = &wifiStatusMenu;
+  }
+  currentMenu->init();
+}
+
+void actionBootSetup() {
+  Serial.println("BOOT: Setup selected");
+  // Auto-select Rotator if not yet configured
+  if (!hasRotatorModel()) {
+    setupItems[0].timerSeconds = 5;
+  }
+  currentMenu = &setupMenu;
+  currentMenu->init();
+}
+
+void actionSetupRotator() {
+  Serial.println("SETUP: Rotator setup");
+  if (!hasRotatorModel()) {
+    setupRotatorModel();
+  } else {
+    // Re-enter setup to change
+    EEPROM.write(ROT_EEPROM_MAGIC, 0);
+    EEPROM.commit();
+    setupRotatorModel();
+  }
+  // Go back to setup menu
+  currentMenu = &setupMenu;
+  currentMenu->init();
+}
+
+void actionSetupWifi() {
+  Serial.println("SETUP: WiFi setup");
+  currentMenu = &wifiModeMenu;
+  currentMenu->init();
+}
+
+void actionWifiModeSta() {
+  Serial.println("WIFI: Mode set to Station");
+  deviceWifiMode = MODE_STA;
+  saveWifiMode();
+  // Now go to WiFi connect menu to configure credentials
+  currentMenu = &wifiConnectMenu;
+  currentMenu->init();
+}
+
+void actionWifiModeAp() {
+  Serial.println("WIFI: Mode set to Access Point");
+  deviceWifiMode = MODE_AP;
+  saveWifiMode();
+  startApMode();
+  currentMenu = &apModeMenu;
+  currentMenu->init();
+}
+
+void actionWifiModeDisable() {
+  Serial.println("WIFI: Mode set to Disabled");
+  deviceWifiMode = MODE_DISABLED;
+  saveWifiMode();
+  stopCaptivePortal();
+  WiFi.disconnect(true);
+  // Go back to setup menu
+  currentMenu = &setupMenu;
+  currentMenu->init();
 }
 
 // ====================== ROTATOR CONTROL DISPLAY ======================
@@ -2477,67 +2618,42 @@ void setup() {
   display.display();
   delay(1000);
   
-  // Rotator model setup - ask if not saved
-  while (EEPROM.read(ROT_EEPROM_MAGIC) != ROT_EEPROM_MAGIC_VAL) {
-    setupRotatorModel();
+  // Load saved WiFi mode
+  loadWifiMode();
+
+  // Update menu visibility based on credentials
+  wifiConnectItems[2].visible = hasWifiCredentials();
+
+  // Boot screen
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("AZELCTRL");
+  display.println("----------");
+  display.println("Booting...");
+  display.display();
+  delay(1000);
+
+  // If no settings at all, show "No Settings..." then go straight to setup
+  if (!hasAnySettings()) {
+    Serial.println("BOOT: No settings found - showing first-time notice");
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(4, 16);
+    display.println("No Settings...");
+    display.display();
+    delay(3000);
+
+    // Go directly to setup menu with Rotator auto-timer
+    setupItems[0].timerSeconds = 5;
+    currentMenu = &setupMenu;
+    currentMenu->init();
+  } else {
+    // Show boot menu: Skip / Setup
+    currentMenu = &bootMenu;
+    currentMenu->init();
   }
-  
-  // If no credentials, auto-start captive portal
-  if (!hasWifiCredentials()) {
-    Serial.println("No WiFi credentials - starting captive portal");
-    startCaptivePortal();
-    
-    // Show boot captive portal notice
-    const char* lines[] = {
-      "Connect phone to:",
-      AP_SSID,
-      "",
-      "IP: 192.168.4.1",
-      ""
-    };
-    Menu::drawNotice("First Time Setup", lines, 5, "2:Skip", true);
-    
-    unsigned long portalStart = millis();
-    unsigned long btn2PressStart = 0;
-    const unsigned long BTN2_DEBOUNCE = 500;  // Must hold for 500ms to skip
-    const unsigned long PORTAL_TIMEOUT = 600000;  // 10 minutes max
-    
-    while (millis() - portalStart < PORTAL_TIMEOUT) {
-      tickCaptivePortal();
-      
-      if (!captivePortalActive) {
-        Serial.println("Captive portal completed (form submitted)");
-        loadWifiCredentials();
-        wifiConnectItems[2].visible = hasWifiCredentials();
-        break;
-      }
-      
-      // Btn2 skip - requires sustained press with debounce
-      if (!digitalRead(BTN2)) {
-        if (btn2PressStart == 0) {
-          btn2PressStart = millis();
-          Serial.println("Btn2 pressed - waiting for sustained hold...");
-        } else if (millis() - btn2PressStart > BTN2_DEBOUNCE) {
-          Serial.println("Btn2 sustained - skipping captive portal");
-          stopCaptivePortal();
-          break;
-        }
-      } else {
-        btn2PressStart = 0;  // Reset if button released
-      }
-      
-      delay(50);
-    }
-    
-    if (!hasWifiCredentials()) {
-      stopCaptivePortal();
-    }
-  }
-  
-  // Initialize menu system
-  currentMenu = &wifiConnectMenu;
-  currentMenu->init();
-  
+
   Serial.println("\nMenu system initialized");
   Serial.println("Btn1: Navigate/Select");
   Serial.println("Btn2: Back");
