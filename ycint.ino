@@ -971,7 +971,7 @@ void setupRotatorModel() {
     int y = 24;
     for (int i = 0; i < 2; i++) {
       if (i == facingChoice) {
-        display.fillRect(0, y, 128, 11, SSD1306_WHITE);
+        display.fillRect(0, y, 128, 8, SSD1306_WHITE);
         display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
       } else {
         display.setTextColor(SSD1306_WHITE);
@@ -1047,7 +1047,7 @@ void setupRotatorModel() {
       int y = 24;
       for (int i = 0; i < 2; i++) {
         if (i == extChoice) {
-          display.fillRect(0, y, 128, 11, SSD1306_WHITE);
+          display.fillRect(0, y, 128, 8, SSD1306_WHITE);
           display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
         } else {
           display.setTextColor(SSD1306_WHITE);
