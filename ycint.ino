@@ -943,53 +943,64 @@ float azOffset() {
 void setupRotatorModel() {
   Serial.println("ROT: Starting rotator model setup");
   
-  // --- Q1: Facing North or South? ---
-  int facingChoice = 0;  // 0=North, 1=South
   unsigned long lastBtn1 = 0;
   unsigned long lastBtn2 = 0;
   
+  // --- Q1: Facing N or S? ---
+  int facingChoice = 0;  // 0=N, 1=S (default North)
+  
   while (true) {
     display.clearDisplay();
+    display.setTextSize(1);
     
-    // Title bar
-    display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-    display.setCursor(4, 1);
-    display.println("ROTATOR SETUP");
+    // Title bar (white on black)
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(1, 0);
+    display.print(" ROTATOR SETUP              ");
     
+    // Solid white line below title
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+    
+    // Content area
     display.setTextColor(SSD1306_WHITE);
-    display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
-    
-    display.setCursor(4, 18);
+    display.setCursor(2, 10);
     display.println("Azimuth facing:");
     
     // Options with cursor
-    display.setCursor(4, 30);
-    if (facingChoice == 0) {
-      display.print("> ");
-    } else {
-      display.print("  ");
+    int y = 24;
+    for (int i = 0; i < 2; i++) {
+      if (i == facingChoice) {
+        display.fillRect(0, y, 128, 11, SSD1306_WHITE);
+        display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+      } else {
+        display.setTextColor(SSD1306_WHITE);
+      }
+      
+      display.setCursor(2, y);
+      if (i == 0) {
+        display.print("N  (-180 to +180)");
+      } else {
+        display.print("S  (0 to 360)");
+      }
+      y += 11;
     }
-    display.println("NORTH (-180 to +180)");
     
-    display.setCursor(4, 41);
-    if (facingChoice == 1) {
-      display.print("> ");
-    } else {
-      display.print("  ");
+    // Dotted separator above footer
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
     }
-    display.println("SOUTH (0 to 360)");
     
     // Footer
-    display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
-    display.setCursor(4, 53);
-    display.println("1:Select  2:Next");
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 56);
+    display.println("1.Cycle  2.Next");
     
     display.display();
     
     unsigned long now = millis();
     
-    // Btn1 - toggle choice
+    // Btn1 - cycle choice
     if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
       lastBtn1 = now;
       facingChoice = 1 - facingChoice;
@@ -1016,46 +1027,56 @@ void setupRotatorModel() {
     
     while (true) {
       display.clearDisplay();
+      display.setTextSize(1);
       
-      // Title bar
-      display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
-      display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-      display.setCursor(4, 1);
-      display.println("ROTATOR SETUP");
+      // Title bar (white on black)
+      display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+      display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+      display.setCursor(1, 0);
+      display.print(" ROTATOR SETUP              ");
       
+      // Solid white line below title
+      display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+      
+      // Content area
       display.setTextColor(SSD1306_WHITE);
-      display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
-      
-      display.setCursor(4, 18);
+      display.setCursor(2, 10);
       display.println("Extended range?");
       
       // Options with cursor
-      display.setCursor(4, 30);
-      if (extChoice == 0) {
-        display.print("> ");
-      } else {
-        display.print("  ");
+      int y = 24;
+      for (int i = 0; i < 2; i++) {
+        if (i == extChoice) {
+          display.fillRect(0, y, 128, 11, SSD1306_WHITE);
+          display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+        } else {
+          display.setTextColor(SSD1306_WHITE);
+        }
+        
+        display.setCursor(2, y);
+        if (i == 0) {
+          display.print("No  (0 to 360)");
+        } else {
+          display.print("Yes (0 to 450)");
+        }
+        y += 11;
       }
-      display.println("NO (0 to 360)");
       
-      display.setCursor(4, 41);
-      if (extChoice == 1) {
-        display.print("> ");
-      } else {
-        display.print("  ");
+      // Dotted separator above footer
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
       }
-      display.println("YES (0 to 450)");
       
       // Footer
-      display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
-      display.setCursor(4, 53);
-      display.println("1:Select  2:Done");
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0, 56);
+      display.println("1.Cycle  2.Done");
       
       display.display();
       
       unsigned long now = millis();
       
-      // Btn1 - toggle choice
+      // Btn1 - cycle choice
       if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
         lastBtn1 = now;
         extChoice = 1 - extChoice;
@@ -1079,24 +1100,35 @@ void setupRotatorModel() {
   
   // Show confirmation
   display.clearDisplay();
-  display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
-  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-  display.setCursor(4, 1);
-  display.println("ROTATOR SETUP");
+  display.setTextSize(1);
   
+  // Title bar (white on black)
+  display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+  display.setCursor(1, 0);
+  display.print(" ROTATOR SETUP              ");
+  
+  // Solid white line below title
+  display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+  
+  // Content area
   display.setTextColor(SSD1306_WHITE);
-  display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
-  
-  display.setCursor(4, 18);
+  display.setCursor(2, 10);
   display.print("Facing: ");
   display.println(rotFacing == FACING_NORTH ? "NORTH" : "SOUTH");
-  display.setCursor(4, 29);
-  display.print("Range: ");
+  display.setCursor(2, 21);
+  display.print("Range:  ");
   display.println(azRangeLabel());
   
-  display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
-  display.setCursor(4, 53);
-  display.println("1:OK  2:Retry");
+  // Dotted separator above footer
+  for (int x = 0; x < 128; x += 3) {
+    display.drawPixel(x, 53, SSD1306_WHITE);
+  }
+  
+  // Footer
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 56);
+  display.println("1.OK  2.Retry");
   display.display();
   
   // Wait for OK or Retry
