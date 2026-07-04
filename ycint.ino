@@ -1678,7 +1678,7 @@ MenuItem calPotsItems[] = {
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("Setup", setupItems, 2, nullptr);
-Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, nullptr);
+Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
@@ -2065,6 +2065,8 @@ void actionBootSetup() {
   // Auto-select Rotator if not yet configured
   if (!hasRotatorModel()) {
     setupItems[0].timerSeconds = 5;
+  } else {
+    setupItems[0].timerSeconds = 0;
   }
   currentMenu = &setupMenu;
   currentMenu->init();
@@ -2076,6 +2078,8 @@ void actionSetupRotator() {
   delay(300);
   while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
   setupRotatorModel();
+  // Rotator is now configured - clear timer
+  setupItems[0].timerSeconds = 0;
   // Go back to setup menu
   currentMenu = &setupMenu;
   currentMenu->init();
@@ -2633,7 +2637,7 @@ void setup() {
     display.setTextColor(SSD1306_WHITE);
     // Center justify each line
     const char* line1 = "No";
-    const char* line2 = "Settings...";
+    const char* line2 = "Settings!";
     int x1 = (int)max((int)0, (int)((128 - strlen(line1) * 12) / 2));
     int x2 = (int)max((int)0, (int)((128 - strlen(line2) * 12) / 2));
     display.setCursor(x1, 12);
