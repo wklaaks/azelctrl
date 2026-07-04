@@ -965,7 +965,7 @@ void setupRotatorModel() {
     // Content area
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(2, 10);
-    display.println("Azimuth facing:");
+    display.println("Az Orientation ?");
     
     // Options with cursor
     int y = 24;
@@ -994,7 +994,7 @@ void setupRotatorModel() {
     // Footer
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 56);
-    display.println("1.Cycle  2.Next");
+    display.println("1.Cycle  2.Select");
     
     display.display();
     
@@ -1008,11 +1008,13 @@ void setupRotatorModel() {
       Serial.println(facingChoice == 0 ? "NORTH" : "SOUTH");
     }
     
-    // Btn2 - confirm and move to next question
+    // Btn2 - confirm and move to next question (wait for release)
     if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
       lastBtn2 = now;
       rotFacing = (RotFacing)facingChoice;
       Serial.println("ROT: Facing confirmed");
+      // Wait for Btn2 release to prevent re-trigger
+      while (!digitalRead(BTN2)) delay(50);
       break;
     }
     
@@ -1088,6 +1090,8 @@ void setupRotatorModel() {
       if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
         lastBtn2 = now;
         rotExtended = (RotExtended)extChoice;
+        // Wait for Btn2 release
+        while (!digitalRead(BTN2)) delay(50);
         break;
       }
       
@@ -1148,6 +1152,8 @@ void setupRotatorModel() {
     if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
       lastBtn2 = now;
       Serial.println("ROT: Retrying setup");
+      // Wait for Btn2 release
+      while (!digitalRead(BTN2)) delay(50);
       // Clear EEPROM magic so we re-enter setup
       EEPROM.write(ROT_EEPROM_MAGIC, 0);
       EEPROM.commit();
