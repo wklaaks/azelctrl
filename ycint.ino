@@ -129,6 +129,8 @@ public:
     if (parent) {
       parent->cursor = cursor;
       parent->draw();
+      extern Menu* currentMenu;
+      currentMenu = parent;
     } else {
       init();
     }
@@ -991,15 +993,11 @@ void setupRotatorModel() {
       display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
       display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
       display.setCursor(1, 0);
-      display.print(" ROTATOR SETUP              ");
+      display.print(" Rotator Variant?             ");
 
       display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
 
-      display.setTextColor(SSD1306_WHITE);
-      display.setCursor(2, 10);
-      display.println("Select model:");
-
-      int y = 24;
+      int y = 12;
       for (int i = 0; i < 4; i++) {
         if (i == choice) {
           display.fillRect(0, y, 128, 8, SSD1306_WHITE);
@@ -1019,7 +1017,7 @@ void setupRotatorModel() {
 
       display.setTextColor(SSD1306_WHITE);
       display.setCursor(0, 56);
-      display.println("1.Cycle  1!Select  2.Back");
+      display.println("1.Nav  1!Sel  2.Back");
 
       display.display();
 
@@ -1491,11 +1489,12 @@ void actionRotatorModel();
 void actionBootSkip();
 void actionBootSetup();
 void actionSetupRotator();
+void actionSetupCalibrate();
 void actionSetupWifi();
 void actionWifiModeSta();
 void actionWifiModeAp();
 void actionWifiModeDisable();
-void actionWifiModeSelect();
+void showStationSettings();
 
 // Boot Menu (first screen after boot)
 MenuItem bootItems[] = {
@@ -1504,10 +1503,33 @@ MenuItem bootItems[] = {
 };
 
 // Setup Menu
+char setupRotatorLabel[24] = "Rot Variant";
+char setupCalLabel[24] = "Rot Calibrate";
+
 MenuItem setupItems[] = {
-  {"Rotator", actionSetupRotator, 5, true},  // 5s timeout if not yet configured
+  {setupRotatorLabel, actionSetupRotator, 5, true},  // 5s timeout if not yet configured
+  {setupCalLabel, actionSetupCalibrate, 0, true},
   {"WiFi", actionSetupWifi, 0, true}
 };
+
+void updateSetupLabels() {
+  // Rotator variant label
+  if (hasRotatorModel()) {
+    const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
+    snprintf(setupRotatorLabel, sizeof(setupRotatorLabel), "Rot Variant (%s)", modelNames[rotModel]);
+  } else {
+    strcpy(setupRotatorLabel, "Rot Variant");
+  }
+  setupItems[0].label = setupRotatorLabel;
+
+  // Calibrate label
+  if (calAzValid && calElValid) {
+    strcpy(setupCalLabel, "Rot Calibrate (Y)");
+  } else {
+    strcpy(setupCalLabel, "Rot Calibrate (N)");
+  }
+  setupItems[1].label = setupCalLabel;
+}
 
 // WiFi Mode Menu
 MenuItem wifiModeItems[] = {
@@ -1547,7 +1569,7 @@ MenuItem calPotsItems[] = {
 
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
-Menu setupMenu("Setup", setupItems, 2, nullptr);
+Menu setupMenu("SETUP", setupItems, 3, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
@@ -1937,6 +1959,7 @@ void actionBootSetup() {
   } else {
     setupItems[0].timerSeconds = 0;
   }
+  updateSetupLabels();
   currentMenu = &setupMenu;
   currentMenu->init();
 }
@@ -1950,6 +1973,7 @@ void actionSetupRotator() {
   // Rotator is now configured - clear timer
   setupItems[0].timerSeconds = 0;
   // Go back to setup menu
+  updateSetupLabels();
   currentMenu = &setupMenu;
   currentMenu->init();
 }
@@ -1960,13 +1984,18 @@ void actionSetupWifi() {
   currentMenu->init();
 }
 
+void actionSetupCalibrate() {
+  Serial.println("SETUP: Calibrate");
+  currentMenu = &calPotsMenu;
+  currentMenu->init();
+}
+
 void actionWifiModeSta() {
   Serial.println("WIFI: Mode set to Station");
   deviceWifiMode = MODE_STA;
   saveWifiMode();
-  // Now go to WiFi connect menu to configure credentials
-  currentMenu = &wifiConnectMenu;
-  currentMenu->init();
+  // Show Station Settings screen
+  showStationSettings();
 }
 
 void actionWifiModeAp() {
@@ -1985,8 +2014,169 @@ void actionWifiModeDisable() {
   stopCaptivePortal();
   WiFi.disconnect(true);
   // Go back to setup menu
+  updateSetupLabels();
   currentMenu = &setupMenu;
   currentMenu->init();
+}
+
+void showStationSettings() {
+  Serial.println("WIFI: Showing Station Settings");
+
+  int choice = 0;  // 0=Set via HTTP, 1=Connect
+  unsigned long lastBtn1 = 0;
+  unsigned long lastBtn2 = 0;
+
+  while (true) {
+    lastBtn1 = 0;
+    lastBtn2 = 0;
+
+    // Wait for both buttons released
+    while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+    delay(100);
+
+    while (true) {
+      display.clearDisplay();
+      display.setTextSize(1);
+
+      // Title bar
+      display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+      display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+      display.setCursor(1, 0);
+      display.print(" Station Settings            ");
+
+      // Solid separator
+      display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+
+      // Options
+      display.setTextColor(SSD1306_WHITE);
+      const char* opts[2] = {"Set via HTTP", "Connect"};
+      int y = 12;
+      for (int i = 0; i < 2; i++) {
+        if (i == choice) {
+          display.fillRect(0, y, 128, 8, SSD1306_WHITE);
+          display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+        } else {
+          display.setTextColor(SSD1306_WHITE);
+        }
+        display.setCursor(2, y);
+        display.print(opts[i]);
+        y += 11;
+      }
+
+      // Dotted separator
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 37, SSD1306_WHITE);
+      }
+
+      // SSID info
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(2, 40);
+      if (savedSsid.length() > 0) {
+        display.print("SSID:");
+        display.println(savedSsid);
+      } else {
+        display.println("SSID: None");
+      }
+
+      // Password info
+      display.setCursor(2, 49);
+      if (savedPass.length() > 1) {
+        String masked = String(savedPass[0]) + "*..*" + String(savedPass[savedPass.length() - 1]);
+        display.print("Passwd: ");
+        display.println(masked);
+      } else if (savedPass.length() == 1) {
+        display.print("Passwd: *");
+      } else {
+        display.println("Passwd: None");
+      }
+
+      display.display();
+
+      unsigned long now = millis();
+
+      // Btn1 - cycle
+      if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
+        lastBtn1 = now;
+        choice = 1 - choice;
+      }
+
+      // Btn2 long press - select
+      if (!digitalRead(BTN2)) {
+        unsigned long pressStart = now;
+        while (!digitalRead(BTN2) && millis() - pressStart < 800) {
+          delay(20);
+        }
+        if (millis() - pressStart >= 800) {
+          // Select
+          if (choice == 0) {
+            // Set via HTTP - start captive portal
+            WiFi.disconnect();
+            stopCaptivePortal();
+            startCaptivePortal();
+
+            const char* lines[] = {
+              "Connect phone to:",
+              AP_SSID,
+              "",
+              "IP: 192.168.4.1",
+              ""
+            };
+            Menu::drawNotice("Captive Portal", lines, 5, "1.Done 2.Cancel", true);
+
+            delay(500);
+            while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+            delay(100);
+
+            unsigned long btn2Hold = 0;
+            while (true) {
+              tickCaptivePortal();
+              if (!captivePortalActive) break;
+              if (digitalRead(BTN1)) {
+                delay(300);
+                stopCaptivePortal();
+                loadWifiCredentials();
+                wifiConnectItems[2].visible = hasWifiCredentials();
+                showStationSettings();
+                return;
+              }
+              if (!digitalRead(BTN2)) {
+                if (btn2Hold == 0) btn2Hold = millis();
+                else if (millis() - btn2Hold > 500) {
+                  stopCaptivePortal();
+                  showStationSettings();
+                  return;
+                }
+              } else {
+                btn2Hold = 0;
+              }
+              delay(50);
+            }
+          } else {
+            // Connect
+            if (hasWifiCredentials()) {
+              connectWifiSta();
+              // Check if connected
+              if (WiFi.status() == WL_CONNECTED) {
+                currentMenu = &wifiStatusMenu;
+                currentMenu->init();
+                return;
+              } else {
+                // Connection failed - show AP menu
+                startApMode();
+                currentMenu = &apModeMenu;
+                currentMenu->init();
+                return;
+              }
+            }
+          }
+          // Wait for release
+          while (!digitalRead(BTN2)) delay(50);
+        }
+      }
+
+      delay(50);
+    }
+  }
 }
 
 // ====================== ROTATOR CONTROL DISPLAY ======================
@@ -2518,6 +2708,7 @@ void setup() {
 
     // Go directly to setup menu with Rotator auto-timer
     setupItems[0].timerSeconds = 5;
+    updateSetupLabels();
     currentMenu = &setupMenu;
     currentMenu->init();
   } else {
