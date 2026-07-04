@@ -680,18 +680,14 @@ const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change 
 #define WIFI_MODE_MAGIC_VAL 0x4D
 
 // Rotator model config in EEPROM
-#define ROT_EEPROM_FACING    86
-#define ROT_EEPROM_EXTENDED  87
-#define ROT_EEPROM_MAGIC     88
+#define ROT_EEPROM_MODEL     86
+#define ROT_EEPROM_MAGIC     87
 #define ROT_EEPROM_MAGIC_VAL 0x5A
-#define CAL_EEPROM_SIZE      89
+#define CAL_EEPROM_SIZE      88
 
-// Rotator model
-enum RotFacing { FACING_NORTH, FACING_SOUTH };
-enum RotExtended { EXT_NO, EXT_YES };
-
-RotFacing rotFacing = FACING_NORTH;
-RotExtended rotExtended = EXT_NO;
+// Rotator model - single enum for all 4 options
+enum RotModel { ROT_N360, ROT_S360, ROT_N450, ROT_S450 };
+RotModel rotModel = ROT_N360;
 
 // Calibrated voltage ranges (loaded from EEPROM)
 float calAzMinV = 0.0F, calAzMaxV = 3.2F;
@@ -940,46 +936,43 @@ void loadRotatorModel() {
     Serial.println("ROT: No rotator model in EEPROM - will prompt at boot");
     return;
   }
-  rotFacing = (RotFacing)EEPROM.read(ROT_EEPROM_FACING);
-  rotExtended = (RotExtended)EEPROM.read(ROT_EEPROM_EXTENDED);
-  Serial.print("ROT: Loaded model - Facing=");
-  Serial.println(rotFacing == FACING_NORTH ? "NORTH" : "SOUTH");
-  Serial.print("ROT: Extended=");
-  Serial.println(rotExtended == EXT_YES ? "YES (0-450)" : "NO");
+  rotModel = (RotModel)EEPROM.read(ROT_EEPROM_MODEL);
+  Serial.print("ROT: Loaded model = ");
+  Serial.println(rotModel);
 }
 
 void saveRotatorModel() {
-  EEPROM.write(ROT_EEPROM_FACING, (uint8_t)rotFacing);
-  EEPROM.write(ROT_EEPROM_EXTENDED, (uint8_t)rotExtended);
+  EEPROM.write(ROT_EEPROM_MODEL, (uint8_t)rotModel);
   EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
   EEPROM.commit();
   Serial.println("ROT: Rotator model saved to EEPROM");
 }
 
 String azRangeLabel() {
-  if (rotFacing == FACING_NORTH) return "-180 to +180";
-  if (rotExtended == EXT_YES) return "0 to 450";
-  return "0 to 360";
+  switch (rotModel) {
+    case ROT_N360: return "-180 to +180";
+    case ROT_S360: return "0 to 360";
+    case ROT_N450: return "-180 to +270";
+    case ROT_S450: return "0 to 450";
+  }
+  return "";
 }
 
 float azSpan() {
-  if (rotFacing == FACING_NORTH) return 360.0F;
-  if (rotExtended == EXT_YES) return 450.0F;
+  if (rotModel == ROT_N450 || rotModel == ROT_S450) return 450.0F;
   return 360.0F;
 }
 
 float azOffset() {
-  if (rotFacing == FACING_NORTH) return -180.0F;
-  return 0.0F;
+  if (rotModel == ROT_S360 || rotModel == ROT_S450) return 0.0F;
+  return -180.0F;
 }
 
 void setupRotatorModel() {
   Serial.println("ROT: Starting rotator model setup");
 
-  // States: 0=Q1 Facing, 1=Q2 Extended (if South), 2=Confirm
-  int state = 0;
-  int facingChoice = 0;  // 0=N, 1=S
-  int extChoice = 0;     // 0=No, 1=Yes
+  const char* modelLabels[4] = {"N360 (-180 to 180)", "S360 (0 to 360)", "N450 (-180 to 270)", "S450 (0 to 450)"};
+  int choice = rotModel;  // Default to current
   unsigned long lastBtn1 = 0;
   unsigned long lastBtn2 = 0;
 
@@ -991,204 +984,81 @@ void setupRotatorModel() {
     while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
     delay(100);
 
-    if (state == 0) {
-      // --- Q1: Az Orientation ---
-      facingChoice = (rotFacing == FACING_NORTH) ? 0 : 1;
+    while (true) {
+      display.clearDisplay();
+      display.setTextSize(1);
 
-      while (true) {
-        display.clearDisplay();
-        display.setTextSize(1);
+      display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+      display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+      display.setCursor(1, 0);
+      display.print(" ROTATOR SETUP              ");
 
-        display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
-        display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-        display.setCursor(1, 0);
-        display.print(" ROTATOR SETUP              ");
+      display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
 
-        display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(2, 10);
+      display.println("Select model:");
 
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(2, 10);
-        display.println("Az Orientation ?");
-
-        int y = 24;
-        for (int i = 0; i < 2; i++) {
-          if (i == facingChoice) {
-            display.fillRect(0, y, 128, 8, SSD1306_WHITE);
-            display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-          } else {
-            display.setTextColor(SSD1306_WHITE);
-          }
-
-          display.setCursor(2, y);
-          if (i == 0) {
-            display.print("N  (-180 to +180)");
-          } else {
-            display.print("S  (0 to 360)");
-          }
-          y += 11;
+      int y = 24;
+      for (int i = 0; i < 4; i++) {
+        if (i == choice) {
+          display.fillRect(0, y, 128, 8, SSD1306_WHITE);
+          display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+        } else {
+          display.setTextColor(SSD1306_WHITE);
         }
 
-        for (int x = 0; x < 128; x += 3) {
-          display.drawPixel(x, 53, SSD1306_WHITE);
-        }
-
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 56);
-        display.println("1.Cycle  2.Select");
-
-        display.display();
-
-        unsigned long now = millis();
-
-        if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
-          lastBtn1 = now;
-          facingChoice = 1 - facingChoice;
-          Serial.print("ROT: Facing choice = ");
-          Serial.println(facingChoice == 0 ? "NORTH" : "SOUTH");
-        }
-
-        if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
-          lastBtn2 = now;
-          rotFacing = (RotFacing)facingChoice;
-          Serial.println("ROT: Facing confirmed");
-          while (!digitalRead(BTN2)) delay(50);
-          break;
-        }
-
-        delay(50);
+        display.setCursor(2, y);
+        display.print(modelLabels[i]);
+        y += 11;
       }
 
-      // Move to Q2 if South, else to Confirm
-      if (rotFacing == FACING_SOUTH) {
-        state = 1;
-      } else {
-        extChoice = 0;
-        rotExtended = EXT_NO;
-        state = 2;
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
       }
 
-    } else if (state == 1) {
-      // --- Q2: Extended Range? ---
-      extChoice = (rotExtended == EXT_NO) ? 0 : 1;
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0, 56);
+      display.println("1.Cycle  1!Select  2.Back");
 
-      while (true) {
-        display.clearDisplay();
-        display.setTextSize(1);
+      display.display();
 
-        display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
-        display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-        display.setCursor(1, 0);
-        display.print(" ROTATOR SETUP              ");
+      unsigned long now = millis();
 
-        display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
-
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(2, 10);
-        display.println("Extended range?");
-
-        int y = 24;
-        for (int i = 0; i < 2; i++) {
-          if (i == extChoice) {
-            display.fillRect(0, y, 128, 8, SSD1306_WHITE);
-            display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-          } else {
-            display.setTextColor(SSD1306_WHITE);
-          }
-
-          display.setCursor(2, y);
-          if (i == 0) {
-            display.print("No  (0 to 360)");
-          } else {
-            display.print("Yes (0 to 450)");
-          }
-          y += 11;
+      // Btn1 short press - cycle choice
+      if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
+        // Check for long press (select)
+        unsigned long pressStart = now;
+        while (digitalRead(BTN1) && now - pressStart < 800) {
+          delay(20);
+          now = millis();
         }
-
-        for (int x = 0; x < 128; x += 3) {
-          display.drawPixel(x, 53, SSD1306_WHITE);
-        }
-
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 56);
-        display.println("1.Cycle  2.Done");
-
-        display.display();
-
-        unsigned long now = millis();
-
-        if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
-          lastBtn1 = now;
-          extChoice = 1 - extChoice;
-          Serial.print("ROT: Extended choice = ");
-          Serial.println(extChoice == 0 ? "NO" : "YES");
-        }
-
-        if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
-          lastBtn2 = now;
-          rotExtended = (RotExtended)extChoice;
-          Serial.println("ROT: Extended confirmed");
-          while (!digitalRead(BTN2)) delay(50);
-          break;
-        }
-
-        delay(50);
-      }
-
-      state = 2;
-
-    } else if (state == 2) {
-      // --- Confirm ---
-      saveRotatorModel();
-
-      while (true) {
-        display.clearDisplay();
-        display.setTextSize(1);
-
-        display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
-        display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-        display.setCursor(1, 0);
-        display.print(" ROTATOR SETUP              ");
-
-        display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
-
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(2, 10);
-        display.print("Facing: ");
-        display.println(rotFacing == FACING_NORTH ? "NORTH" : "SOUTH");
-        display.setCursor(2, 21);
-        display.print("Range:  ");
-        display.println(azRangeLabel());
-
-        for (int x = 0; x < 128; x += 3) {
-          display.drawPixel(x, 53, SSD1306_WHITE);
-        }
-
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 56);
-        display.println("1.OK  2.Retry");
-        display.display();
-
-        unsigned long now = millis();
-
-        // Btn1 - OK, done
-        if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
-          lastBtn1 = now;
-          Serial.println("ROT: Setup confirmed, proceeding to boot");
+        if (now - pressStart >= 800) {
+          // Long press - select
+          lastBtn1 = 0;  // Reset so we don't also cycle
+          rotModel = (RotModel)choice;
+          Serial.print("ROT: Selected model = ");
+          Serial.println(rotModel);
+          saveRotatorModel();
           while (digitalRead(BTN1)) delay(50);
-          return;  // Exit setupRotatorModel entirely
+          return;
         }
-
-        // Btn2 - Retry: go back to Q1
-        if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
-          lastBtn2 = now;
-          Serial.println("ROT: Retrying from Q1");
-          while (!digitalRead(BTN2)) delay(50);
-          state = 0;
-          break;
-        }
-
-        delay(50);
+        // Short press - cycle
+        lastBtn1 = now;
+        choice = (choice + 1) % 4;
+        Serial.print("ROT: Model choice = ");
+        Serial.println(choice);
       }
+
+      // Btn2 - back (cancel)
+      if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
+        lastBtn2 = now;
+        Serial.println("ROT: Setup cancelled");
+        while (!digitalRead(BTN2)) delay(50);
+        return;
+      }
+
+      delay(50);
     }
   }
 }
@@ -1999,14 +1869,15 @@ void actionRotatorModel() {
   Serial.println("Action: Rotator Model");
   
   // Show current model
-  String facingStr = rotFacing == FACING_NORTH ? "NORTH" : "SOUTH";
+  const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
+  String modelStr = modelNames[rotModel];
   String rangeStr = azRangeLabel();
   
-  String facingLine = "Facing: " + facingStr;
+  String modelLine = "Model: " + modelStr;
   String rangeLine = "Range: " + rangeStr;
   
   const char* lines[] = {
-    facingLine.c_str(),
+    modelLine.c_str(),
     rangeLine.c_str(),
     "",
     "Change?",
@@ -2025,8 +1896,6 @@ void actionRotatorModel() {
     if (digitalRead(BTN1)) {
       delay(300);
       // Re-enter setup
-      EEPROM.write(ROT_EEPROM_MAGIC, 0);
-      EEPROM.commit();
       setupRotatorModel();
       currentMenu = &wifiConnectMenu;
       currentMenu->init();
