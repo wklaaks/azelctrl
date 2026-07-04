@@ -673,7 +673,20 @@ const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change 
 #define CAL_EEPROM_EL_MAX    79
 #define CAL_EEPROM_MAGIC     83
 #define CAL_EEPROM_MAGIC_VAL 0xCA
-#define CAL_EEPROM_SIZE      84
+
+// Rotator model config in EEPROM
+#define ROT_EEPROM_FACING    84   // 0=North, 1=South
+#define ROT_EEPROM_EXTENDED  85   // 0=No, 1=Yes (only if South)
+#define ROT_EEPROM_MAGIC     86
+#define ROT_EEPROM_MAGIC_VAL 0x5A
+#define CAL_EEPROM_SIZE      87
+
+// Rotator model
+enum RotFacing { FACING_NORTH, FACING_SOUTH };
+enum RotExtended { EXT_NO, EXT_YES };
+
+RotFacing rotFacing = FACING_NORTH;
+RotExtended rotExtended = EXT_NO;
 
 // Calibrated voltage ranges (loaded from EEPROM)
 float calAzMinV = 0.0F, calAzMaxV = 3.2F;
@@ -887,6 +900,230 @@ void saveCalibration() {
   EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
   EEPROM.commit();
   Serial.println("CAL: Calibration saved to EEPROM");
+}
+
+void loadRotatorModel() {
+  if (EEPROM.read(ROT_EEPROM_MAGIC) != ROT_EEPROM_MAGIC_VAL) {
+    Serial.println("ROT: No rotator model in EEPROM - will prompt at boot");
+    return;
+  }
+  rotFacing = (RotFacing)EEPROM.read(ROT_EEPROM_FACING);
+  rotExtended = (RotExtended)EEPROM.read(ROT_EEPROM_EXTENDED);
+  Serial.print("ROT: Loaded model - Facing=");
+  Serial.println(rotFacing == FACING_NORTH ? "NORTH" : "SOUTH");
+  Serial.print("ROT: Extended=");
+  Serial.println(rotExtended == EXT_YES ? "YES (0-450)" : "NO");
+}
+
+void saveRotatorModel() {
+  EEPROM.write(ROT_EEPROM_FACING, (uint8_t)rotFacing);
+  EEPROM.write(ROT_EEPROM_EXTENDED, (uint8_t)rotExtended);
+  EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
+  EEPROM.commit();
+  Serial.println("ROT: Rotator model saved to EEPROM");
+}
+
+String azRangeLabel() {
+  if (rotFacing == FACING_NORTH) return "-180 to +180";
+  if (rotExtended == EXT_YES) return "0 to 450";
+  return "0 to 360";
+}
+
+float azSpan() {
+  if (rotFacing == FACING_NORTH) return 360.0F;
+  if (rotExtended == EXT_YES) return 450.0F;
+  return 360.0F;
+}
+
+float azOffset() {
+  if (rotFacing == FACING_NORTH) return -180.0F;
+  return 0.0F;
+}
+
+void setupRotatorModel() {
+  Serial.println("ROT: Starting rotator model setup");
+  
+  // --- Q1: Facing North or South? ---
+  int facingChoice = 0;  // 0=North, 1=South
+  unsigned long lastBtn1 = 0;
+  unsigned long lastBtn2 = 0;
+  
+  while (true) {
+    display.clearDisplay();
+    
+    // Title bar
+    display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+    display.setCursor(4, 1);
+    display.println("ROTATOR SETUP");
+    
+    display.setTextColor(SSD1306_WHITE);
+    display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
+    
+    display.setCursor(4, 18);
+    display.println("Azimuth facing:");
+    
+    // Options with cursor
+    display.setCursor(4, 30);
+    if (facingChoice == 0) {
+      display.print("> ");
+    } else {
+      display.print("  ");
+    }
+    display.println("NORTH (-180 to +180)");
+    
+    display.setCursor(4, 41);
+    if (facingChoice == 1) {
+      display.print("> ");
+    } else {
+      display.print("  ");
+    }
+    display.println("SOUTH (0 to 360)");
+    
+    // Footer
+    display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
+    display.setCursor(4, 53);
+    display.println("1:Select  2:Next");
+    
+    display.display();
+    
+    unsigned long now = millis();
+    
+    // Btn1 - toggle choice
+    if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
+      lastBtn1 = now;
+      facingChoice = 1 - facingChoice;
+      Serial.print("ROT: Facing choice = ");
+      Serial.println(facingChoice == 0 ? "NORTH" : "SOUTH");
+    }
+    
+    // Btn2 - confirm and move to next question
+    if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
+      lastBtn2 = now;
+      rotFacing = (RotFacing)facingChoice;
+      Serial.println("ROT: Facing confirmed");
+      break;
+    }
+    
+    delay(50);
+  }
+  
+  // --- Q2: Extended Range? (only if South) ---
+  if (rotFacing == FACING_SOUTH) {
+    int extChoice = 0;  // 0=No, 1=Yes
+    lastBtn1 = 0;
+    lastBtn2 = 0;
+    
+    while (true) {
+      display.clearDisplay();
+      
+      // Title bar
+      display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
+      display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+      display.setCursor(4, 1);
+      display.println("ROTATOR SETUP");
+      
+      display.setTextColor(SSD1306_WHITE);
+      display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
+      
+      display.setCursor(4, 18);
+      display.println("Extended range?");
+      
+      // Options with cursor
+      display.setCursor(4, 30);
+      if (extChoice == 0) {
+        display.print("> ");
+      } else {
+        display.print("  ");
+      }
+      display.println("NO (0 to 360)");
+      
+      display.setCursor(4, 41);
+      if (extChoice == 1) {
+        display.print("> ");
+      } else {
+        display.print("  ");
+      }
+      display.println("YES (0 to 450)");
+      
+      // Footer
+      display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
+      display.setCursor(4, 53);
+      display.println("1:Select  2:Done");
+      
+      display.display();
+      
+      unsigned long now = millis();
+      
+      // Btn1 - toggle choice
+      if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
+        lastBtn1 = now;
+        extChoice = 1 - extChoice;
+        Serial.print("ROT: Extended choice = ");
+        Serial.println(extChoice == 0 ? "NO" : "YES");
+      }
+      
+      // Btn2 - confirm and save
+      if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
+        lastBtn2 = now;
+        rotExtended = (RotExtended)extChoice;
+        break;
+      }
+      
+      delay(50);
+    }
+  }
+  
+  // Save to EEPROM
+  saveRotatorModel();
+  
+  // Show confirmation
+  display.clearDisplay();
+  display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+  display.setCursor(4, 1);
+  display.println("ROTATOR SETUP");
+  
+  display.setTextColor(SSD1306_WHITE);
+  display.drawLine(0, 14, 127, 14, SSD1306_WHITE);
+  
+  display.setCursor(4, 18);
+  display.print("Facing: ");
+  display.println(rotFacing == FACING_NORTH ? "NORTH" : "SOUTH");
+  display.setCursor(4, 29);
+  display.print("Range: ");
+  display.println(azRangeLabel());
+  
+  display.drawLine(0, 51, 127, 51, SSD1306_WHITE);
+  display.setCursor(4, 53);
+  display.println("1:OK  2:Retry");
+  display.display();
+  
+  // Wait for OK or Retry
+  lastBtn1 = 0;
+  lastBtn2 = 0;
+  while (true) {
+    unsigned long now = millis();
+    
+    // Btn1 - OK, proceed to boot
+    if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
+      lastBtn1 = now;
+      Serial.println("ROT: Setup confirmed, proceeding to boot");
+      break;
+    }
+    
+    // Btn2 - Retry setup
+    if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
+      lastBtn2 = now;
+      Serial.println("ROT: Retrying setup");
+      // Clear EEPROM magic so we re-enter setup
+      EEPROM.write(ROT_EEPROM_MAGIC, 0);
+      EEPROM.commit();
+      return;  // Re-enter setupRotatorModel()
+    }
+    
+    delay(50);
+  }
 }
 
 void enterCalibrationMode(int axis) {
@@ -1275,7 +1512,7 @@ void readPositions() {
     if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
       float fraction = (azVoltage - calAzMinV) / (calAzMaxV - calAzMinV);
       fraction = constrain(fraction, 0, 1);
-      currentAz = -180.0F + (fraction * 360.0F);
+      currentAz = azOffset() + (fraction * azSpan());
     } else {
       float azFraction = (float)adcAz / 32767.0;
       currentAz = azFraction * 360.0;
@@ -1313,13 +1550,15 @@ void actionCalibrateEl();
 void actionBackToMain();
 void actionRetryWifi();
 void actionApStatus();
+void actionRotatorModel();
 
 // WiFi Connect Menu
 MenuItem wifiConnectItems[] = {
   {"Set WiFi Creds", actionSetWifi, 0, true},
   {"Review Creds", actionReviewWifi, 0, true},
   {"Connect WiFi", actionConnectWifi, 5, false},  // Hidden until SSID saved
-  {"AP Mode (Field)", actionApMode, 0, true}
+  {"AP Mode (Field)", actionApMode, 0, true},
+  {"Rotator Model", actionRotatorModel, 0, true}
 };
 
 // WiFi Status Menu (shown after successful STA connection)
@@ -1343,7 +1582,7 @@ MenuItem calPotsItems[] = {
 };
 
 // Menu instances
-Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 4, nullptr);
+Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
 Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
@@ -1652,6 +1891,53 @@ void actionApStatus() {
     if (!digitalRead(BTN2)) {
       delay(300);
       currentMenu = &apModeMenu;
+      currentMenu->init();
+      return;
+    }
+    delay(50);
+  }
+}
+
+void actionRotatorModel() {
+  Serial.println("Action: Rotator Model");
+  
+  // Show current model
+  String facingStr = rotFacing == FACING_NORTH ? "NORTH" : "SOUTH";
+  String rangeStr = azRangeLabel();
+  
+  String facingLine = "Facing: " + facingStr;
+  String rangeLine = "Range: " + rangeStr;
+  
+  const char* lines[] = {
+    facingLine.c_str(),
+    rangeLine.c_str(),
+    "",
+    "Change?",
+    ""
+  };
+  Menu::drawNotice("Rotator Model", lines, 5, "1:Change 2:Back", true);
+  
+  // Wait for button to fully release after long press
+  delay(500);
+  while (digitalRead(BTN1) || !digitalRead(BTN2)) {
+    delay(50);
+  }
+  delay(100);
+  
+  while (true) {
+    if (digitalRead(BTN1)) {
+      delay(300);
+      // Re-enter setup
+      EEPROM.write(ROT_EEPROM_MAGIC, 0);
+      EEPROM.commit();
+      setupRotatorModel();
+      currentMenu = &wifiConnectMenu;
+      currentMenu->init();
+      return;
+    }
+    if (!digitalRead(BTN2)) {
+      delay(300);
+      currentMenu = &wifiConnectMenu;
       currentMenu->init();
       return;
     }
@@ -2136,6 +2422,7 @@ void setup() {
   // Load saved WiFi credentials
   EEPROM.begin(CAL_EEPROM_SIZE);
   loadWifiCredentials();
+  loadRotatorModel();
   loadCalibration();
   Serial.print("Saved SSID: ");
   Serial.println(savedSsid.length() > 0 ? savedSsid : "(none)");
@@ -2151,6 +2438,11 @@ void setup() {
   display.println("Booting...");
   display.display();
   delay(1000);
+  
+  // Rotator model setup - ask if not saved
+  while (EEPROM.read(ROT_EEPROM_MAGIC) != ROT_EEPROM_MAGIC_VAL) {
+    setupRotatorModel();
+  }
   
   // If no credentials, auto-start captive portal
   if (!hasWifiCredentials()) {
