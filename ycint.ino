@@ -83,13 +83,16 @@ struct MenuItem {
   MenuAction action;
   int timerSeconds;     // 0 = no timer, >0 = countdown
   bool visible;         // Dynamic visibility
+  bool (*isSelectable)();  // nullptr = always selectable; returns false = selection blocked
+  // When blocked, this returns which item indices (0-based) are the blockers, for footer display
+  int (*blockerIndices)(int* indices, int maxCount);  // Returns count of blockers written to indices[]
 };
 
 class Menu {
 public:
   Menu(const char* title, MenuItem* items, int itemCount, Menu* parent = nullptr)
     : title(title), items(items), itemCount(itemCount), parent(parent),
-      cursor(0), timerStart(0), timerActive(false), userInteracted(false) {}
+      cursor(0), timerStart(0), timerActive(false), userInteracted(false), footerText(nullptr) {}
 
   void init() {
     cursor = 0;
@@ -107,6 +110,10 @@ public:
     }
   }
 
+  void setFooter(const char* text) {
+    footerText = text;
+  }
+
   void navigate() {
     userInteracted = true;  // Cancel auto-timer on any button press
     timerActive = false;
@@ -119,8 +126,32 @@ public:
     userInteracted = true;  // Cancel auto-timer on any button press
     timerActive = false;
     if (cursor >= 0 && cursor < itemCount && items[cursor].visible && items[cursor].action) {
-      items[cursor].action();
+      // Check if selection is allowed
+      if (items[cursor].isSelectable == nullptr || items[cursor].isSelectable()) {
+        items[cursor].action();
+      }
     }
+  }
+
+  // Check if current item is selectable (for footer display)
+  bool isCurrentSelectable() {
+    if (cursor < 0 || cursor >= itemCount) return true;
+    if (items[cursor].isSelectable == nullptr) return true;
+    return items[cursor].isSelectable();
+  }
+
+  // Get blocker indices for current item (1-based for display)
+  // Returns count of blockers written to indices[] (as 1-based values)
+  int getBlockerIndices(int* indices, int maxCount) {
+    if (cursor < 0 || cursor >= itemCount) return 0;
+    if (items[cursor].blockerIndices == nullptr) return 0;
+    int raw[4];
+    int count = items[cursor].blockerIndices(raw, 4);
+    int out = 0;
+    for (int i = 0; i < count && out < maxCount && out < 4; i++) {
+      indices[out++] = raw[i] + 1;  // Convert to 1-based
+    }
+    return out;
   }
 
   void back() {
@@ -141,13 +172,16 @@ public:
   }
 
   void tick() {
-    // Don't auto-fire if user has interacted
+    // Don't auto-fire if user has interacted or item is not selectable
     if (timerActive && !userInteracted && cursor >= 0 && cursor < itemCount) {
       int remaining = items[cursor].timerSeconds - (int)((millis() - timerStart) / 1000);
       if (remaining <= 0) {
         timerActive = false;
         if (items[cursor].visible && items[cursor].action) {
-          items[cursor].action();
+          // Check if selection is allowed
+          if (items[cursor].isSelectable == nullptr || items[cursor].isSelectable()) {
+            items[cursor].action();
+          }
         }
       }
     }
@@ -215,7 +249,29 @@ public:
     // Footer
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 56);
-    display.println("1.Nav 1|Sel 2.Back");
+    if (!isCurrentSelectable()) {
+      // Inhibited footer takes priority — show blocker indices
+      int blockers[4];
+      int count = getBlockerIndices(blockers, 4);
+      char footerBuf[24] = "1.Nav  Sel[";
+      int pos = 11;
+      for (int i = 0; i < count && pos < 22; i++) {
+        if (i > 0) {
+          if (pos < 21) footerBuf[pos++] = ',';
+        }
+        int tens = blockers[i] / 10;
+        int ones = blockers[i] % 10;
+        if (tens > 0 && pos < 20) footerBuf[pos++] = '0' + tens;
+        if (pos < 21) footerBuf[pos++] = '0' + ones;
+      }
+      if (pos < 23) footerBuf[pos++] = ']';
+      footerBuf[pos] = '\0';
+      display.println(footerBuf);
+    } else if (footerText) {
+      display.println(footerText);
+    } else {
+      display.println("1.Nav 1|Sel 2.Back");
+    }
     
     display.display();
   }
@@ -301,6 +357,7 @@ private:
   unsigned long timerStart;
   bool timerActive;
   bool userInteracted;  // True when user presses a button — disables auto-timer
+  const char* footerText;  // Custom footer text (nullptr = default "1.Nav 1|Sel 2.Back")
 
   void moveToFirstVisible() {
     for (int i = 0; i < itemCount; i++) {
@@ -326,6 +383,8 @@ private:
 
 // Forward declaration
 extern Menu* currentMenu;
+extern bool skipBtnProcessing;
+extern Menu setupMenu;
 
 // ==================== WIFI CREDENTIAL MANAGEMENT ====================
 // EEPROM layout: byte 0=ssid_len, bytes 1-32=ssid, byte 33=pass_len, bytes 34-65=pass, byte 66=magic
@@ -723,6 +782,8 @@ const float CAL_MAX_SAFE_V = 3.250F;             // Hard voltage safety limit
 const float CAL_STABILITY_THRESHOLD = 15.0F;     // mV - voltage change over stability window
 const float CAL_MIN_RANGE = 0.5F;                // Minimum valid range (maxV - minV)
 const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change to confirm cable
+const float CAL_ASSUMED_PRE_CAL_MAX = 3.200F;    // Assumed max voltage before calibration
+const unsigned long CAL_HEADING_PAUSE = 5000;    // Pause 5s at each cardinal heading during return sweep
 #define CAL_V_SAMPLES 20
 #define CAL_EEPROM_AZ_MIN    67
 #define CAL_EEPROM_AZ_MAX    71
@@ -885,11 +946,10 @@ void startMove(String dir) {
 
 enum CalState {
   CAL_IDLE,
-  CAL_CHECK_STABILITY,  // Measure voltage for 1s to detect unplugged cable
-  CAL_SWEEP_MIN,        // Move CCW/DOWN until voltage stabilizes
-  CAL_WAIT_TIMEOUT_MIN, // Timeout waiting for min - ask user
+  CAL_SWEEP_MIN,        // Move CCW/DOWN until voltage stabilizes (also detects cable)
   CAL_SWEEP_MAX,        // Move CW/UP until voltage stabilizes or hits safety limit
-  CAL_WAIT_TIMEOUT_MAX, // Timeout waiting for max - ask user
+  CAL_ADJUST_MAX,       // Prompt user to manually adjust to exact heading (180° AZ / 90° EL)
+  CAL_RETURN_MIN,       // Return sweep CCW/DOWN to minimum, pausing at cardinal headings
   CAL_COMPLETE,         // Calibration complete, saved to EEPROM
   CAL_ERROR             // Error state with message
 };
@@ -906,9 +966,73 @@ float calStabilityMin = 0;
 unsigned long calStabilityStart = 0;
 String calErrorMessage = "";
 
+// Return sweep tracking (CAL_RETURN_MIN)
+String calCurrentHeading = "";
+unsigned long calHeadingPauseStart = 0;
+int calLastHeadingIndex = -1;  // Track which cardinal heading we last paused at
+
 // Voltage samples for stability detection
 float calVoltageSamples[CAL_V_SAMPLES];
 int calVSampleIdx = 0;
+float calInitialVoltage = 0;  // Voltage at start of CAL_SWEEP_MIN (for cable detection)
+
+// Estimate heading from voltage during calibration (before calAzValid/calElValid is set)
+// Uses rotator model offset/span + assumed or actual voltage range
+float calEstimatedHeading(float voltage, int axis) {
+  if (axis == 0) {
+    // AZ: use rotator model offset/span
+    float minV = calMinVoltage;
+    float maxV = calMaxVoltage;
+    float range = maxV - minV;
+    if (range < 0.01F) {
+      // No calibration data yet — assume ~3.2V range from 0V
+      range = CAL_ASSUMED_PRE_CAL_MAX;
+      minV = 0;
+      maxV = CAL_ASSUMED_PRE_CAL_MAX;
+    }
+    float fraction = (voltage - minV) / range;
+    fraction = constrain(fraction, 0, 1);
+    return azOffset() + (fraction * azSpan());
+  } else {
+    // EL: 0 to 180
+    float minV = calMinVoltage;
+    float maxV = calMaxVoltage;
+    float range = maxV - minV;
+    if (range < 0.01F) {
+      range = CAL_ASSUMED_PRE_CAL_MAX;
+      minV = 0;
+      maxV = CAL_ASSUMED_PRE_CAL_MAX;
+    }
+    float fraction = (voltage - minV) / range;
+    fraction = constrain(fraction, 0, 1);
+    return fraction * 180.0F;
+  }
+}
+
+// Cardinal headings for the return sweep (ordered max→min for CCW sweep)
+// S(+180), SW(+135), W(+90), NW(+45), N(0), NE(-45), E(-90), SE(-135), S(-180)
+const char* calCardinalNames[] = {"S", "SW", "W", "NW", "N", "NE", "E", "SE", "S"};
+const float calCardinalAngles[] = {180, 135, 90, 45, 0, -45, -90, -135, -180};
+const int calCardinalCount = 9;
+
+// Get the next cardinal heading index we should pause at during return sweep
+// Returns -1 when no more headings to pause at
+int calNextCardinalHeading(float currentHeading) {
+  // We're sweeping CCW from max toward min, so headings decrease
+  // Find the next heading we've reached or passed (within 1° tolerance)
+  // Last heading (S at -180°) uses 0° tolerance since hard stop follows
+  for (int i = calLastHeadingIndex + 1; i < calCardinalCount; i++) {
+    float tolerance = (i == calCardinalCount - 1) ? 0.0F : 1.0F;
+    if (currentHeading <= calCardinalAngles[i] + tolerance) {
+      Serial.print("CAL: Heading ");
+      Serial.print(currentHeading, 1);
+      Serial.print(" reached cardinal ");
+      Serial.println(calCardinalNames[i]);
+      return i;
+    }
+  }
+  return -1;
+}
 
 // Calibrated voltage ranges (loaded from EEPROM) — declared with constants above
 // float calAzMinV, calAzMaxV, calElMinV, calElMaxV, calAzValid, calElValid
@@ -1003,6 +1127,19 @@ void saveRotatorModel() {
   EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
   EEPROM.commit();
   Serial.println("ROT: Rotator model saved to EEPROM");
+  
+  // Clear calibration when model changes — azimuth range may have changed
+  clearCalibration();
+}
+
+void clearCalibration() {
+  // Invalidate calibration magic byte
+  EEPROM.write(CAL_EEPROM_MAGIC, 0);
+  EEPROM.commit();
+  calAzValid = false;
+  calElValid = false;
+  calAzMinV = calAzMaxV = calElMinV = calElMaxV = 0;
+  Serial.println("CAL: Calibration cleared — recalibrate required");
 }
 
 String azRangeLabel() {
@@ -1025,14 +1162,29 @@ float azOffset() {
   return -180.0F;
 }
 
+// Convert azimuth to display format (always positive, matching controller display)
+// N360: -180→180, -90→270, 0→0, +90→90, +180→180
+// S360: no change (already 0-360)
+// N450: -180→180, -90→270, 0→0, +90→90, +180→180, +270→270
+// S450: no change (already 0-450)
+float displayAzimuth(float az) {
+  if (az < 0) az += 360.0F;
+  return az;
+}
+
 void setupRotatorModel() {
   Serial.println("ROT: Starting rotator model setup");
 
   const char* modelLabels[4] = {"N360 (-180 to 180)", "S360 (0 to 360)", "N450 (-180 to 270)", "S450 (0 to 450)"};
   int choice = rotModel;  // Default to current
   bool firstDraw = true;
+  bool btn1WasPressed = false;
+  bool btn2WasPressed = false;
 
   while (true) {
+    bool btn1 = digitalRead(BTN1);      // HIGH = pressed
+    bool btn2 = !digitalRead(BTN2);     // LOW = pressed
+
     display.clearDisplay();
     display.setTextSize(1);
 
@@ -1063,7 +1215,7 @@ void setupRotatorModel() {
 
     display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 56);
-    display.println("1.Nav  1!Sel  2.Back");
+    display.println("1.Nav  1|Sel  2.Back");
 
     display.display();
 
@@ -1072,54 +1224,67 @@ void setupRotatorModel() {
       firstDraw = false;
       while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
       delay(100);
+      btn1WasPressed = false;
+      btn2WasPressed = false;
+      continue;
     }
 
     unsigned long now = millis();
 
-    // Btn1 short press - cycle choice
-    if (digitalRead(BTN1)) {
+    // Btn1: short-press = cycle, long-press = select
+    if (btn1 && !btn1WasPressed) {
       unsigned long pressStart = now;
-      while (digitalRead(BTN1) && now - pressStart < 800) {
+      while (digitalRead(BTN1) && (millis() - pressStart < 800)) {
         delay(20);
-        now = millis();
       }
-      if (now - pressStart >= 800) {
-        // Long press - select
+      if (millis() - pressStart >= 800) {
+        // Long press - select and save
         Serial.print("ROT: Selected model ");
         Serial.println(choice);
         rotModel = (RotModel)choice;
         saveRotatorModel();
+        // Return immediately — do NOT wait for button release here.
+        // The caller (actionSetupRotator) will wait for release on firstDraw.
         return;
       }
-      // Short press - cycle
+      // Short press - cycle choice
       choice = (choice + 1) % 4;
     }
 
-    // Btn2 - back
-    if (!digitalRead(BTN2)) {
-      delay(300);
-      if (!digitalRead(BTN2)) {
-        Serial.println("ROT: Back from rotator setup");
-        return;
-      }
+    // Btn2: edge-detect press = back (short or long)
+    if (btn2 && !btn2WasPressed) {
+      // Debounce delay
+      delay(BTN_DEBOUNCE_MS);
+      Serial.println("ROT: Back from rotator setup");
+      // Wait for button release before returning to prevent carryover
+      while (!digitalRead(BTN2)) delay(50);
+      delay(50);
+      return;
     }
+
+    btn1WasPressed = btn1;
+    btn2WasPressed = btn2;
 
     delay(50);
   }
 }
 
 void enterCalibrationMode(int axis) {
-  calState = CAL_CHECK_STABILITY;
+  calState = CAL_SWEEP_MIN;
   calCurrentAxis = axis;
-  calDirection = -1;  // Start CCW/DOWN
+  calDirection = 0;
   calPhaseStart = millis();
   calMinVoltage = 0;
   calMaxVoltage = 0;
   calStabilityMax = 0;
   calStabilityMin = 32767;
   calStabilityStart = millis();
+  calInitialVoltage = 0;
   calVSampleIdx = 0;
   calErrorMessage = "";
+  calCurrentHeading = "";
+  calHeadingPauseStart = 0;
+  calLastHeadingIndex = -1;
   stopAll();
   currentMenu = nullptr;
   
@@ -1193,124 +1358,265 @@ void updateCalibrationState() {
   }
   
   switch (calState) {
-    case CAL_CHECK_STABILITY:
-      // Move motor in both directions to detect cable connection.
-      // Phase 1: CCW/DOWN for 3s, Phase 2: CW/UP for 3s
-      // If voltage doesn't change in either direction, cable is unplugged.
+    case CAL_SWEEP_MIN: {
+      // Move CCW/DOWN to find minimum voltage.
+      // First call: capture initial voltage, start moving CCW.
+      // If initial voltage < 30mV and voltage doesn't change → already at limit.
+      // Otherwise keep going until voltage stabilizes.
       if (calVSampleIdx <= 1) {
-        // First iteration: capture initial voltage, start moving CCW
+        // First iteration: capture initial voltage, start moving CCW/DOWN
+        calInitialVoltage = vRaw;
         calStabilityMax = vRaw;
         calStabilityMin = vRaw;
         setCalDirection(-1);
-        Serial.println("CAL: Checking cable (moving CCW)...");
+        Serial.print("CAL: Starting sweep to minimum (initial: ");
+        Serial.print(vRaw, 3);
+        Serial.println("V)");
       }
+      
       // Track voltage range
       if (vRaw > calStabilityMax) calStabilityMax = vRaw;
       if (vRaw < calStabilityMin) calStabilityMin = vRaw;
       
-      // After 3s, reverse direction
-      if (millis() - calPhaseStart >= 3000 && calDirection == -1) {
-        setCalDirection(1);
-        Serial.println("CAL: Checking cable (moving CW)...");
-      }
-      
-      if (millis() - calPhaseStart >= CAL_DETECT_TIME) {
-        // Check if voltage changed enough to confirm cable is connected
-        float change = (calStabilityMax - calStabilityMin) * 1000;  // mV
-        Serial.print("CAL: Voltage change = ");
-        Serial.print(change);
-        Serial.println(" mV");
-        
-        if (change < CAL_DETECT_MIN_CHANGE) {
-          // Voltage didn't change in either direction — cable unplugged
-          calState = CAL_ERROR;
-          char buf[30];
-          snprintf(buf, sizeof(buf), "dV (%.0fmV) too small", change);
-          calErrorMessage = String(buf);
-          stopAll();
-          calDirection = 0;
-          Serial.println("CAL: ERROR - No voltage change detected, check cable");
-        } else {
-          // Voltage changed — cable is connected, proceed to sweep min
-          calState = CAL_SWEEP_MIN;
-          calPhaseStart = millis();
-          calVSampleIdx = 0;
-          stopAll();
-          calDirection = 0;
-          // Start fresh moving CCW/DOWN
-          setCalDirection(-1);
-          Serial.println("CAL: Cable confirmed, starting sweep to minimum");
-        }
-      }
-      break;
-      
-    case CAL_SWEEP_MIN:
-      // Monitor for voltage stabilization or timeout
+      // Check if voltage stabilized (reached hard limit)
       if (isVoltageStable(vRaw)) {
-        // Voltage stabilized - we hit the minimum limit
         calMinVoltage = vRaw;
         stopAll();
         calDirection = 0;
-        Serial.print("CAL: Min voltage found: ");
+        Serial.print("CAL: Min voltage found (stable): ");
         Serial.println(calMinVoltage, 3);
         
         // Proceed to sweep max
         calState = CAL_SWEEP_MAX;
         calPhaseStart = millis();
         calVSampleIdx = 0;
+        memset(calVoltageSamples, 0, sizeof(calVoltageSamples));
         setCalDirection(1);
         Serial.println("CAL: Starting sweep to maximum");
-      } else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
-        // Timeout - ask user
-        calState = CAL_WAIT_TIMEOUT_MIN;
-        calMinVoltage = vRaw;  // Use current reading as best guess
+      }
+      // If initial voltage was already very low (<30mV) and voltage hasn't
+      // changed significantly, we were already at the CCW limit
+      else if (calInitialVoltage < 0.03F &&
+               (calStabilityMax - calStabilityMin) * 1000 < 50) {
+        // Voltage was already near zero and hasn't changed → already at limit
+        calMinVoltage = vRaw;
         stopAll();
         calDirection = 0;
-        Serial.println("CAL: Timeout sweeping to minimum");
+        Serial.print("CAL: Already at minimum (initial: ");
+        Serial.print(calInitialVoltage, 3);
+        Serial.println("V)");
+        
+        // Proceed to sweep max
+        calState = CAL_SWEEP_MAX;
+        calPhaseStart = millis();
+        calVSampleIdx = 0;
+        memset(calVoltageSamples, 0, sizeof(calVoltageSamples));
+        setCalDirection(1);
+        Serial.println("CAL: Starting sweep to maximum");
+      }
+      else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+        // Timeout - use current reading as best guess
+        calMinVoltage = vRaw;
+        stopAll();
+        calDirection = 0;
+        Serial.print("CAL: Timeout sweeping min, using: ");
+        Serial.println(calMinVoltage, 3);
+        
+        // Proceed to sweep max
+        calState = CAL_SWEEP_MAX;
+        calPhaseStart = millis();
+        calVSampleIdx = 0;
+        memset(calVoltageSamples, 0, sizeof(calVoltageSamples));
+        setCalDirection(1);
       }
       break;
+    }
       
-    case CAL_WAIT_TIMEOUT_MIN:
-      // Wait for user input - handled in button handler
-      break;
+    case CAL_SWEEP_MAX: {
+      // Move CW/UP to find maximum voltage.
+      // After 3 seconds, check if voltage increased → cable detection.
+      // Continue until voltage stabilizes or hits safety limit.
+      if (calVSampleIdx <= 1) {
+        calStabilityMax = vRaw;
+        calStabilityMin = vRaw;
+      }
       
-    case CAL_SWEEP_MAX:
-      // Monitor for voltage stabilization, safety limit, or timeout
+      // Track voltage range
+      if (vRaw > calStabilityMax) calStabilityMax = vRaw;
+      if (vRaw < calStabilityMin) calStabilityMin = vRaw;
+      
+      // After 3 seconds, check if voltage increased (cable detection)
+      if (millis() - calPhaseStart >= 3000 && calVSampleIdx > 5) {
+        float increase = (calStabilityMax - calMinVoltage) * 1000;  // mV increase from min
+        Serial.print("CAL: Voltage increase after 3s: ");
+        Serial.print(increase);
+        Serial.println(" mV");
+        
+        if (increase < CAL_DETECT_MIN_CHANGE) {
+          // Voltage didn't increase → cable unplugged or not connected
+          calState = CAL_ERROR;
+          char buf[30];
+          snprintf(buf, sizeof(buf), "dV (%.0fmV) too small", increase);
+          calErrorMessage = String(buf);
+          stopAll();
+          calDirection = 0;
+          Serial.println("CAL: ERROR - No voltage increase, check cable");
+          break;
+        }
+      }
+      
+      // Safety limit
       if (vRaw >= CAL_MAX_SAFE_V) {
-        // Hit safety voltage limit
         calMaxVoltage = vRaw;
         stopAll();
         calDirection = 0;
         Serial.print("CAL: Max voltage hit safety limit: ");
         Serial.println(calMaxVoltage, 3);
         
-        // Save calibration
-        saveCalibration();
-        calState = CAL_COMPLETE;
-      } else if (isVoltageStable(vRaw)) {
-        // Voltage stabilized - we hit the maximum limit
+        // Prompt user to adjust to exact heading
+        calState = CAL_ADJUST_MAX;
+        Serial.println("CAL: Waiting for user to adjust to exact heading");
+      }
+      // Voltage stabilized (reached hard limit)
+      // Only check stability if voltage has increased significantly from min
+      // to avoid false detection while rotator is just starting to move
+      else if ((calStabilityMax - calMinVoltage) * 1000 > 100 && isVoltageStable(vRaw)) {
         calMaxVoltage = vRaw;
         stopAll();
         calDirection = 0;
-        Serial.print("CAL: Max voltage found: ");
+        Serial.print("CAL: Max voltage found (stable): ");
         Serial.println(calMaxVoltage, 3);
         
-        // Save calibration
-        saveCalibration();
-        calState = CAL_COMPLETE;
-      } else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
-        // Timeout - ask user
-        calState = CAL_WAIT_TIMEOUT_MAX;
-        calMaxVoltage = vRaw;  // Use current reading as best guess
+        // Prompt user to adjust to exact heading
+        calState = CAL_ADJUST_MAX;
+        Serial.println("CAL: Waiting for user to adjust to exact heading");
+      }
+      else if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+        // Timeout - use current reading
+        calMaxVoltage = vRaw;
         stopAll();
         calDirection = 0;
-        Serial.println("CAL: Timeout sweeping to maximum");
+        Serial.print("CAL: Timeout sweeping max, using: ");
+        Serial.println(calMaxVoltage, 3);
+        
+        // Prompt user to adjust to exact heading
+        calState = CAL_ADJUST_MAX;
+        Serial.println("CAL: Waiting for user to adjust to exact heading");
       }
       break;
+    }
       
-    case CAL_WAIT_TIMEOUT_MAX:
-      // Wait for user input - handled in button handler
+    case CAL_ADJUST_MAX: {
+      // Prompt user to manually adjust to exact heading (180° AZ / 90° EL)
+      // Btn1 = Continue, Btn2 = Back/Cancel
+      float vRawNow = (calCurrentAxis == 0) ?
+        ((float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F) :
+        ((float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F);
+      calMaxVoltage = vRawNow;  // Update max voltage as user adjusts
       break;
+    }
+      
+    case CAL_RETURN_MIN: {
+      // Return sweep: move back to minimum, pausing at interval headings
+      float estHeading;
+      
+      if (calCurrentAxis == 0) {
+        // AZ: use cardinal headings (S, SW, W, NW, N, NE, E, SE, S)
+        estHeading = calEstimatedHeading(vRaw, 0);
+        
+        if (calCurrentHeading.length() > 0 && millis() - calHeadingPauseStart < CAL_HEADING_PAUSE) {
+          break;
+        }
+        
+        if (calCurrentHeading.length() > 0) {
+          calCurrentHeading = "";
+          calVSampleIdx = 0;
+          setCalDirection(-1);
+        }
+        
+        if (isVoltageStable(vRaw)) {
+          stopAll();
+          calDirection = 0;
+          calState = CAL_COMPLETE;
+          Serial.println("CAL: Return sweep complete — at minimum");
+          break;
+        }
+        
+        if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+          stopAll();
+          calDirection = 0;
+          calState = CAL_COMPLETE;
+          Serial.println("CAL: Return sweep timeout — proceeding to complete");
+          break;
+        }
+        
+        int nextHeading = calNextCardinalHeading(estHeading);
+        if (nextHeading >= 0) {
+          calCurrentHeading = String(calCardinalNames[nextHeading]);
+          calHeadingPauseStart = millis();
+          calLastHeadingIndex = nextHeading;
+          stopAll();
+          calDirection = 0;
+          Serial.print("CAL: Pausing at ");
+          Serial.println(calCurrentHeading);
+        } else if (calDirection != -1) {
+          setCalDirection(-1);
+        }
+      } else {
+        // EL: use elevation interval headings (180, 150, 120, 90, 60, 30, 0)
+        estHeading = calEstimatedHeading(vRaw, 1);
+        
+        if (calCurrentHeading.length() > 0 && millis() - calHeadingPauseStart < CAL_HEADING_PAUSE) {
+          break;
+        }
+        
+        if (calCurrentHeading.length() > 0) {
+          calCurrentHeading = "";
+          calVSampleIdx = 0;
+          setCalDirection(-1);
+        }
+        
+        if (isVoltageStable(vRaw)) {
+          stopAll();
+          calDirection = 0;
+          calState = CAL_COMPLETE;
+          Serial.println("CAL: EL return sweep complete — at minimum");
+          break;
+        }
+        
+        if (millis() - calPhaseStart >= CAL_SWEEP_TIMEOUT) {
+          stopAll();
+          calDirection = 0;
+          calState = CAL_COMPLETE;
+          Serial.println("CAL: EL return sweep timeout — proceeding to complete");
+          break;
+        }
+        
+        // Check elevation intervals: 135, 90, 45, 0
+        const float elIntervals[] = {135, 90, 45, 0};
+        const char* elIntervalNames[] = {"135", "90", "45", "0"};
+        const int elIntervalCount = 4;
+        
+        for (int i = calLastHeadingIndex + 1; i < elIntervalCount; i++) {
+          float tolerance = (i == elIntervalCount - 1) ? 0.0F : 1.0F;
+          if (estHeading <= elIntervals[i] + tolerance) {
+            calCurrentHeading = String(elIntervalNames[i]);
+            calHeadingPauseStart = millis();
+            calLastHeadingIndex = i;
+            stopAll();
+            calDirection = 0;
+            Serial.print("CAL: EL pausing at ");
+            Serial.println(calCurrentHeading);
+            break;
+          }
+        }
+        
+        if (calCurrentHeading.length() == 0 && calDirection != -1) {
+          setCalDirection(-1);
+        }
+      }
+      break;
+    }
       
     case CAL_COMPLETE:
       // Wait for user input
@@ -1340,17 +1646,19 @@ void displayCalibrationScreen() {
   // Status text right after prefix
   display.print(" ");
   switch (calState) {
-    case CAL_CHECK_STABILITY: display.print("Check Cable"); break;
     case CAL_SWEEP_MIN:
       if (calCurrentAxis == 0) display.print("Sweep CCW");
       else display.print("Sweep DOWN");
       break;
-    case CAL_WAIT_TIMEOUT_MIN: display.print("Timeout"); break;
     case CAL_SWEEP_MAX:
       if (calCurrentAxis == 0) display.print("Sweep CW");
       else display.print("Sweep UP");
       break;
-    case CAL_WAIT_TIMEOUT_MAX: display.print("Timeout"); break;
+    case CAL_RETURN_MIN:
+      if (calCurrentAxis == 0) display.print("Return CCW");
+      else display.print("Return DOWN");
+      break;
+    case CAL_ADJUST_MAX: display.print("Adjust Max"); break;
     case CAL_COMPLETE: display.print("CALIBRATED"); break;
     case CAL_ERROR: display.print("ERROR!"); break;
     default: break;
@@ -1364,25 +1672,12 @@ void displayCalibrationScreen() {
   display.setTextColor(SSD1306_WHITE);
   
   switch (calState) {
-    case CAL_CHECK_STABILITY:
-      display.setCursor(2, y);
-      if (calDirection == -1) {
-        if (calCurrentAxis == 0) display.println("Trying CCW...");
-        else display.println("Trying DOWN...");
-      } else if (calDirection == 1) {
-        if (calCurrentAxis == 0) display.println("Trying CW...");
-        else display.println("Trying UP...");
-      } else {
-        display.println("Stopped");
-      }
-      break;
-      
     case CAL_SWEEP_MIN:
-      break;
-      
-    case CAL_WAIT_TIMEOUT_MIN:
       display.setCursor(2, y);
-      display.println("Not at limit");
+      display.print("Moving ");
+      if (calCurrentAxis == 0) display.print("CCW");
+      else display.print("DOWN");
+      display.println("...");
       break;
       
     case CAL_SWEEP_MAX:
@@ -1392,15 +1687,62 @@ void displayCalibrationScreen() {
       display.println("V");
       break;
       
-    case CAL_WAIT_TIMEOUT_MAX:
-      display.setCursor(2, y);
-      display.println("Not at limit");
-      y += 11;
+    case CAL_RETURN_MIN: {
       display.setCursor(2, y);
       display.print("Min: ");
       display.print(calMinVoltage, 3);
       display.println("V");
+      y += 11;
+      display.setCursor(2, y);
+      if (calCurrentHeading.length() > 0) {
+        // Paused — show countdown
+        int remaining = max(0, (int)((CAL_HEADING_PAUSE - (millis() - calHeadingPauseStart)) / 1000));
+        display.print("Stopped at: ");
+        display.print(calCurrentHeading);
+        display.print(" [");
+        display.print(remaining);
+        display.println("]");
+      } else {
+        // Moving — show next heading to pause at
+        if (calCurrentAxis == 0) {
+          // AZ: cardinal headings
+          if (calLastHeadingIndex + 1 < calCardinalCount) {
+            display.print("Next: ");
+            display.println(calCardinalNames[calLastHeadingIndex + 1]);
+          } else {
+            display.println("Next: ---");
+          }
+        } else {
+          // EL: elevation intervals
+          const char* elIntervalNames[] = {"135", "90", "45", "0"};
+          const int elIntervalCount = 4;
+          if (calLastHeadingIndex + 1 < elIntervalCount) {
+            display.print("Next: ");
+            display.println(elIntervalNames[calLastHeadingIndex + 1]);
+          } else {
+            display.println("Next: ---");
+          }
+        }
+      }
       break;
+    }
+      
+    case CAL_ADJUST_MAX: {
+      display.setCursor(2, y);
+      if (calCurrentAxis == 0) {
+        display.println("Adjust Az to");
+        y += 11;
+        display.setCursor(2, y);
+        display.println("exactly 180 deg");
+      } else {
+        display.setCursor(2, y);
+        display.println("Adjust El to");
+        y += 11;
+        display.setCursor(2, y);
+        display.println("exactly 180 deg");
+      }
+      break;
+    }
       
     case CAL_COMPLETE:
       y = 10;
@@ -1432,7 +1774,10 @@ void displayCalibrationScreen() {
   display.setCursor(0, 32);
   display.print(" AZ:");
   {
-    String azStr = String(currentAz, 1);
+    // During AZ calibration, use estimated heading based on rotator model
+    float azVal = (calCurrentAxis == 0 && calState != CAL_IDLE && calState != CAL_COMPLETE && calState != CAL_ERROR)
+      ? displayAzimuth(calEstimatedHeading(azVoltage, 0)) : displayAzimuth(currentAz);
+    String azStr = String(azVal, 1);
     while (azStr.length() < 6) azStr = " " + azStr;
     display.print(azStr);
   }
@@ -1447,7 +1792,10 @@ void displayCalibrationScreen() {
   display.setCursor(0, 43);
   display.print(" EL:");
   {
-    String elStr = String(currentEl, 1);
+    // During EL calibration, use estimated heading
+    float elVal = (calCurrentAxis == 1 && calState != CAL_IDLE && calState != CAL_COMPLETE && calState != CAL_ERROR)
+      ? calEstimatedHeading(elVoltage, 1) : currentEl;
+    String elStr = String(elVal, 1);
     while (elStr.length() < 6) elStr = " " + elStr;
     display.print(elStr);
   }
@@ -1470,7 +1818,7 @@ void displayCalibrationScreen() {
   display.setCursor(0, 56);
   if (calState == CAL_COMPLETE) display.println("1.Done 2.Back");
   else if (calState == CAL_ERROR) display.println("1.Retry 2.Back");
-  else if (calState == CAL_WAIT_TIMEOUT_MIN || calState == CAL_WAIT_TIMEOUT_MAX) display.println("1.Proceed 2.Cancel");
+  else if (calState == CAL_ADJUST_MAX) display.println("1.Continue 2.Cancel");
   else display.println("1.Exit 2.Back");
   
   display.display();
@@ -1510,10 +1858,10 @@ void readPositions() {
     if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
       float fraction = (elVoltage - calElMinV) / (calElMaxV - calElMinV);
       fraction = constrain(fraction, 0, 1);
-      currentEl = fraction * 90.0F;
+      currentEl = fraction * 180.0F;
     } else {
       float elFraction = (float)adcEl / 32767.0;
-      currentEl = elFraction * 90.0;
+      currentEl = elFraction * 180.0;
     }
   }
 }
@@ -1547,8 +1895,8 @@ int waitForWifiConnection(bool allowCancel = true);
 
 // Boot Menu (first screen after boot)
 MenuItem bootItems[] = {
-  {"Skip", actionBootSkip, 3, true},    // 3s timeout auto-select
-  {"Setup", actionBootSetup, 0, true}
+  {"Rotator Ctrl", actionBootSkip, 3, true, nullptr, nullptr},    // 3s timeout auto-select
+  {"Setup", actionBootSetup, 0, true, nullptr, nullptr}
 };
 
 // Setup Menu
@@ -1556,11 +1904,24 @@ char setupRotatorLabel[24] = "Rot Variant";
 char setupCalLabel[24] = "Rot Calibrate";
 char setupWifiLabel[24] = "Wifi(None)";
 
+// Dependency check: Rot Calibrate requires Rot Variant to be configured
+bool checkCalibrateSelectable() {
+  return hasRotatorModel();
+}
+
+int getCalibrateBlockers(int* indices, int maxCount) {
+  if (!hasRotatorModel() && maxCount > 0) {
+    indices[0] = 0;  // Index 0 = "Rot Variant" (0-based)
+    return 1;
+  }
+  return 0;
+}
+
 MenuItem setupItems[] = {
-  {setupRotatorLabel, actionSetupRotator, 5, true},
-  {setupCalLabel, actionSetupCalibrate, 0, true},
-  {setupWifiLabel, actionSetupWifi, 0, true},
-  {"Wipe all settings", actionSetupWipe, 0, true}
+  {setupRotatorLabel, actionSetupRotator, 5, true, nullptr, nullptr},
+  {setupCalLabel, actionSetupCalibrate, 0, true, checkCalibrateSelectable, getCalibrateBlockers},
+  {setupWifiLabel, actionSetupWifi, 0, true, nullptr, nullptr},
+  {"Wipe all settings", actionSetupWipe, 0, true, nullptr, nullptr}
 };
 
 void updateSetupLabels() {
@@ -1586,46 +1947,77 @@ void updateSetupLabels() {
     strcpy(setupWifiLabel, "Wifi(Station)");
   } else if (deviceWifiMode == MODE_AP) {
     strcpy(setupWifiLabel, "Wifi(AP)");
+  } else if (EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL) {
+    strcpy(setupWifiLabel, "Wifi(Disabled)");
   } else {
     strcpy(setupWifiLabel, "Wifi(None)");
   }
   setupItems[2].label = setupWifiLabel;
+
+  // Footer: hide Back button when mandatory setup items are incomplete
+  if (allSetupComplete()) {
+    setupMenu.setFooter("1.Nav 1|Sel 2.Back");
+  } else {
+    setupMenu.setFooter("1.Nav 1|Sel");
+  }
+}
+
+// Check if all mandatory setup items are configured
+bool allSetupComplete() {
+  return hasRotatorModel() && calAzValid && calElValid && EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL;
+}
+
+// Set auto-select timer on the next unconfigured mandatory item
+void updateSetupTimers() {
+  // Reset all timers first
+  setupItems[0].timerSeconds = 0;
+  setupItems[1].timerSeconds = 0;
+  setupItems[2].timerSeconds = 0;
+
+  // Find first unconfigured mandatory item
+  if (!hasRotatorModel()) {
+    setupItems[0].timerSeconds = 5;
+    return;
+  }
+  if (!calAzValid || !calElValid) {
+    setupItems[1].timerSeconds = 5;
+    return;
+  }
+  if (EEPROM.read(WIFI_MODE_MAGIC) != WIFI_MODE_MAGIC_VAL) {
+    setupItems[2].timerSeconds = 5;
+    return;
+  }
+  // All configured - no timer needed
 }
 
 // WiFi Mode Menu
 MenuItem wifiModeItems[] = {
-  {"Station", actionWifiModeSta, 0, true},
-  {"Access Point", actionWifiModeAp, 0, true},
-  {"Disable", actionWifiModeDisable, 0, true}
+  {"Station", actionWifiModeSta, 0, true, nullptr, nullptr},
+  {"Access Point", actionWifiModeAp, 0, true, nullptr, nullptr},
+  {"Disable", actionWifiModeDisable, 0, true, nullptr, nullptr}
 };
 
 // WiFi Connect Menu
 MenuItem wifiConnectItems[] = {
-  {"Set WiFi Creds", actionSetWifi, 0, true},
-  {"Review Creds", actionReviewWifi, 0, true},
-  {"Connect WiFi", actionConnectWifi, 5, false},  // Hidden until SSID saved
-  {"AP Mode (Field)", actionApMode, 0, true},
-  {"Rotator Model", actionRotatorModel, 0, true}
-};
-
-// WiFi Status Menu (shown after successful STA connection)
-MenuItem wifiStatusItems[] = {
-  {"Rotator Ctrl", actionRotatorControl, 5, true},
-  {"Calibrate Pots", actionCalibratePots, 0, true}
+  {"Set WiFi Creds", actionSetWifi, 0, true, nullptr, nullptr},
+  {"Review Creds", actionReviewWifi, 0, true, nullptr, nullptr},
+  {"Connect WiFi", actionConnectWifi, 5, false, nullptr, nullptr},  // Hidden until SSID saved
+  {"AP Mode (Field)", actionApMode, 0, true, nullptr, nullptr},
+  {"Rotator Model", actionRotatorModel, 0, true, nullptr, nullptr}
 };
 
 // AP Mode Menu (shown when STA fails or user selects field mode)
 MenuItem apModeItems[] = {
-  {"Rotator Control", actionRotatorControl, 5, true},
-  {"AP Status", actionApStatus, 0, true},
-  {"Retry Home WiFi", actionRetryWifi, 0, true},
-  {"Calibrate Pots", actionCalibratePots, 0, true}
+  {"Rotator Control", actionRotatorControl, 5, true, nullptr, nullptr},
+  {"AP Status", actionApStatus, 0, true, nullptr, nullptr},
+  {"Retry Home WiFi", actionRetryWifi, 0, true, nullptr, nullptr},
+  {"Calibrate Pots", actionCalibratePots, 0, true, nullptr, nullptr}
 };
 
-// Calibrate Pots Menu
+// Voltage Calibration Menu
 MenuItem calPotsItems[] = {
-  {"Calibrate AZ Pot", actionCalibrateAz, 0, true},
-  {"Calibrate EL Pot", actionCalibrateEl, 0, true}
+  {"Azimuth", actionCalibrateAz, 0, true, nullptr, nullptr},
+  {"Elevation", actionCalibrateEl, 0, true, nullptr, nullptr}
 };
 
 // Menu instances
@@ -1633,9 +2025,8 @@ Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 4, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
-Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
-Menu calPotsMenu("Calibrate Pots", calPotsItems, 2, &wifiStatusMenu);
+Menu calPotsMenu("Voltage Calibration", calPotsItems, 2, &setupMenu);
 
 // Current active menu (nullptr = rotator control mode)
 Menu* currentMenu = &bootMenu;
@@ -1789,8 +2180,7 @@ void actionConnectWifi() {
       delay(100);
     }
     
-    currentMenu = &wifiStatusMenu;
-    currentMenu->init();
+    currentMenu = nullptr;  // Rotator control mode
   } else {
     // Connection failed - switch to AP mode and show notice
     WiFi.disconnect();
@@ -1894,13 +2284,8 @@ void actionCalibrateEl() {
 void actionBackToMain() {
   Serial.println("Action: Back to Main");
   exitCalibrationMode();
-  // Check which menu to return to
-  if (wifiState == WIFI_AP_MODE || wifiState == WIFI_FAILED) {
-    currentMenu = &apModeMenu;
-  } else {
-    currentMenu = &wifiStatusMenu;
-  }
-  currentMenu->init();
+  // Go to rotator control mode
+  currentMenu = nullptr;
 }
 
 void actionRetryWifi() {
@@ -1997,30 +2382,21 @@ void actionRotatorModel() {
 // ====================== BOOT & SETUP ACTIONS ======================
 
 void actionBootSkip() {
-  Serial.println("BOOT: Skip selected - going to main menu");
+  Serial.println("BOOT: Rotator Ctrl selected");
   // Apply saved WiFi mode
   if (deviceWifiMode == MODE_STA && hasWifiCredentials()) {
     connectWifiSta();
-    currentMenu = &wifiStatusMenu;
   } else if (deviceWifiMode == MODE_AP) {
     startApMode();
-    currentMenu = &apModeMenu;
-  } else {
-    // Disabled or no credentials
-    currentMenu = &wifiStatusMenu;
   }
-  currentMenu->init();
+  // Go directly to rotator control
+  actionRotatorControl();
 }
 
 void actionBootSetup() {
   Serial.println("BOOT: Setup selected");
-  // Auto-select Rotator if not yet configured
-  if (!hasRotatorModel()) {
-    setupItems[0].timerSeconds = 5;
-  } else {
-    setupItems[0].timerSeconds = 0;
-  }
   updateSetupLabels();
+  updateSetupTimers();
   currentMenu = &setupMenu;
   currentMenu->init();
 }
@@ -2028,12 +2404,12 @@ void actionBootSetup() {
 void actionSetupRotator() {
   Serial.println("SETUP: Rotator setup");
   setupRotatorModel();
-  // Rotator is now configured - clear timer
-  setupItems[0].timerSeconds = 0;
   // Go back to setup menu
   updateSetupLabels();
+  updateSetupTimers();
   currentMenu = &setupMenu;
   currentMenu->init();
+  skipBtnProcessing = true;  // Skip next button cycle — Btn1 may still be held from long-press
 }
 
 void actionSetupWifi() {
@@ -2106,6 +2482,11 @@ void actionWifiModeSta() {
   saveWifiMode();
   // Show Station Settings screen
   showStationSettings();
+  // Back from station settings — return to setup
+  updateSetupLabels();
+  updateSetupTimers();
+  currentMenu = &setupMenu;
+  currentMenu->init();
 }
 
 void actionWifiModeAp() {
@@ -2139,6 +2520,7 @@ void actionWifiModeDisable() {
   stopCaptivePortal();
   // Go back to setup menu
   updateSetupLabels();
+  updateSetupTimers();
   currentMenu = &setupMenu;
   currentMenu->init();
 }
@@ -2229,7 +2611,7 @@ void showStationSettings() {
       }
       display.setTextColor(SSD1306_WHITE);
       display.setCursor(0, 56);
-      display.println("1.Nav  1!Sel  2.Back");
+      display.println("1.Nav  1|Sel  2.Back");
 
       display.display();
 
@@ -2386,7 +2768,7 @@ void updateRotatorDisplay() {
     else if (pauseAz) display.println("AZ axis");
     else display.println("EL axis");
     
-    display.print(adsPresent ? String(currentAz, 1) + "d" : "N/A");
+    display.print(adsPresent ? String(displayAzimuth(currentAz), 1) + "d" : "N/A");
     display.print(" El: ");
     display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
     
@@ -2404,7 +2786,7 @@ void updateRotatorDisplay() {
     // Compute both values first
     String azVal, elVal;
     if (adsPresent) {
-      azVal = String(currentAz, 1);
+      azVal = String(displayAzimuth(currentAz), 1);
       elVal = String(currentEl, 1);
       // Left-pad to 6 chars so decimal points align (max "-180.0")
       while (azVal.length() < 6) azVal = " " + azVal;
@@ -2528,7 +2910,7 @@ void updateRotatorDisplay() {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
     display.setCursor(0, 56);
-    display.println("1.Cycle 2!Go I2|1!RST");
+    display.println("1.Cycle 2!Go I2!1|RST");
   }
   
   display.display();
@@ -2592,7 +2974,17 @@ void handleButtons() {
       if (now - btn2PressStart > BTN_DEBOUNCE_MS || btn2PressStart == 0) {
         btn2PressStart = now;
         skipBtnProcessing = true;  // Skip next cycle so held Btn2 doesn't trigger again
-        currentMenu->back();
+        // Disable Back on SETUP menu when mandatory items incomplete
+        if (currentMenu == &setupMenu && !allSetupComplete()) {
+          // Do nothing — Back is disabled until all mandatory setup is done
+        } else {
+          // When returning from calPotsMenu to setupMenu, update labels and timers
+          if (currentMenu == &calPotsMenu && currentMenu->getParent() == &setupMenu) {
+            updateSetupLabels();
+            updateSetupTimers();
+          }
+          currentMenu->back();
+        }
         return;  // Exit immediately so new menu sees fresh button state
       }
     }
@@ -2608,31 +3000,43 @@ void handleButtons() {
   if (calState != CAL_IDLE) {
     unsigned long now = millis();
     
-    // Btn1: exit calibration, retry on error, or proceed on timeout
+    // Btn1: exit calibration, retry on error, continue adjust
     if (btn1 && !btn1WasPressed && (now - btn1LastPress > BTN_DEBOUNCE_MS)) {
       if (calState == CAL_ERROR) {
         // Retry calibration
-        calState = CAL_CHECK_STABILITY;
+        calState = CAL_SWEEP_MIN;
         calPhaseStart = millis();
         calVSampleIdx = 0;
-        calDirection = 0;  // Reset so cable check starts fresh
+        calDirection = 0;
         calMinVoltage = 0;
         calMaxVoltage = 0;
         calStabilityMax = 0;
         calStabilityMin = 32767;
         calErrorMessage = "";
-      } else if (calState == CAL_WAIT_TIMEOUT_MIN) {
-        // Proceed to sweep max with current reading as min
-        calState = CAL_SWEEP_MAX;
-        calPhaseStart = millis();
-        calVSampleIdx = 0;
-        setCalDirection(1);
-      } else if (calState == CAL_WAIT_TIMEOUT_MAX) {
-        // Proceed to complete with current reading as max
+      } else if (calState == CAL_ADJUST_MAX) {
+        // Save calibration with adjusted max voltage, then proceed
         saveCalibration();
-        calState = CAL_COMPLETE;
-      } else if (calState == CAL_COMPLETE || calState == CAL_CHECK_STABILITY || 
-                 calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX) {
+        
+        if (calCurrentAxis == 0) {
+          // AZ: start return sweep
+          calState = CAL_RETURN_MIN;
+          calPhaseStart = millis();
+          calLastHeadingIndex = 0;
+          calCurrentHeading = "";
+          calHeadingPauseStart = 0;
+          calVSampleIdx = 0;
+          Serial.println("CAL: Starting return sweep to minimum");
+        } else {
+          // EL: start return sweep
+          calState = CAL_RETURN_MIN;
+          calPhaseStart = millis();
+          calLastHeadingIndex = 0;
+          calCurrentHeading = "";
+          calHeadingPauseStart = 0;
+          calVSampleIdx = 0;
+          Serial.println("CAL: Starting EL return sweep to minimum");
+        }
+      } else if (calState == CAL_COMPLETE || calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX || calState == CAL_RETURN_MIN) {
         // Exit calibration
         exitCalibrationMode();
         currentMenu = &calPotsMenu;
@@ -2649,7 +3053,7 @@ void handleButtons() {
     }
     btn1WasPressed = btn1;
     
-    // Btn2: stop movement, exit in terminal states, or cancel on timeout
+    // Btn2: stop movement, exit in terminal states
     if (btn2 && !btn2WasPressed) {
       btn2PressStart = now;
       btn2LongPressTriggered = false;
@@ -2663,19 +3067,19 @@ void handleButtons() {
         return;
       }
       
-      if (calState == CAL_WAIT_TIMEOUT_MIN || calState == CAL_WAIT_TIMEOUT_MAX) {
+      if (calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX || calState == CAL_RETURN_MIN) {
+        // Stop movement during sweep
+        stopAll();
+        calDirection = 0;
+      }
+      
+      if (calState == CAL_ADJUST_MAX) {
         // Cancel calibration
         exitCalibrationMode();
         currentMenu = &calPotsMenu;
         currentMenu->init();
         btn2WasPressed = btn2;
         return;
-      }
-      
-      if (calState == CAL_SWEEP_MIN || calState == CAL_SWEEP_MAX) {
-        // Stop movement during sweep
-        stopAll();
-        calDirection = 0;
       }
     }
     
@@ -2769,7 +3173,7 @@ void setupWebServer() {
   
   server.on("/status", []() {
     String json = "{";
-    json += "\"az\":" + String(currentAz, 1) + ",";
+    json += "\"az\":" + String(displayAzimuth(currentAz), 1) + ",";
     json += "\"el\":" + String(currentEl, 1) + ",";
     json += "\"move\":\"" + currentMove + "\",";
     json += "\"pause\":" + String(isPausing ? "true" : "false");
@@ -2881,14 +3285,14 @@ void setup() {
   display.display();
   delay(1000);
 
-  // If no settings at all, show "No Settings..." then go straight to setup
-  if (!hasAnySettings()) {
-    Serial.println("BOOT: No settings found - showing first-time notice");
+  // If mandatory settings missing, show "Missing Settings" then go straight to setup
+  if (!allSetupComplete()) {
+    Serial.println("BOOT: Mandatory settings incomplete - showing missing settings notice");
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
     // Center justify each line
-    const char* line1 = "No";
+    const char* line1 = "Missing";
     const char* line2 = "Settings!";
     int x1 = (int)max((int)0, (int)((128 - strlen(line1) * 12) / 2));
     int x2 = (int)max((int)0, (int)((128 - strlen(line2) * 12) / 2));
@@ -2899,9 +3303,9 @@ void setup() {
     display.display();
     delay(3000);
 
-    // Go directly to setup menu with Rotator auto-timer
-    setupItems[0].timerSeconds = 5;
+    // Go directly to setup menu
     updateSetupLabels();
+    updateSetupTimers();
     currentMenu = &setupMenu;
     currentMenu->init();
   } else {
