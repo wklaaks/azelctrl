@@ -73,7 +73,7 @@ bool moving = false;
 
 // WiFi mode: STA (connect to home), AP (field mode), or DISABLED
 enum DeviceWifiMode { MODE_STA, MODE_AP, MODE_DISABLED };
-DeviceWifiMode deviceWifiMode = MODE_STA;
+DeviceWifiMode deviceWifiMode = MODE_DISABLED;
 
 // ==================== MENU SYSTEM ====================
 typedef void (*MenuAction)();
@@ -174,8 +174,8 @@ public:
     // Title bar (white on black)
     display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
     display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    display.setCursor(1, 0);
-    String titleLine = " " + String(title) + " ";
+    display.setCursor(0, 0);
+    String titleLine = String(title) + " ";
     while (titleLine.length() < 16) titleLine += " ";
     display.print(titleLine);
     
@@ -200,7 +200,7 @@ public:
       
       // Append timer if active on this item
       if (i == cursor && timerActive && items[i].timerSeconds > 0) {
-        line += " [" + String(timerRemaining()) + "s]";
+        line += "[" + String(timerRemaining()) + "]";
       }
       
       display.print(line);
@@ -260,8 +260,8 @@ public:
     // Title bar (white on black)
     display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
     display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    display.setCursor(1, 0);
-    String titleLine = " " + String(title) + " ";
+    display.setCursor(0, 0);
+    String titleLine = String(title) + " ";
     while (titleLine.length() < 16) titleLine += " ";
     display.print(titleLine);
     
@@ -461,6 +461,61 @@ void tickWifi() {
   }
 }
 
+// ==================== REUSABLE WIFI CONNECTION DISPLAY ====================
+// Returns: 0=cancelled, 1=connected, 2=failed
+int waitForWifiConnection(bool allowCancel) {
+  Serial.println("Waiting for WiFi connection...");
+
+  connectWifiSta();
+
+  int dotCount = 0;
+  while (wifiState == WIFI_CONNECTING) {
+    tickWifi();
+    ESP.wdtFeed();
+
+    dotCount++;
+    if (dotCount % 4 == 0) {
+      String netLine = "Network: " + savedSsid;
+      String waitLine = "Waiting: " + String(dotCount / 4) + "s";
+      const char* lines[] = { netLine.c_str(), "", waitLine.c_str() };
+      Menu::drawNotice("WiFi Connecting", lines, 3, "2:Cancel", true);
+    }
+
+    if (allowCancel && !digitalRead(BTN2)) {
+      delay(300);
+      WiFi.disconnect();
+      wifiState = WIFI_IDLE;
+      return 0;  // Cancelled
+    }
+
+    delay(250);
+  }
+
+  if (wifiState == WIFI_CONNECTED) {
+    // Show connected screen with signal strength
+    int rssi = WiFi.RSSI();
+    String quality;
+    if (rssi >= -50) quality = "Excellent";
+    else if (rssi >= -60) quality = "Good";
+    else if (rssi >= -70) quality = "Fair";
+    else quality = "Poor";
+
+    String rssiLine = String(rssi) + " dBm";
+    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str(), true);
+
+    // Wait 2 seconds so user can see
+    for (int i = 0; i < 20; i++) {
+      ESP.wdtFeed();
+      delay(100);
+    }
+
+    return 1;  // Connected
+  }
+
+  return 2;  // Failed
+}
+
+
 // ==================== CAPTIVE PORTAL ====================
 bool captivePortalActive = false;
 
@@ -525,7 +580,7 @@ p{font-size:18px}
 </style></head><body>
 <h1>Saved!</h1>
 <p>WiFi credentials saved to device.</p>
-<p>The device will now restart its menu.</p>
+<p>You can now disconnect and use the Connect option on the device.</p>
 </body></html>
 )RAWHTML";
 
@@ -605,9 +660,9 @@ void handleSaveWifi() {
     sendProgmemHTML(html_portal_saved);
     
     delay(2000);  // Let the response reach the phone
-    Serial.println("Rebooting after WiFi save...");
-    ESP.restart();
-    // Does not return
+    Serial.println("Stopping captive portal after WiFi save...");
+    stopCaptivePortal();
+    // Does NOT reboot - returns control to Station Settings screen
   } else {
     // Empty submission (e.g., captive portal detection) - redirect to portal
     Serial.println("handleSaveWifi: empty SSID, returning portal");
@@ -907,8 +962,8 @@ void saveCalibration() {
 
 void loadWifiMode() {
   if (EEPROM.read(WIFI_MODE_MAGIC) != WIFI_MODE_MAGIC_VAL) {
-    Serial.println("WIFI: No WiFi mode in EEPROM - defaulting to STA");
-    deviceWifiMode = MODE_STA;
+    Serial.println("WIFI: No WiFi mode in EEPROM - defaulting to DISABLED");
+    deviceWifiMode = MODE_DISABLED;
     return;
   }
   deviceWifiMode = (DeviceWifiMode)EEPROM.read(WIFI_MODE_EEPROM);
@@ -975,89 +1030,81 @@ void setupRotatorModel() {
 
   const char* modelLabels[4] = {"N360 (-180 to 180)", "S360 (0 to 360)", "N450 (-180 to 270)", "S450 (0 to 450)"};
   int choice = rotModel;  // Default to current
-  unsigned long lastBtn1 = 0;
-  unsigned long lastBtn2 = 0;
+  bool firstDraw = true;
 
   while (true) {
-    lastBtn1 = 0;
-    lastBtn2 = 0;
+    display.clearDisplay();
+    display.setTextSize(1);
 
-    // Wait for both buttons to be released before drawing new screen
-    while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
-    delay(100);
+    display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setCursor(0, 0);
+    display.print("Rotator Variant?             ");
 
-    while (true) {
-      display.clearDisplay();
-      display.setTextSize(1);
+    display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
 
-      display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
-      display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-      display.setCursor(1, 0);
-      display.print(" Rotator Variant?             ");
-
-      display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
-
-      int y = 12;
-      for (int i = 0; i < 4; i++) {
-        if (i == choice) {
-          display.fillRect(0, y, 128, 8, SSD1306_WHITE);
-          display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-        } else {
-          display.setTextColor(SSD1306_WHITE);
-        }
-
-        display.setCursor(2, y);
-        display.print(modelLabels[i]);
-        y += 11;
+    int y = 12;
+    for (int i = 0; i < 4; i++) {
+      if (i == choice) {
+        display.fillRect(0, y, 128, 8, SSD1306_WHITE);
+        display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+      } else {
+        display.setTextColor(SSD1306_WHITE);
       }
 
-      for (int x = 0; x < 128; x += 3) {
-        display.drawPixel(x, 53, SSD1306_WHITE);
+      display.setCursor(2, y);
+      display.print(modelLabels[i]);
+      y += 11;
+    }
+
+    for (int x = 0; x < 128; x += 3) {
+      display.drawPixel(x, 53, SSD1306_WHITE);
+    }
+
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 56);
+    display.println("1.Nav  1!Sel  2.Back");
+
+    display.display();
+
+    // Wait for buttons released on first draw to prevent carryover from long-press
+    if (firstDraw) {
+      firstDraw = false;
+      while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+      delay(100);
+    }
+
+    unsigned long now = millis();
+
+    // Btn1 short press - cycle choice
+    if (digitalRead(BTN1)) {
+      unsigned long pressStart = now;
+      while (digitalRead(BTN1) && now - pressStart < 800) {
+        delay(20);
+        now = millis();
       }
-
-      display.setTextColor(SSD1306_WHITE);
-      display.setCursor(0, 56);
-      display.println("1.Nav  1!Sel  2.Back");
-
-      display.display();
-
-      unsigned long now = millis();
-
-      // Btn1 short press - cycle choice
-      if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
-        // Check for long press (select)
-        unsigned long pressStart = now;
-        while (digitalRead(BTN1) && now - pressStart < 800) {
-          delay(20);
-          now = millis();
-        }
-        if (now - pressStart >= 800) {
-          // Long press - select
-          lastBtn1 = 0;  // Reset so we don't also cycle
-          rotModel = (RotModel)choice;
-          Serial.print("ROT: Selected model = ");
-          Serial.println(rotModel);
-          saveRotatorModel();
-          while (digitalRead(BTN1)) delay(50);
-          return;
-        }
-        // Short press - cycle
-        lastBtn1 = now;
-        choice = (choice + 1) % 4;
-        Serial.print("ROT: Model choice = ");
+      if (now - pressStart >= 800) {
+        // Long press - select
+        Serial.print("ROT: Selected model ");
         Serial.println(choice);
-      }
-
-      // Btn2 - back (cancel)
-      if (!digitalRead(BTN2) && now - lastBtn2 >= BTN_DEBOUNCE_MS) {
-        lastBtn2 = now;
-        Serial.println("ROT: Setup cancelled");
-        while (!digitalRead(BTN2)) delay(50);
+        rotModel = (RotModel)choice;
+        saveRotatorModel();
         return;
       }
-
-      delay(50);
+      // Short press - cycle
+      choice = (choice + 1) % 4;
     }
+
+    // Btn2 - back
+    if (!digitalRead(BTN2)) {
+      delay(300);
+      if (!digitalRead(BTN2)) {
+        Serial.println("ROT: Back from rotator setup");
+        return;
+      }
+    }
+
+    delay(50);
   }
 }
 
@@ -1286,7 +1333,7 @@ void displayCalibrationScreen() {
   // Title bar
   display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-  display.setCursor(1, 0);
+  display.setCursor(0, 0);
   display.print("Cal-");
   display.print(calCurrentAxis == 0 ? "AZ:" : "EL:");
   
@@ -1494,7 +1541,9 @@ void actionSetupWifi();
 void actionWifiModeSta();
 void actionWifiModeAp();
 void actionWifiModeDisable();
+void actionSetupWipe();
 void showStationSettings();
+int waitForWifiConnection(bool allowCancel = true);
 
 // Boot Menu (first screen after boot)
 MenuItem bootItems[] = {
@@ -1505,11 +1554,13 @@ MenuItem bootItems[] = {
 // Setup Menu
 char setupRotatorLabel[24] = "Rot Variant";
 char setupCalLabel[24] = "Rot Calibrate";
+char setupWifiLabel[24] = "Wifi(None)";
 
 MenuItem setupItems[] = {
-  {setupRotatorLabel, actionSetupRotator, 5, true},  // 5s timeout if not yet configured
+  {setupRotatorLabel, actionSetupRotator, 5, true},
   {setupCalLabel, actionSetupCalibrate, 0, true},
-  {"WiFi", actionSetupWifi, 0, true}
+  {setupWifiLabel, actionSetupWifi, 0, true},
+  {"Wipe all settings", actionSetupWipe, 0, true}
 };
 
 void updateSetupLabels() {
@@ -1529,6 +1580,16 @@ void updateSetupLabels() {
     strcpy(setupCalLabel, "Rot Calibrate (N)");
   }
   setupItems[1].label = setupCalLabel;
+
+  // WiFi mode label
+  if (deviceWifiMode == MODE_STA) {
+    strcpy(setupWifiLabel, "Wifi(Station)");
+  } else if (deviceWifiMode == MODE_AP) {
+    strcpy(setupWifiLabel, "Wifi(AP)");
+  } else {
+    strcpy(setupWifiLabel, "Wifi(None)");
+  }
+  setupItems[2].label = setupWifiLabel;
 }
 
 // WiFi Mode Menu
@@ -1569,7 +1630,7 @@ MenuItem calPotsItems[] = {
 
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
-Menu setupMenu("SETUP", setupItems, 3, &bootMenu);
+Menu setupMenu("SETUP", setupItems, 4, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu wifiStatusMenu("Ctrl or Calibration?", wifiStatusItems, 2, nullptr);
@@ -1966,9 +2027,6 @@ void actionBootSetup() {
 
 void actionSetupRotator() {
   Serial.println("SETUP: Rotator setup");
-  // Wait for button release after long press
-  delay(300);
-  while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
   setupRotatorModel();
   // Rotator is now configured - clear timer
   setupItems[0].timerSeconds = 0;
@@ -1990,6 +2048,58 @@ void actionSetupCalibrate() {
   currentMenu->init();
 }
 
+void actionSetupWipe() {
+  Serial.println("SETUP: Wipe confirmation");
+
+  // Show confirmation screen
+  const char* lines[] = {
+    "This will erase ALL",
+    "saved settings.",
+    "",
+    "Continue?",
+    ""
+  };
+  Menu::drawNotice("Wipe all settings", lines, 5, "1.Wipe  2.Back", true);
+
+  // Wait for any button still held from the previous screen
+  while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+  delay(100);
+
+  // Wait for user choice
+  while (true) {
+    if (digitalRead(BTN1)) {
+      delay(300);
+      // Wipe all EEPROM settings
+      Serial.println("SETUP: Wiping all settings...");
+      for (int i = 0; i < CAL_EEPROM_SIZE; i++) {
+        EEPROM.write(i, 0);
+      }
+      EEPROM.commit();
+
+      // Reset in-memory state
+      deviceWifiMode = MODE_DISABLED;
+      savedSsid = "";
+      savedPass = "";
+      calAzValid = false;
+      calElValid = false;
+
+      // Show confirmation
+      Menu::drawQuickNotice("Settings", "Wiped!", "", true);
+      delay(2000);
+
+      // Reboot to start fresh
+      ESP.restart();
+      while (true) delay(1000);  // Should not reach here
+    }
+    if (!digitalRead(BTN2)) {
+      delay(300);
+      // Go back to setup menu
+      return;
+    }
+    delay(50);
+  }
+}
+
 void actionWifiModeSta() {
   Serial.println("WIFI: Mode set to Station");
   deviceWifiMode = MODE_STA;
@@ -2009,10 +2119,24 @@ void actionWifiModeAp() {
 
 void actionWifiModeDisable() {
   Serial.println("WIFI: Mode set to Disabled");
+  
+  // Disconnect if currently connected
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    delay(500);
+    
+    // Show disconnected confirmation
+    Menu::drawQuickNotice("Dis-", "Connected", "", true);
+    delay(2000);
+  }
+  
+  // Clear saved credentials
+  saveWifiCredentials("", "");
+  
   deviceWifiMode = MODE_DISABLED;
   saveWifiMode();
   stopCaptivePortal();
-  WiFi.disconnect(true);
   // Go back to setup menu
   updateSetupLabels();
   currentMenu = &setupMenu;
@@ -2022,17 +2146,27 @@ void actionWifiModeDisable() {
 void showStationSettings() {
   Serial.println("WIFI: Showing Station Settings");
 
-  int choice = 0;  // 0=Set via HTTP, 1=Connect
-  unsigned long lastBtn1 = 0;
-  unsigned long lastBtn2 = 0;
+  int choice = 0;  // 0=Set via HTTP, 1=Connect/Disconnect
+  bool btn1WasPressed = false;
+  bool btn2WasPressed = false;
+  unsigned long btn1PressStart = 0;
+  bool btn1LongPressTriggered = false;
+  bool firstDraw = true;
 
   while (true) {
-    lastBtn1 = 0;
-    lastBtn2 = 0;
+    btn1WasPressed = false;
+    btn2WasPressed = false;
+    btn1PressStart = 0;
+    btn1LongPressTriggered = false;
 
-    // Wait for both buttons released
-    while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
-    delay(100);
+    // Determine second option text based on connection state
+    const char* opt1;
+    if (WiFi.status() == WL_CONNECTED) {
+      opt1 = "Disconnect";
+    } else {
+      opt1 = "Connect";
+    }
+    const char* opts[2] = {"Set via HTTP", opt1};
 
     while (true) {
       display.clearDisplay();
@@ -2041,15 +2175,14 @@ void showStationSettings() {
       // Title bar
       display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
       display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-      display.setCursor(1, 0);
-      display.print(" Station Settings            ");
+      display.setCursor(0, 0);
+      display.print("Wifi Station Settings        ");
 
       // Solid separator
       display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
 
       // Options
       display.setTextColor(SSD1306_WHITE);
-      const char* opts[2] = {"Set via HTTP", "Connect"};
       int y = 12;
       for (int i = 0; i < 2; i++) {
         if (i == choice) {
@@ -2063,14 +2196,14 @@ void showStationSettings() {
         y += 11;
       }
 
-      // Dotted separator
+      // Dotted separator (just below options at y=32)
       for (int x = 0; x < 128; x += 3) {
-        display.drawPixel(x, 37, SSD1306_WHITE);
+        display.drawPixel(x, 32, SSD1306_WHITE);
       }
 
       // SSID info
       display.setTextColor(SSD1306_WHITE);
-      display.setCursor(2, 40);
+      display.setCursor(2, 35);
       if (savedSsid.length() > 0) {
         display.print("SSID:");
         display.println(savedSsid);
@@ -2079,7 +2212,7 @@ void showStationSettings() {
       }
 
       // Password info
-      display.setCursor(2, 49);
+      display.setCursor(2, 44);
       if (savedPass.length() > 1) {
         String masked = String(savedPass[0]) + "*..*" + String(savedPass[savedPass.length() - 1]);
         display.print("Passwd: ");
@@ -2090,89 +2223,139 @@ void showStationSettings() {
         display.println("Passwd: None");
       }
 
+      // Footer
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
+      }
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0, 56);
+      display.println("1.Nav  1!Sel  2.Back");
+
       display.display();
 
-      unsigned long now = millis();
-
-      // Btn1 - cycle
-      if (digitalRead(BTN1) && now - lastBtn1 >= BTN_DEBOUNCE_MS) {
-        lastBtn1 = now;
-        choice = 1 - choice;
+      // Skip button processing on first draw to prevent carryover from previous screen
+      if (firstDraw) {
+        firstDraw = false;
+        // Wait for buttons released before first processing
+        while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+        delay(100);
+        continue;
       }
 
-      // Btn2 long press - select
-      if (!digitalRead(BTN2)) {
-        unsigned long pressStart = now;
-        while (!digitalRead(BTN2) && millis() - pressStart < 800) {
-          delay(20);
-        }
-        if (millis() - pressStart >= 800) {
-          // Select
-          if (choice == 0) {
-            // Set via HTTP - start captive portal
-            WiFi.disconnect();
-            stopCaptivePortal();
-            startCaptivePortal();
+      unsigned long now = millis();
+      bool btn1 = digitalRead(BTN1);
+      bool btn2 = !digitalRead(BTN2);
 
-            const char* lines[] = {
-              "Connect phone to:",
-              AP_SSID,
-              "",
-              "IP: 192.168.4.1",
-              ""
-            };
-            Menu::drawNotice("Captive Portal", lines, 5, "1.Done 2.Cancel", true);
+      // Btn1: short-press = navigate, long-press = select
+      if (btn1 && !btn1WasPressed) {
+        btn1PressStart = now;
+        btn1LongPressTriggered = false;
+      }
 
-            delay(500);
-            while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
-            delay(100);
+      // Long press detected
+      if (btn1 && (now - btn1PressStart >= 800) && !btn1LongPressTriggered) {
+        btn1LongPressTriggered = true;
+        Serial.print("WIFI: Selected option ");
+        Serial.println(choice);
 
-            unsigned long btn2Hold = 0;
-            while (true) {
-              tickCaptivePortal();
-              if (!captivePortalActive) break;
-              if (digitalRead(BTN1)) {
-                delay(300);
+        if (choice == 0) {
+          // Set via HTTP
+          WiFi.disconnect();
+          stopCaptivePortal();
+          startCaptivePortal();
+
+          const char* lines[] = {
+            "Connect phone to:",
+            AP_SSID,
+            "",
+            "IP: 192.168.4.1",
+            ""
+          };
+          Menu::drawNotice("Captive Portal", lines, 5, "1.Done 2.Cancel", true);
+
+          delay(500);
+          while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
+          delay(100);
+
+          unsigned long btn2Hold = 0;
+          while (true) {
+            tickCaptivePortal();
+            if (!captivePortalActive) {
+              // Captive portal stopped (credentials saved or timeout)
+              // Switch to Connect option so user can connect immediately
+              loadWifiCredentials();
+              choice = 1;
+              break;
+            }
+            if (digitalRead(BTN1)) {
+              delay(300);
+              stopCaptivePortal();
+              loadWifiCredentials();
+              choice = 1;
+              showStationSettings();
+              return;
+            }
+            if (!digitalRead(BTN2)) {
+              if (btn2Hold == 0) btn2Hold = millis();
+              else if (millis() - btn2Hold > 500) {
                 stopCaptivePortal();
-                loadWifiCredentials();
-                wifiConnectItems[2].visible = hasWifiCredentials();
                 showStationSettings();
                 return;
               }
-              if (!digitalRead(BTN2)) {
-                if (btn2Hold == 0) btn2Hold = millis();
-                else if (millis() - btn2Hold > 500) {
-                  stopCaptivePortal();
-                  showStationSettings();
-                  return;
-                }
-              } else {
-                btn2Hold = 0;
-              }
-              delay(50);
+            } else {
+              btn2Hold = 0;
             }
+            delay(50);
+          }
+        } else {
+          // Connect or Disconnect
+          if (WiFi.status() == WL_CONNECTED) {
+            // Disconnect
+            Serial.println("WIFI: Disconnecting...");
+            WiFi.disconnect();
+            WiFi.mode(WIFI_OFF);
+            delay(500);
+
+            // Show Disconnected status for 3 seconds
+            Menu::drawQuickNotice("Dis-", "Connected", "", true);
+            delay(3000);
+
+            // Return to station settings with choice on Connect
+            choice = 1;
           } else {
             // Connect
             if (hasWifiCredentials()) {
-              connectWifiSta();
-              // Check if connected
-              if (WiFi.status() == WL_CONNECTED) {
-                currentMenu = &wifiStatusMenu;
-                currentMenu->init();
-                return;
-              } else {
-                // Connection failed - show AP menu
-                startApMode();
-                currentMenu = &apModeMenu;
-                currentMenu->init();
-                return;
+              loadWifiCredentials();
+              int result = waitForWifiConnection(true);
+
+              if (result == 1) {
+                // Connected - show connected status then return to station settings
+                // waitForWifiConnection already shows the Connected screen
+                choice = 1;  // Keep selection on Connect/Disconnect
               }
+              // Cancelled or failed - stay on station settings
             }
           }
-          // Wait for release
-          while (!digitalRead(BTN2)) delay(50);
         }
+        break;  // Exit inner loop to redraw
       }
+
+      // Short press released (navigates)
+      if (!btn1 && btn1WasPressed && !btn1LongPressTriggered && (now - btn1PressStart < 800)) {
+        choice = (choice + 1) % 2;
+        Serial.print("WIFI: Cycle to ");
+        Serial.println(choice);
+      }
+
+      btn1WasPressed = btn1;
+
+      // Btn2 - back
+      if (btn2 && !btn2WasPressed) {
+        Serial.println("WIFI: Back from Station Settings");
+        while (!digitalRead(BTN2)) delay(50);
+        return;
+      }
+      btn2WasPressed = btn2;
 
       delay(50);
     }
@@ -2358,6 +2541,7 @@ bool btn2WasPressed = false;
 unsigned long btn1PressStart = 0;
 unsigned long btn2PressStart = 0;
 bool btn1LongPressTriggered = false;
+bool skipBtnProcessing = false;  // Skip one cycle of button processing after menu transition
 bool btn2LongPressTriggered = false;
 unsigned long btn1LastPress = 0;
 
@@ -2375,6 +2559,10 @@ void handleButtons() {
   // MENU MODE BUTTON HANDLING
   // ============================================
   if (currentMenu) {
+    // Skip one cycle after menu transition to avoid seeing held-down button
+    if (skipBtnProcessing) {
+      skipBtnProcessing = false;
+    } else {
     // Btn1: short-press = navigate, long-press = select
     if (btn1 && !btn1WasPressed) {
       btn1PressStart = now;
@@ -2384,7 +2572,9 @@ void handleButtons() {
     // Long press detected
     if (btn1 && (now - btn1PressStart >= BTN_LONG_MS) && !btn1LongPressTriggered) {
       btn1LongPressTriggered = true;
+      skipBtnProcessing = true;  // Skip button processing on next cycle
       currentMenu->select();
+      return;  // Exit immediately so new screen sees fresh button state
     }
     
     // Short press released (navigates)
@@ -2401,11 +2591,14 @@ void handleButtons() {
     if (btn2 && !btn2WasPressed) {
       if (now - btn2PressStart > BTN_DEBOUNCE_MS || btn2PressStart == 0) {
         btn2PressStart = now;
+        skipBtnProcessing = true;  // Skip next cycle so held Btn2 doesn't trigger again
         currentMenu->back();
+        return;  // Exit immediately so new menu sees fresh button state
       }
     }
     btn2WasPressed = btn2;
-    
+    }  // End of skipBtnProcessing else block
+
     return;  // Exit - menu mode handles its own buttons
   }
   
