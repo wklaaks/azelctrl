@@ -126,6 +126,12 @@ bool protocolShowCommands = true;
 char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
 char protocolLastResponse[PROTOCOL_BUF_SIZE];  // Last sent response for display
 
+// Protocol target tracking — auto-stop when target is reached
+bool protocolTargetAzSet = false;
+bool protocolTargetElSet = false;
+float protocolTargetAz = 0.0;
+float protocolTargetEl = 0.0;
+
 long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
 }
@@ -1558,6 +1564,9 @@ void processEasycomCommand(const char* cmd, int len) {
         float targetAz = (float)azDeg;
         if (targetAz < 0.0) targetAz = 0.0;
         if (targetAz > 360.0) targetAz = 360.0;
+        // Set protocol target for auto-stop
+        protocolTargetAz = targetAz;
+        protocolTargetAzSet = true;
         // Calculate direction based on current vs target
         float currentAzDisplay = displayAzimuth(currentAz);
         float diff = targetAz - currentAzDisplay;
@@ -1570,6 +1579,7 @@ void processEasycomCommand(const char* cmd, int len) {
           executeAzimuthMove("LEFT");
         } else {
           stopAzimuth();
+          protocolTargetAzSet = false;
         }
         protocolSend("OK");
       } else {
@@ -1587,6 +1597,9 @@ void processEasycomCommand(const char* cmd, int len) {
         float targetEl = (float)elDeg;
         if (targetEl < 0.0) targetEl = 0.0;
         if (targetEl > 180.0) targetEl = 180.0;
+        // Set protocol target for auto-stop
+        protocolTargetEl = targetEl;
+        protocolTargetElSet = true;
         // Calculate direction
         float diff = targetEl - currentEl;
         if (diff > 1.0) {
@@ -1595,6 +1608,7 @@ void processEasycomCommand(const char* cmd, int len) {
           executeElevationMove("DOWN");
         } else {
           stopElevation();
+          protocolTargetElSet = false;
         }
         protocolSend("OK");
       } else {
@@ -3391,7 +3405,9 @@ void updateRotatorDisplay() {
     bool showCmd = (protocolShowCommands && strlen(protocolLastCommand) > 0);
     
     if (showCmd) {
-      // RX/TX mode: divider above Az/El, two command lines below
+      // Switch to small font for RX/TX lines
+      display.setTextSize(1);
+      // Dotted separator above Az/El
       for (int x = 0; x < 128; x += 3) {
         display.drawPixel(x, 32, SSD1306_WHITE);
       }
@@ -3837,6 +3853,24 @@ void setup() {
 void loop() {
   // Handle protocol commands
   processProtocolInput();
+  // Auto-stop protocol targets when reached
+  if (protocolTargetAzSet) {
+    float currentAzDisplay = displayAzimuth(currentAz);
+    float diff = protocolTargetAz - currentAzDisplay;
+    if (diff > 180.0) diff -= 360.0;
+    if (diff < -180.0) diff += 360.0;
+    if (abs(diff) <= 1.0) {
+      stopAzimuth();
+      protocolTargetAzSet = false;
+    }
+  }
+  if (protocolTargetElSet) {
+    float diff = protocolTargetEl - currentEl;
+    if (abs(diff) <= 1.0) {
+      stopElevation();
+      protocolTargetElSet = false;
+    }
+  }
   // Handle web server
   if (!captivePortalActive) {
     server.handleClient();
