@@ -3435,9 +3435,11 @@ void updateRotatorDisplay() {
       }
     }
     
-    // Always show button actions footer (user can always switch to button mode)
-    display.setCursor(0, 56);
-    display.println("1.Cycle 2!Go I2!1|RST");
+    // Show button actions footer only when NOT in PC interface mode
+    if (!showCmd) {
+      display.setCursor(0, 56);
+      display.println("1.Cycle 2!Go I2!1|RST");
+    }
   }
   
   display.display();
@@ -3855,29 +3857,6 @@ void setup() {
 void loop() {
   // Handle protocol commands
   processProtocolInput();
-    if (millis() - lastUpdate >= UPDATE_INTERVAL) {
-      readPositions();
-      // Auto-stop protocol targets when reached (after position is updated)
-      if (protocolTargetAzSet) {
-        float currentAzDisplay = displayAzimuth(currentAz);
-        float diff = protocolTargetAz - currentAzDisplay;
-        if (diff > 180.0) diff -= 360.0;
-        if (diff < -180.0) diff += 360.0;
-        if (abs(diff) <= 1.0) {
-          stopAzimuth();
-          protocolTargetAzSet = false;
-        }
-      }
-      if (protocolTargetElSet) {
-        float diff = protocolTargetEl - currentEl;
-        if (abs(diff) <= 1.0) {
-          stopElevation();
-          protocolTargetElSet = false;
-        }
-      }
-      updateRotatorDisplay();
-      lastUpdate = millis();
-    }
   // Handle web server
   if (!captivePortalActive) {
     server.handleClient();
@@ -3916,6 +3895,24 @@ void loop() {
     
     if (millis() - lastUpdate >= UPDATE_INTERVAL) {
       readPositions();
+      // Auto-stop protocol targets when reached (after position is updated)
+      if (protocolTargetAzSet) {
+        float currentAzDisplay = displayAzimuth(currentAz);
+        float diff = protocolTargetAz - currentAzDisplay;
+        if (diff > 180.0) diff -= 360.0;
+        if (diff < -180.0) diff += 360.0;
+        if (abs(diff) <= 1.0) {
+          stopAzimuth();
+          protocolTargetAzSet = false;
+        }
+      }
+      if (protocolTargetElSet) {
+        float diff = protocolTargetEl - currentEl;
+        if (abs(diff) <= 1.0) {
+          stopElevation();
+          protocolTargetElSet = false;
+        }
+      }
       updateRotatorDisplay();
       lastUpdate = millis();
     }
