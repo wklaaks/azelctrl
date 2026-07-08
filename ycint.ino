@@ -928,6 +928,9 @@ enum AxisDirection {
 
 AxisDirection azDirection = DIR_STOPPED;
 AxisDirection elDirection = DIR_STOPPED;
+// Track last direction of travel (for N450/S450 overlap zone logic)
+AxisDirection lastAzDirection = DIR_STOPPED;
+AxisDirection lastElDirection = DIR_STOPPED;
 
 bool isPausing = false;
 unsigned long pauseStartTime = 0;
@@ -995,12 +998,14 @@ bool calAzValid = false, calElValid = false;
 void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
+  lastAzDirection = azDirection;  // Remember direction before stopping
   azDirection = DIR_STOPPED;
 }
 
 void stopElevation() {
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
+  lastElDirection = elDirection;  // Remember direction before stopping
   elDirection = DIR_STOPPED;
 }
 
@@ -1613,6 +1618,35 @@ void processEasycomCommand(const char* cmd, int len) {
         } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
           // From below stop to above stop: must go CCW through 0
           mustRotateCCW = true;
+        }
+        
+        // For N450/S450: check overlap zone — target can be reached via CW or CCW
+        // Use last direction of travel to determine which path is valid
+        if (rotModel == ROT_N450 || rotModel == ROT_S450) {
+          // Calculate CW and CCW distances
+          float cwDist = targetAz - currentAzDisplay;
+          if (cwDist < 0) cwDist += 360.0;
+          float ccwDist = currentAzDisplay - targetAz;
+          if (ccwDist < 0) ccwDist += 360.0;
+          
+          // If both paths are within the 225° travel limit, use last direction to decide
+          if (cwDist <= 225.0 && ccwDist <= 225.0) {
+            // Overlap zone — both paths are valid mechanically
+            // Use last direction to avoid hitting the mechanical limit
+            if (lastAzDirection == DIR_CW) {
+              // Arrived from CW side — can still go CCW
+              if (ccwDist < cwDist) {
+                mustRotateCCW = true;  // Take shortest path (CCW)
+              }
+            } else if (lastAzDirection == DIR_CCW) {
+              // Arrived from CCW side — can still go CW
+              if (cwDist < ccwDist) {
+                mustRotateCW = true;  // Take shortest path (CW)
+              }
+            }
+            // If lastAzDirection == DIR_STOPPED (first move), use shortest path
+            // The existing diff calculation will handle this
+          }
         }
         
         // Constraint overrides shortest-path calculation
