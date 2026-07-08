@@ -1554,6 +1554,23 @@ void processEasycomCommand(const char* cmd, int len) {
       int azDeg = 0;
       int consumed = 0;
       if (parseNumber(cmd, 2, &azDeg, &consumed) == 0) {
+        // Convert to float and clamp
+        float targetAz = (float)azDeg;
+        if (targetAz < 0.0) targetAz = 0.0;
+        if (targetAz > 360.0) targetAz = 360.0;
+        // Calculate direction based on current vs target
+        float currentAzDisplay = displayAzimuth(currentAz);
+        float diff = targetAz - currentAzDisplay;
+        // Handle wrap-around (shortest path)
+        if (diff > 180.0) diff -= 360.0;
+        if (diff < -180.0) diff += 360.0;
+        if (diff > 1.0) {
+          executeAzimuthMove("RIGHT");
+        } else if (diff < -1.0) {
+          executeAzimuthMove("LEFT");
+        } else {
+          stopAzimuth();
+        }
         protocolSend("OK");
       } else {
         protocolSend("ERR");
@@ -1566,6 +1583,19 @@ void processEasycomCommand(const char* cmd, int len) {
       int elDeg = 0;
       int consumed = 0;
       if (parseNumber(cmd, 2, &elDeg, &consumed) == 0) {
+        // Convert to float and clamp
+        float targetEl = (float)elDeg;
+        if (targetEl < 0.0) targetEl = 0.0;
+        if (targetEl > 180.0) targetEl = 180.0;
+        // Calculate direction
+        float diff = targetEl - currentEl;
+        if (diff > 1.0) {
+          executeElevationMove("UP");
+        } else if (diff < -1.0) {
+          executeElevationMove("DOWN");
+        } else {
+          stopElevation();
+        }
         protocolSend("OK");
       } else {
         protocolSend("ERR");
