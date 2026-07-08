@@ -115,10 +115,51 @@ bool protocolActive = false;
 unsigned long protocolLastCmd = 0;
 const unsigned long PROTOCOL_TIMEOUT_MS = 5000;
 
+// Configurable protocol baud rate (stored in EEPROM)
+// Supported: 9600, 19200, 38400, 57600, 115200
+const long PROTOCOL_BAUD_RATES[] = {9600, 19200, 38400, 57600, 115200};
+const int PROTOCOL_BAUD_COUNT = 5;
+int protocolBaudIndex = 4;  // Default: 115200 (index 4)
+
+long getProtocolBaud() {
+  return PROTOCOL_BAUD_RATES[protocolBaudIndex];
+}
+
+// EEPROM storage for protocol settings (byte 67+)
+#define EEPROM_PROTO_BAUD_IDX 67
+#define EEPROM_PROTO_MAGIC    68
+#define EEPROM_PROTO_MAGIC_VAL 0xB7
+
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
   Serial.println(response);
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
+}
+
+// Load protocol settings from EEPROM
+void loadProtocolSettings() {
+  uint8_t magic = EEPROM.read(EEPROM_PROTO_MAGIC);
+  if (magic == EEPROM_PROTO_MAGIC_VAL) {
+    uint8_t idx = EEPROM.read(EEPROM_PROTO_BAUD_IDX);
+    if (idx < PROTOCOL_BAUD_COUNT) {
+      protocolBaudIndex = idx;
+    }
+  }
+}
+
+// Save protocol settings to EEPROM
+void saveProtocolSettings() {
+  EEPROM.write(EEPROM_PROTO_BAUD_IDX, (uint8_t)protocolBaudIndex);
+  EEPROM.write(EEPROM_PROTO_MAGIC, EEPROM_PROTO_MAGIC_VAL);
+  EEPROM.commit();
+}
+
+// Restart serial with new baud rate
+void applyProtocolBaud() {
+  Serial.end();
+  delay(100);
+  Serial.begin(getProtocolBaud());
+  DBG_PRINT("Protocol baud set to: "); DBG_PRINTLN(getProtocolBaud());
 }
 
 // Helper: parse integer from buffer starting at index, returns length consumed (0 if none)
@@ -167,10 +208,11 @@ class Menu {
 public:
   Menu(const char* title, MenuItem* items, int itemCount, Menu* parent = nullptr)
     : title(title), items(items), itemCount(itemCount), parent(parent),
-      cursor(0), timerStart(0), timerActive(false), userInteracted(false), footerText(nullptr) {}
+      cursor(0), scrollOffset(0), timerStart(0), timerActive(false), userInteracted(false), footerText(nullptr) {}
 
   void init() {
     cursor = 0;
+    scrollOffset = 0;
     timerActive = false;
     timerStart = 0;
     userInteracted = false;  // Reset: timer can auto-start again
@@ -195,6 +237,28 @@ public:
     int next = cursor + 1;
     if (next >= itemCount) next = 0;
     moveToVisibleFrom(next);
+    updateScroll();
+  }
+
+  // Update scroll offset so the cursor is always visible
+  // When cursor moves to row VISIBLE_ROWS, scroll up by 1
+  // When wrapping (cursor < scrollOffset), reset scroll
+  void updateScroll() {
+    // Count visible items to find the actual visible range
+    int visibleCount = 0;
+    for (int i = scrollOffset; i < itemCount && visibleCount < VISIBLE_ROWS; i++) {
+      if (items[i].visible) visibleCount++;
+    }
+    
+    // If cursor is below the visible area, scroll down
+    while (cursor >= scrollOffset + visibleCount) {
+      scrollOffset++;
+    }
+    
+    // If cursor wrapped to top (above scroll area), reset scroll
+    if (cursor < scrollOffset) {
+      scrollOffset = 0;
+    }
   }
 
   void select() {
@@ -291,9 +355,10 @@ public:
     // Solid white line below title
     display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
     
-    // Menu items - start 1 row below separator
+    // Menu items - start 1 row below separator, with scrolling
     int y = 10;
-    for (int i = 0; i < itemCount && y < 54; i++) {
+    int visibleDrawn = 0;
+    for (int i = scrollOffset; i < itemCount && visibleDrawn < VISIBLE_ROWS; i++) {
       if (!items[i].visible) continue;
       
       if (i == cursor) {
@@ -314,6 +379,7 @@ public:
       
       display.print(line);
       y += 11;
+      visibleDrawn++;
     }
     
     // Dotted separator above footer
@@ -429,10 +495,14 @@ private:
   int itemCount;
   Menu* parent;
   int cursor;
+  int scrollOffset;  // Top visible item index (for scrolling menus)
   unsigned long timerStart;
   bool timerActive;
   bool userInteracted;  // True when user presses a button — disables auto-timer
   const char* footerText;  // Custom footer text (nullptr = default "1.Nav 1|Sel 2.Back")
+  
+  // Number of visible menu rows (4 on 64px OLED: title 10px + 4*11px = 54px, footer at 56px)
+  static const int VISIBLE_ROWS = 4;
 
   void moveToFirstVisible() {
     for (int i = 0; i < itemCount; i++) {
@@ -460,6 +530,7 @@ private:
 extern Menu* currentMenu;
 extern bool skipBtnProcessing;
 extern Menu setupMenu;
+extern Menu pcInterfaceMenu;
 
 // ==================== WIFI CREDENTIAL MANAGEMENT ====================
 // EEPROM layout: byte 0=ssid_len, bytes 1-32=ssid, byte 33=pass_len, bytes 34-65=pass, byte 66=magic
@@ -2185,6 +2256,33 @@ void showStationSettings();
 int waitForWifiConnection(bool allowCancel = true);
 
 // Boot Menu (first screen after boot)
+// ==================== PC INTERFACE SETTINGS ====================
+void actionPcInterface() {
+  currentMenu = &pcInterfaceMenu;
+  currentMenu->init();
+}
+
+void actionPcBaudRate() {
+  // Cycle through baud rates
+  protocolBaudIndex = (protocolBaudIndex + 1) % PROTOCOL_BAUD_COUNT;
+  saveProtocolSettings();
+  applyProtocolBaud();
+  
+  // Show confirmation
+  String baudStr = String(getProtocolBaud());
+  Menu::drawQuickNotice("PC Baud Rate", baudStr.c_str(), "saved", true);
+  delay(1500);
+  currentMenu->draw();
+}
+
+// PC Interface menu items
+MenuItem pcInterfaceItems[] = {
+  {"Baud Rate",    actionPcBaudRate,    0, true, nullptr, nullptr},
+  // Future items: Protocol type, Auto-stop, etc.
+};
+
+Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 1, &setupMenu);
+
 MenuItem bootItems[] = {
   {"Rotator Ctrl", actionBootSkip, 3, true, nullptr, nullptr},    // 3s timeout auto-select
   {"Setup", actionBootSetup, 0, true, nullptr, nullptr}
@@ -2212,6 +2310,7 @@ MenuItem setupItems[] = {
   {setupRotatorLabel, actionSetupRotator, 5, true, nullptr, nullptr},
   {setupCalLabel, actionSetupCalibrate, 0, true, checkCalibrateSelectable, getCalibrateBlockers},
   {setupWifiLabel, actionSetupWifi, 0, true, nullptr, nullptr},
+  {"PC Interface", actionPcInterface, 0, true, nullptr, nullptr},
   {"Wipe all settings", actionSetupWipe, 0, true, nullptr, nullptr}
 };
 
@@ -2264,6 +2363,7 @@ void updateSetupTimers() {
   setupItems[0].timerSeconds = 0;
   setupItems[1].timerSeconds = 0;
   setupItems[2].timerSeconds = 0;
+  setupItems[3].timerSeconds = 0;
 
   // Find first unconfigured mandatory item
   if (!hasRotatorModel()) {
@@ -2313,7 +2413,7 @@ MenuItem calPotsItems[] = {
 
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
-Menu setupMenu("SETUP", setupItems, 4, &bootMenu);
+Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
@@ -3510,7 +3610,9 @@ void setupWebServer() {
 
 // ====================== SETUP ======================
 void setup() {
-  Serial.begin(115200);
+  // Load protocol settings before initializing serial
+  loadProtocolSettings();
+  Serial.begin(getProtocolBaud());
   delay(200);
   
   Serial.println("\n========================================");

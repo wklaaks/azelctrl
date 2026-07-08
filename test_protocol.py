@@ -63,10 +63,12 @@ class ProtocolTester:
             # Clear any buffered data
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
-            # Wait for device to settle and flush boot messages
-            time.sleep(2)
+            # Wait for device to settle and flush ALL boot messages
+            time.sleep(5)
+            # Flush all remaining boot output
             while self.ser.in_waiting:
                 self.ser.readline()
+            time.sleep(1)
             print(f"Connected to {self.port} at {self.baudrate} baud")
         except serial.SerialException as e:
             print(f"Failed to connect to {self.port}: {e}")
@@ -77,25 +79,31 @@ class ProtocolTester:
         if self.ser and self.ser.is_open:
             self.ser.close()
     
-    def send_command(self, cmd: str, delay: float = 0.1) -> str:
+    def send_command(self, cmd: str, delay: float = 0.2) -> str:
         """Send a command and return the response (stripped)."""
         if not self.ser or not self.ser.is_open:
             return "ERROR: Not connected"
         
         # Flush any stale data before sending
         self.ser.reset_input_buffer()
+        time.sleep(0.2)
         
         # Send command with CRLF (protocol standard)
         self.ser.write((cmd + '\r\n').encode('ascii'))
         time.sleep(delay)
         
-        # Read all available responses, return the last non-debug line
+        # Read all available responses, return the last non-debug/non-protocol line
         response = ""
         while self.ser.in_waiting:
             line = self.ser.readline().decode('ascii', errors='replace').strip()
             # Filter out debug lines (prefixed with 'DBG:')
             if line.startswith('DBG:'):
                 self.debug_lines.append(line)
+                continue
+            # Skip boot/status/messages
+            skip_prefixes = ('ROT:', 'BOOT:', 'SETUP:', 'Action:', 'WiFi', 'AP Mode', 
+                           'Yaesu', 'Rotator Ctrl', 'MODE:')
+            if any(line.startswith(p) for p in skip_prefixes):
                 continue
             if line:
                 response = line  # Keep updating until we get the last line
