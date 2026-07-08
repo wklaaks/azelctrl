@@ -3711,6 +3711,10 @@ void handleButtons() {
     if (strlen(protocolLastCommand) > 0) {
       protocolLastCommand[0] = '\0';
       protocolLastResponse[0] = '\0';
+      // Reset movement state if motors have stopped
+      if (azDirection == DIR_STOPPED && elDirection == DIR_STOPPED) {
+        stopAll();
+      }
       // Force immediate display update so user sees button mode right away
       updateRotatorDisplay();
       // Skip cycling on this press - user just wants to exit PC mode
