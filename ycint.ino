@@ -121,13 +121,18 @@ const long PROTOCOL_BAUD_RATES[] = {9600, 19200, 38400, 57600, 115200};
 const int PROTOCOL_BAUD_COUNT = 5;
 int protocolBaudIndex = 4;  // Default: 115200 (index 4)
 
+// Show received commands on OLED (default: true)
+bool protocolShowCommands = true;
+char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
+
 long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
 }
 
 // EEPROM storage for protocol settings (byte 67+)
 #define EEPROM_PROTO_BAUD_IDX 67
-#define EEPROM_PROTO_MAGIC    68
+#define EEPROM_PROTO_SHOW_CMDS 68
+#define EEPROM_PROTO_MAGIC    69
 #define EEPROM_PROTO_MAGIC_VAL 0xB7
 
 // Helper: send a protocol response string over serial
@@ -144,12 +149,15 @@ void loadProtocolSettings() {
     if (idx < PROTOCOL_BAUD_COUNT) {
       protocolBaudIndex = idx;
     }
+    uint8_t show = EEPROM.read(EEPROM_PROTO_SHOW_CMDS);
+    protocolShowCommands = (show == 1);
   }
 }
 
 // Save protocol settings to EEPROM
 void saveProtocolSettings() {
   EEPROM.write(EEPROM_PROTO_BAUD_IDX, (uint8_t)protocolBaudIndex);
+  EEPROM.write(EEPROM_PROTO_SHOW_CMDS, (uint8_t)(protocolShowCommands ? 1 : 0));
   EEPROM.write(EEPROM_PROTO_MAGIC, EEPROM_PROTO_MAGIC_VAL);
   EEPROM.commit();
 }
@@ -1592,6 +1600,9 @@ void processProtocolInput() {
     if (ch == '\n' || ch == '\r') {
       if (protocolBufIdx > 0) {
         protocolBuf[protocolBufIdx] = '\0';
+        // Store last command for display
+        strncpy(protocolLastCommand, protocolBuf, PROTOCOL_BUF_SIZE - 1);
+        protocolLastCommand[PROTOCOL_BUF_SIZE - 1] = '\0';
         DBG_PRINT("PROTOCOL:RX:"); DBG_PRINTLN(protocolBuf);
         
         // Special command: MODE:ROTATOR (force rotator control mode)
@@ -2258,16 +2269,36 @@ int waitForWifiConnection(bool allowCancel = true);
 
 // Boot Menu (first screen after boot)
 // ==================== PC INTERFACE SETTINGS ====================
-// Dynamic label for Baud Rate showing current value
+// Dynamic labels
 char setupBaudLabel[32];
+char setupShowCmdLabel[32];
 void updateBaudLabel() {
   snprintf(setupBaudLabel, sizeof(setupBaudLabel), "Baud Rate (%ld)", getProtocolBaud());
+}
+void updateShowCmdLabel() {
+  snprintf(setupShowCmdLabel, sizeof(setupShowCmdLabel), "Show Commands (%c)", protocolShowCommands ? 'Y' : 'N');
 }
 
 void actionPcInterface() {
   updateBaudLabel();
+  updateShowCmdLabel();
   currentMenu = &pcInterfaceMenu;
   currentMenu->init();
+  currentMenu->setFooter(showCmdFooter());
+}
+
+// Get custom footer for Show Commands toggle
+const char* showCmdFooter() {
+  return protocolShowCommands ? "1.Nav 1|No 2.Back" : "1.Nav 1|Yes 2.Back";
+}
+
+// Toggle Show Commands setting
+void actionToggleShowCommands() {
+  protocolShowCommands = !protocolShowCommands;
+  saveProtocolSettings();
+  updateShowCmdLabel();
+  currentMenu->setFooter(showCmdFooter());
+  currentMenu->draw();
 }
 
 void actionPcBaudRate() {
@@ -2275,7 +2306,7 @@ void actionPcBaudRate() {
   currentMenu->init();
 }
 
-// Baud rate selection actions - each sets value, saves, applies, updates label, goes back
+// Baud rate selection actions
 void actionBaud115200() { protocolBaudIndex = 4; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
 void actionBaud57600()  { protocolBaudIndex = 3; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
 void actionBaud38400()  { protocolBaudIndex = 2; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
@@ -2295,10 +2326,11 @@ Menu baudMenu("Select Baud Rate", baudItems, 5, &pcInterfaceMenu);
 
 // PC Interface menu items
 MenuItem pcInterfaceItems[] = {
-  {setupBaudLabel, actionPcBaudRate, 0, true, nullptr, nullptr},
+  {setupBaudLabel,      actionPcBaudRate,       0, true, nullptr, nullptr},
+  {setupShowCmdLabel,   actionToggleShowCommands, 0, true, nullptr, nullptr},
 };
 
-Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 1, &setupMenu);
+Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 2, &setupMenu);
 
 MenuItem bootItems[] = {
   {"Rotator Ctrl", actionBootSkip, 3, true, nullptr, nullptr},    // 3s timeout auto-select
@@ -3330,8 +3362,13 @@ void updateRotatorDisplay() {
       display.print("Moving: ");
       display.println(currentMove);
     } else {
-      display.print("Selected: ");
-      display.println(directions[rotatorMenuSelection]);
+      if (protocolShowCommands && strlen(protocolLastCommand) > 0) {
+        display.print("Cmd: ");
+        display.println(protocolLastCommand);
+      } else {
+        display.print("Selected: ");
+        display.println(directions[rotatorMenuSelection]);
+      }
     }
     
     // Dotted separator above footer

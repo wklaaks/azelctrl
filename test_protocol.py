@@ -100,9 +100,9 @@ class ProtocolTester:
             if line.startswith('DBG:'):
                 self.debug_lines.append(line)
                 continue
-            # Skip boot/status/messages
+            # Skip boot/status messages
             skip_prefixes = ('ROT:', 'BOOT:', 'SETUP:', 'Action:', 'WiFi', 'AP Mode', 
-                           'Yaesu', 'Rotator Ctrl', 'MODE:')
+                           'Yaesu', 'Rotator Ctrl', 'MODE:', 'Rotator Control')
             if any(line.startswith(p) for p in skip_prefixes):
                 continue
             if line:
