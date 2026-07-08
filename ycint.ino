@@ -1592,14 +1592,26 @@ void processEasycomCommand(const char* cmd, int len) {
         if (diff > 180.0) diff -= 360.0;
         if (diff < -180.0) diff += 360.0;
         
-        // Apply physical constraint: cannot rotate CCW past 180°
+        // Apply physical constraint based on rotator variant
+        // Each variant has a physical stop angle that cannot be crossed CCW
+        float physicalStop;
+        switch (rotModel) {
+          case ROT_N360: physicalStop = 180.0; break;  // Stop at 180°
+          case ROT_S360: physicalStop = 0.0; break;    // Stop at 0°/360°
+          case ROT_N450: physicalStop = 270.0; break;  // Stop at 270°
+          case ROT_S450: physicalStop = 0.0; break;    // Stop at 0°/450°
+          default: physicalStop = 180.0; break;
+        }
+        
         bool mustRotateCW = false;
         bool mustRotateCCW = false;
-        if (currentAzDisplay >= 180.0 && targetAz < 180.0) {
-          // From 180-360° to lower heading: must go CW through 360/0
+        
+        // Cannot rotate CCW past physical stop
+        if (currentAzDisplay >= physicalStop && targetAz < physicalStop) {
+          // From above stop to below stop: must go CW through max/0
           mustRotateCW = true;
-        } else if (currentAzDisplay < 180.0 && targetAz >= 180.0) {
-          // From 0-179° to higher heading: must go CCW through 0
+        } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
+          // From below stop to above stop: must go CCW through 0
           mustRotateCCW = true;
         }
         
