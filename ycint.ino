@@ -3418,6 +3418,7 @@ void updateRotatorDisplay() {
       display.print("TX: ");
       display.print(protocolLastResponse);
     } else if (currentMove.compareTo("IDLE") != 0) {
+      display.setTextSize(1);
       display.setCursor(0, 40);
       display.print("Moving: ");
       display.println(currentMove);
@@ -3425,6 +3426,7 @@ void updateRotatorDisplay() {
         display.drawPixel(x, 53, SSD1306_WHITE);
       }
     } else {
+      display.setTextSize(1);
       display.setCursor(0, 40);
       display.print("Selected: ");
       display.println(directions[rotatorMenuSelection]);
