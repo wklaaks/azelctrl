@@ -3708,8 +3708,12 @@ void handleButtons() {
   // ALSO: restart sequence - when IDLE selected, hold Btn2 + long-press Btn1
   if (btn1 && !btn1WasPressed) {
     // Any button press clears protocol command display (user is back in control)
-    protocolLastCommand[0] = '\0';
-    protocolLastResponse[0] = '\0';
+    if (strlen(protocolLastCommand) > 0) {
+      protocolLastCommand[0] = '\0';
+      protocolLastResponse[0] = '\0';
+      // Force immediate display update so user sees button mode right away
+      updateRotatorDisplay();
+    }
     btn1PressStart = now;
     btn1LongPressTriggered = false;
   }
