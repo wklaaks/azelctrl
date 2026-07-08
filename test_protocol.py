@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Yaesu Rotator Controller - GS-232A/B & Easycom Protocol Unit Tests
+Yaesu Rotator Controller - GS-232A/B & Easycom Protocol Tests
 
 Usage:
-    python3 test_protocol.py <serial_port>
+    python3 test_protocol.py <serial_port>              # Unit tests (fast)
+    python3 test_protocol.py <serial_port> --demo       # Slow movement demo (watchable)
     python3 test_protocol.py /dev/cu.usbserial-0001
 
 The script sends commands to the ESP8266 via USB serial and verifies responses.
@@ -16,6 +17,7 @@ import time
 import argparse
 import serial
 import serial.tools.list_ports
+import re
 from typing import Optional, List, Tuple
 
 
@@ -41,7 +43,7 @@ def list_ports() -> List[str]:
 class ProtocolTester:
     """Test harness for GS-232A/B and Easycom protocols."""
     
-    def __init__(self, port: str, baudrate: int = 9600, timeout: float = 2.0):
+    def __init__(self, port: str, baudrate: int = 115200, timeout: float = 2.0):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -385,6 +387,159 @@ def test_easycom_unknown(tester: ProtocolTester) -> bool:
     return tester.assert_response('UNKNOWN', response, 'ERR', 'Unknown Command')
 
 
+# ==================== SLOW DEMO TEST ====================
+# Reads start position, moves one axis at a time (5° away, back),
+# then does a combined movement (both axes), waits 5s, then returns.
+
+def parse_az(response: str) -> Optional[float]:
+    """Extract azimuth from AZnnn.n or AZELnnn.n.nnn.n response."""
+    m = re.search(r'AZ([-\d.]+)', response)
+    if m:
+        return float(m.group(1))
+    return None
+
+def parse_el(response: str) -> Optional[float]:
+    """Extract elevation from ELnnn.n or AZELnnn.n.nnn.n response."""
+    m = re.search(r'EL([-\d.]+)', response)
+    if m:
+        return float(m.group(1))
+    return None
+
+def safe_azimuth(az: float, offset: float) -> float:
+    """Clamp azimuth to 0-360 range."""
+    return max(0.0, min(360.0, az + offset))
+
+def safe_elevation(el: float, offset: float) -> float:
+    """Clamp elevation to 0-180 range."""
+    return max(0.0, min(180.0, el + offset))
+
+def run_demo(tester: ProtocolTester):
+    """Slow movement demo — watch the OLED while this runs."""
+    print("\n" + "="*60)
+    print("SLOW MOVEMENT DEMO")
+    print("Watch the OLED for RX/TX command tracking")
+    print("="*60)
+    
+    DELAY = 1.5  # Pause between commands so user can see OLED updates
+    
+    # --- Read start position ---
+    print(f"\n[Step 1] Reading start position...")
+    time.sleep(DELAY)
+    resp = tester.send_command('AZEL', delay=DELAY)
+    print(f"  Response: {resp}")
+    start_az = parse_az(resp)
+    start_el = parse_el(resp)
+    if start_az is None or start_el is None:
+        print("  ERROR: Could not parse start position. Aborting demo.")
+        return
+    print(f"  Start: Az={start_az:.1f}°, El={start_el:.1f}°")
+    time.sleep(DELAY)
+    
+    # --- Test A: Azimuth only (5° away, then back) ---
+    target_az = safe_azimuth(start_az, 5.0)
+    print(f"\n[Step 2] AZIMUTH ONLY — moving to Az={target_az:.1f}° (5° from start)")
+    print(f"  Sending: AZ{target_az:.1f}")
+    resp = tester.send_command(f'AZ{target_az:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Verify position
+    resp = tester.send_command('AZ', delay=DELAY)
+    print(f"  Verify AZ: {resp}")
+    time.sleep(DELAY)
+    
+    # Move back
+    print(f"\n[Step 3] AZIMUTH ONLY — returning to Az={start_az:.1f}°")
+    print(f"  Sending: AZ{start_az:.1f}")
+    resp = tester.send_command(f'AZ{start_az:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Verify position
+    resp = tester.send_command('AZ', delay=DELAY)
+    print(f"  Verify AZ: {resp}")
+    time.sleep(DELAY)
+    
+    # --- Test B: Elevation only (5° away, then back) ---
+    target_el = safe_elevation(start_el, 5.0)
+    print(f"\n[Step 4] ELEVATION ONLY — moving to El={target_el:.1f}° (5° from start)")
+    print(f"  Sending: EL{target_el:.1f}")
+    resp = tester.send_command(f'EL{target_el:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Verify position
+    resp = tester.send_command('EL', delay=DELAY)
+    print(f"  Verify EL: {resp}")
+    time.sleep(DELAY)
+    
+    # Move back
+    print(f"\n[Step 5] ELEVATION ONLY — returning to El={start_el:.1f}°")
+    print(f"  Sending: EL{start_el:.1f}")
+    resp = tester.send_command(f'EL{start_el:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Verify position
+    resp = tester.send_command('EL', delay=DELAY)
+    print(f"  Verify EL: {resp}")
+    time.sleep(DELAY)
+    
+    # --- Test C: Combined movement (both axes, 5° each) ---
+    target_az2 = safe_azimuth(start_az, 5.0)
+    target_el2 = safe_elevation(start_el, 5.0)
+    print(f"\n[Step 6] COMBINED — moving to Az={target_az2:.1f}°, El={target_el2:.1f}°")
+    print(f"  Sending: AZ{target_az2:.1f}")
+    resp = tester.send_command(f'AZ{target_az2:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(DELAY)
+    print(f"  Sending: EL{target_el2:.1f}")
+    resp = tester.send_command(f'EL{target_el2:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Wait 5 seconds at target
+    print(f"\n[Step 7] Waiting 5 seconds at target position...")
+    for i in range(5, 0, -1):
+        print(f"  {i}...")
+        time.sleep(1)
+    
+    # Verify position at target
+    resp = tester.send_command('AZEL', delay=DELAY)
+    print(f"  Verify AZEL at target: {resp}")
+    time.sleep(DELAY)
+    
+    # Move back to start
+    print(f"\n[Step 8] COMBINED — returning to Az={start_az:.1f}°, El={start_el:.1f}°")
+    print(f"  Sending: AZ{start_az:.1f}")
+    resp = tester.send_command(f'AZ{start_az:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(DELAY)
+    print(f"  Sending: EL{start_el:.1f}")
+    resp = tester.send_command(f'EL{start_el:.1f}', delay=DELAY)
+    print(f"  Response: {resp}")
+    time.sleep(3)  # Let movement complete
+    
+    # Final verification
+    print(f"\n[Step 9] Final verification...")
+    resp = tester.send_command('AZEL', delay=DELAY)
+    print(f"  Final AZEL: {resp}")
+    final_az = parse_az(resp)
+    final_el = parse_el(resp)
+    if final_az is not None and final_el is not None:
+        az_diff = abs(final_az - start_az)
+        el_diff = abs(final_el - start_el)
+        print(f"  Az diff: {az_diff:.1f}°, El diff: {el_diff:.1f}°")
+        if az_diff < 1.0 and el_diff < 1.0:
+            print("  ✓ Returned to start position within tolerance")
+        else:
+            print("  ⚠ Position differs from start — check rotator")
+    
+    print(f"\n{'='*60}")
+    print("DEMO COMPLETE")
+    print(f"{'='*60}")
+
+
 # ==================== MAIN ====================
 
 def main():
@@ -392,6 +547,7 @@ def main():
     parser.add_argument('port', nargs='?', default=None, help='Serial port (auto-detect if not specified)')
     parser.add_argument('--baud', type=int, default=115200, help='Baud rate (default: 115200)')
     parser.add_argument('--list', action='store_true', help='List available ports')
+    parser.add_argument('--demo', action='store_true', help='Run slow movement demo (watch OLED for RX/TX tracking)')
     args = parser.parse_args()
     
     # List ports if requested
@@ -410,7 +566,7 @@ def main():
             sys.exit(1)
         print(f"Auto-detected port: {port}")
     
-    # Create tester and run tests
+    # Create tester and connect
     tester = ProtocolTester(port, baudrate=args.baud)
     tester.connect()
     
@@ -422,65 +578,70 @@ def main():
     tester.send_command('MODE:ROTATOR', delay=0.5)
     time.sleep(0.5)
     
-    # Verify we got the response
-    response = tester.send_command('H', delay=0.5)
-    print(f"Device response to H: {response}")
-    if not response.startswith('H'):
-        print("WARNING: Device may not be in rotator control mode. Check device state.")
+    if args.demo:
+        # Run slow movement demo
+        run_demo(tester)
+    else:
+        # Verify we got the response
+        response = tester.send_command('H', delay=0.5)
+        print(f"Device response to H: {response}")
+        if not response.startswith('H'):
+            print("WARNING: Device may not be in rotator control mode. Check device state.")
+        
+        # Run GS-232A/B tests
+        print("\n" + "="*60)
+        print("GS-232A/B Protocol Tests")
+        print("="*60)
+        gs232_tests = [
+            test_gs232_heading,
+            test_gs232_vertical,
+            test_gs232_combined,
+            test_gs232_stop,
+            test_gs232_left,
+            test_gs232_right,
+            test_gs232_up,
+            test_gs232_down,
+            test_gs232_speed,
+            test_gs232_timeout,
+            test_gs232_park,
+            test_gs232_north_center,
+            test_gs232_south_center,
+            test_gs232_case_insensitive,
+            test_gs232_unknown,
+        ]
+        
+        for test in gs232_tests:
+            test(tester)
+        
+        # Run Easycom tests
+        print("\n" + "="*60)
+        print("Easycom Protocol Tests")
+        print("="*60)
+        easycom_tests = [
+            test_easycom_azimuth_query,
+            test_easycom_elevation_query,
+            test_easycom_azimuth_move,
+            test_easycom_elevation_move,
+            test_easycom_combined_query,
+            test_easycom_cw,
+            test_easycom_ccw,
+            test_easycom_up,
+            test_easycom_down,
+            test_easycom_stop,
+            test_easycom_timeout,
+            test_easycom_speed,
+            test_easycom_park,
+            test_easycom_help,
+            test_easycom_backslash_help,
+            test_easycom_unknown,
+        ]
+        
+        for test in easycom_tests:
+            test(tester)
+        
+        # Print summary
+        tester.print_summary()
     
-    # Run GS-232A/B tests
-    print("\n" + "="*60)
-    print("GS-232A/B Protocol Tests")
-    print("="*60)
-    gs232_tests = [
-        test_gs232_heading,
-        test_gs232_vertical,
-        test_gs232_combined,
-        test_gs232_stop,
-        test_gs232_left,
-        test_gs232_right,
-        test_gs232_up,
-        test_gs232_down,
-        test_gs232_speed,
-        test_gs232_timeout,
-        test_gs232_park,
-        test_gs232_north_center,
-        test_gs232_south_center,
-        test_gs232_case_insensitive,
-        test_gs232_unknown,
-    ]
-    
-    for test in gs232_tests:
-        test(tester)
-    
-    # Run Easycom tests
-    print("\n" + "="*60)
-    print("Easycom Protocol Tests")
-    print("="*60)
-    easycom_tests = [
-        test_easycom_azimuth_query,
-        test_easycom_elevation_query,
-        test_easycom_azimuth_move,
-        test_easycom_elevation_move,
-        test_easycom_combined_query,
-        test_easycom_cw,
-        test_easycom_ccw,
-        test_easycom_up,
-        test_easycom_down,
-        test_easycom_stop,
-        test_easycom_timeout,
-        test_easycom_speed,
-        test_easycom_park,
-        test_easycom_help,
-        test_easycom_backslash_help,
-        test_easycom_unknown,
-    ]
-    
-    for test in easycom_tests:
-        test(tester)
-    
-    # Print summary
-    tester.print_summary()
     tester.disconnect()
 
 
