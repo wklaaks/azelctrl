@@ -3713,6 +3713,9 @@ void handleButtons() {
       protocolLastResponse[0] = '\0';
       // Force immediate display update so user sees button mode right away
       updateRotatorDisplay();
+      // Skip cycling on this press - user just wants to exit PC mode
+      btn1WasPressed = btn1;
+      return;
     }
     btn1PressStart = now;
     btn1LongPressTriggered = false;
