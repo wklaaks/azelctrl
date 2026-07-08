@@ -531,6 +531,7 @@ extern Menu* currentMenu;
 extern bool skipBtnProcessing;
 extern Menu setupMenu;
 extern Menu pcInterfaceMenu;
+extern Menu baudMenu;
 
 // ==================== WIFI CREDENTIAL MANAGEMENT ====================
 // EEPROM layout: byte 0=ssid_len, bytes 1-32=ssid, byte 33=pass_len, bytes 34-65=pass, byte 66=magic
@@ -2257,28 +2258,44 @@ int waitForWifiConnection(bool allowCancel = true);
 
 // Boot Menu (first screen after boot)
 // ==================== PC INTERFACE SETTINGS ====================
+// Dynamic label for Baud Rate showing current value
+char setupBaudLabel[32];
+void updateBaudLabel() {
+  snprintf(setupBaudLabel, sizeof(setupBaudLabel), "Baud Rate (%ld)", getProtocolBaud());
+}
+
 void actionPcInterface() {
+  updateBaudLabel();
   currentMenu = &pcInterfaceMenu;
   currentMenu->init();
 }
 
 void actionPcBaudRate() {
-  // Cycle through baud rates
-  protocolBaudIndex = (protocolBaudIndex + 1) % PROTOCOL_BAUD_COUNT;
-  saveProtocolSettings();
-  applyProtocolBaud();
-  
-  // Show confirmation
-  String baudStr = String(getProtocolBaud());
-  Menu::drawQuickNotice("PC Baud Rate", baudStr.c_str(), "saved", true);
-  delay(1500);
-  currentMenu->draw();
+  currentMenu = &baudMenu;
+  currentMenu->init();
 }
+
+// Baud rate selection actions - each sets value, saves, applies, updates label, goes back
+void actionBaud115200() { protocolBaudIndex = 4; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
+void actionBaud57600()  { protocolBaudIndex = 3; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
+void actionBaud38400()  { protocolBaudIndex = 2; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
+void actionBaud19200()  { protocolBaudIndex = 1; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
+void actionBaud9600()   { protocolBaudIndex = 0; saveProtocolSettings(); applyProtocolBaud(); updateBaudLabel(); currentMenu->back(); }
+
+// Baud rate selection menu (fastest to slowest)
+MenuItem baudItems[] = {
+  {"115200", actionBaud115200, 0, true, nullptr, nullptr},
+  {"57600",  actionBaud57600,  0, true, nullptr, nullptr},
+  {"38400",  actionBaud38400,  0, true, nullptr, nullptr},
+  {"19200",  actionBaud19200,  0, true, nullptr, nullptr},
+  {"9600",   actionBaud9600,   0, true, nullptr, nullptr},
+};
+
+Menu baudMenu("Select Baud Rate", baudItems, 5, &pcInterfaceMenu);
 
 // PC Interface menu items
 MenuItem pcInterfaceItems[] = {
-  {"Baud Rate",    actionPcBaudRate,    0, true, nullptr, nullptr},
-  // Future items: Protocol type, Auto-stop, etc.
+  {setupBaudLabel, actionPcBaudRate, 0, true, nullptr, nullptr},
 };
 
 Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 1, &setupMenu);
