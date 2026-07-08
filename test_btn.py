@@ -88,11 +88,11 @@ def main():
         return
     print(f"  Current: Az={az:.1f}°, El={el:.1f}°")
 
-    # Move Azimuth +5°
-    target = az + 5.0
-    if target > 360.0:
-        target -= 360.0
-    print(f"\nMoving Azimuth to {target:.1f}° (+5°)...")
+    # Move Azimuth -5°
+    target = az - 5.0
+    if target < 0.0:
+        target += 360.0
+    print(f"\nMoving Azimuth to {target:.1f}° (-5°)...")
     resp = send(f'AZ{target:.0f}', delay=1.0)
     print(f"  Response: {resp}")
 
