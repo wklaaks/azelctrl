@@ -928,9 +928,13 @@ enum AxisDirection {
 
 AxisDirection azDirection = DIR_STOPPED;
 AxisDirection elDirection = DIR_STOPPED;
-// Track last direction of travel (for N450/S450 overlap zone logic)
-AxisDirection lastAzDirection = DIR_STOPPED;
-AxisDirection lastElDirection = DIR_STOPPED;
+// Track mechanical offset from center for direction calculation
+// Positive = CW from center, Negative = CCW from center
+// N360/S360: range -180° to +180°
+// N450/S450: range -225° to +225°
+float mechanicalAzOffset = 0.0;  // Current mechanical offset from center
+float mechanicalElOffset = 0.0;  // Current mechanical offset from center
+float lastAzReading = 0.0;       // Previous azimuth reading for delta calculation
 
 bool isPausing = false;
 unsigned long pauseStartTime = 0;
@@ -998,14 +1002,12 @@ bool calAzValid = false, calElValid = false;
 void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
-  lastAzDirection = azDirection;  // Remember direction before stopping
   azDirection = DIR_STOPPED;
 }
 
 void stopElevation() {
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
-  lastElDirection = elDirection;  // Remember direction before stopping
   elDirection = DIR_STOPPED;
 }
 
@@ -1598,7 +1600,7 @@ void processEasycomCommand(const char* cmd, int len) {
         if (diff < -180.0) diff += 360.0;
         
         // Apply physical constraint based on rotator variant
-        // Each variant has a physical stop angle that cannot be crossed CCW
+        // For N450/S450, track mechanical offset from center to handle overlap zone
         float physicalStop;
         switch (rotModel) {
           case ROT_N360: physicalStop = 180.0; break;   // Center=0°, ±180° travel → CCW stop at 180°
@@ -1620,32 +1622,38 @@ void processEasycomCommand(const char* cmd, int len) {
           mustRotateCCW = true;
         }
         
-        // For N450/S450: check overlap zone — target can be reached via CW or CCW
-        // Use last direction of travel to determine which path is valid
+        // For N450/S450: use mechanical offset to determine correct path in overlap zone
         if (rotModel == ROT_N450 || rotModel == ROT_S450) {
-          // Calculate CW and CCW distances
-          float cwDist = targetAz - currentAzDisplay;
-          if (cwDist < 0) cwDist += 360.0;
-          float ccwDist = currentAzDisplay - targetAz;
-          if (ccwDist < 0) ccwDist += 360.0;
+          // Calculate target mechanical offset from compass heading
+          float centerHeading;
+          if (rotModel == ROT_N450) centerHeading = 0.0;
+          else centerHeading = 180.0;
           
-          // If both paths are within the 225° travel limit, use last direction to decide
-          if (cwDist <= 225.0 && ccwDist <= 225.0) {
-            // Overlap zone — both paths are valid mechanically
-            // Use last direction to avoid hitting the mechanical limit
-            if (lastAzDirection == DIR_CW) {
-              // Arrived from CW side — can still go CCW
-              if (ccwDist < cwDist) {
-                mustRotateCCW = true;  // Take shortest path (CCW)
-              }
-            } else if (lastAzDirection == DIR_CCW) {
-              // Arrived from CCW side — can still go CW
-              if (cwDist < ccwDist) {
-                mustRotateCW = true;  // Take shortest path (CW)
-              }
+          // Convert target heading to mechanical offset
+          float targetOffset = targetAz - centerHeading;
+          if (targetOffset > 180.0) targetOffset -= 360.0;
+          if (targetOffset < -180.0) targetOffset += 360.0;
+          
+          // Calculate CW and CCW distances in mechanical space
+          float cwDist = targetOffset - mechanicalAzOffset;
+          float ccwDist = mechanicalAzOffset - targetOffset;
+          
+          // Check if both paths are within mechanical limits
+          float maxTravel = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 225.0 : 180.0;
+          bool cwValid = (mechanicalAzOffset + cwDist) <= maxTravel;
+          bool ccwValid = (mechanicalAzOffset - ccwDist) >= -maxTravel;
+          
+          if (cwValid && ccwValid) {
+            // Both paths valid - use shortest path
+            if (abs(cwDist) < abs(ccwDist)) {
+              mustRotateCW = true;
+            } else {
+              mustRotateCCW = true;
             }
-            // If lastAzDirection == DIR_STOPPED (first move), use shortest path
-            // The existing diff calculation will handle this
+          } else if (cwValid) {
+            mustRotateCW = true;
+          } else if (ccwValid) {
+            mustRotateCCW = true;
           }
         }
         
@@ -4033,6 +4041,24 @@ void loop() {
     
     if (millis() - lastUpdate >= UPDATE_INTERVAL) {
       readPositions();
+      // Update mechanical offset for N450/S450 variants based on position change
+      if ((rotModel == ROT_N450 || rotModel == ROT_S450) && azDirection != DIR_STOPPED) {
+        // Calculate position change from previous reading
+        float azDelta = currentAz - lastAzReading;
+        // Handle wrap-around
+        if (azDelta > 180.0) azDelta -= 360.0;
+        if (azDelta < -180.0) azDelta += 360.0;
+        // Update mechanical offset based on direction
+        if (azDirection == DIR_CW) {
+          mechanicalAzOffset += azDelta;  // CW increases offset
+        } else if (azDirection == DIR_CCW) {
+          mechanicalAzOffset += azDelta;  // CCW decreases offset (delta is negative)
+        }
+        // Clamp to mechanical limits
+        if (mechanicalAzOffset > 225.0) mechanicalAzOffset = 225.0;
+        if (mechanicalAzOffset < -225.0) mechanicalAzOffset = -225.0;
+        lastAzReading = currentAz;
+      }
       // Handle direction reversal delay
       if (protocolAzReversing) {
         if (millis() - protocolAzReverseStart >= (unsigned long)(protocolReverseDelay * 1000)) {
