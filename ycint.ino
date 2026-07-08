@@ -3855,24 +3855,29 @@ void setup() {
 void loop() {
   // Handle protocol commands
   processProtocolInput();
-  // Auto-stop protocol targets when reached
-  if (protocolTargetAzSet) {
-    float currentAzDisplay = displayAzimuth(currentAz);
-    float diff = protocolTargetAz - currentAzDisplay;
-    if (diff > 180.0) diff -= 360.0;
-    if (diff < -180.0) diff += 360.0;
-    if (abs(diff) <= 1.0) {
-      stopAzimuth();
-      protocolTargetAzSet = false;
+    if (millis() - lastUpdate >= UPDATE_INTERVAL) {
+      readPositions();
+      // Auto-stop protocol targets when reached (after position is updated)
+      if (protocolTargetAzSet) {
+        float currentAzDisplay = displayAzimuth(currentAz);
+        float diff = protocolTargetAz - currentAzDisplay;
+        if (diff > 180.0) diff -= 360.0;
+        if (diff < -180.0) diff += 360.0;
+        if (abs(diff) <= 1.0) {
+          stopAzimuth();
+          protocolTargetAzSet = false;
+        }
+      }
+      if (protocolTargetElSet) {
+        float diff = protocolTargetEl - currentEl;
+        if (abs(diff) <= 1.0) {
+          stopElevation();
+          protocolTargetElSet = false;
+        }
+      }
+      updateRotatorDisplay();
+      lastUpdate = millis();
     }
-  }
-  if (protocolTargetElSet) {
-    float diff = protocolTargetEl - currentEl;
-    if (abs(diff) <= 1.0) {
-      stopElevation();
-      protocolTargetElSet = false;
-    }
-  }
   // Handle web server
   if (!captivePortalActive) {
     server.handleClient();
