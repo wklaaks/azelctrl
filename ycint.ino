@@ -124,6 +124,7 @@ int protocolBaudIndex = 4;  // Default: 115200 (index 4)
 // Show received commands on OLED (default: true)
 bool protocolShowCommands = true;
 char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
+char protocolLastResponse[PROTOCOL_BUF_SIZE];  // Last sent response for display
 
 long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
@@ -138,6 +139,8 @@ long getProtocolBaud() {
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
   Serial.println(response);
+  strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
+  protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
 }
 
