@@ -132,6 +132,15 @@ bool protocolTargetElSet = false;
 float protocolTargetAz = 0.0;
 float protocolTargetEl = 0.0;
 
+// Direction reversal safeguard — configurable delay before reversing direction
+int protocolReverseDelay = 1;  // Default: 1 second
+bool protocolAzReversing = false;
+bool protocolElReversing = false;
+unsigned long protocolAzReverseStart = 0;
+unsigned long protocolElReverseStart = 0;
+String protocolAzPendingDir = "";
+String protocolElPendingDir = "";
+
 long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
 }
@@ -139,6 +148,7 @@ long getProtocolBaud() {
 // EEPROM storage for protocol settings (byte 67+)
 #define EEPROM_PROTO_BAUD_IDX 67
 #define EEPROM_PROTO_SHOW_CMDS 68
+#define EEPROM_PROTO_REVERSE_DELAY 70
 #define EEPROM_PROTO_MAGIC    69
 #define EEPROM_PROTO_MAGIC_VAL 0xB7
 
@@ -160,6 +170,10 @@ void loadProtocolSettings() {
     }
     uint8_t show = EEPROM.read(EEPROM_PROTO_SHOW_CMDS);
     protocolShowCommands = (show == 1);
+    uint8_t revDelay = EEPROM.read(EEPROM_PROTO_REVERSE_DELAY);
+    if (revDelay <= 3) {
+      protocolReverseDelay = revDelay;
+    }
   }
 }
 
@@ -167,6 +181,7 @@ void loadProtocolSettings() {
 void saveProtocolSettings() {
   EEPROM.write(EEPROM_PROTO_BAUD_IDX, (uint8_t)protocolBaudIndex);
   EEPROM.write(EEPROM_PROTO_SHOW_CMDS, (uint8_t)(protocolShowCommands ? 1 : 0));
+  EEPROM.write(EEPROM_PROTO_REVERSE_DELAY, (uint8_t)protocolReverseDelay);
   EEPROM.write(EEPROM_PROTO_MAGIC, EEPROM_PROTO_MAGIC_VAL);
   EEPROM.commit();
 }
@@ -1568,15 +1583,48 @@ void processEasycomCommand(const char* cmd, int len) {
         protocolTargetAz = targetAz;
         protocolTargetAzSet = true;
         // Calculate direction based on current vs target
+        // IMPORTANT: Rotator cannot rotate CCW past 180° (physical stop)
+        // - From 180-360° to lower heading: must rotate CW (through 360/0)
+        // - From 0-179° to higher heading (>180°): must rotate CCW (through 0)
         float currentAzDisplay = displayAzimuth(currentAz);
         float diff = targetAz - currentAzDisplay;
         // Handle wrap-around (shortest path)
         if (diff > 180.0) diff -= 360.0;
         if (diff < -180.0) diff += 360.0;
-        if (diff > 1.0) {
-          executeAzimuthMove("RIGHT");
-        } else if (diff < -1.0) {
-          executeAzimuthMove("LEFT");
+        
+        // Apply physical constraint: cannot rotate CCW past 180°
+        bool mustRotateCW = false;
+        bool mustRotateCCW = false;
+        if (currentAzDisplay >= 180.0 && targetAz < 180.0) {
+          // From 180-360° to lower heading: must go CW through 360/0
+          mustRotateCW = true;
+        } else if (currentAzDisplay < 180.0 && targetAz >= 180.0) {
+          // From 0-179° to higher heading: must go CCW through 0
+          mustRotateCCW = true;
+        }
+        
+        if (diff > 1.0 || mustRotateCW) {
+          // Need to move RIGHT (CW)
+          if (azDirection == DIR_CCW) {
+            // Direction reversal detected — stop, delay, then start
+            stopAzimuth();
+            protocolAzReversing = true;
+            protocolAzReverseStart = millis();
+            protocolAzPendingDir = "RIGHT";
+          } else {
+            executeAzimuthMove("RIGHT");
+          }
+        } else if (diff < -1.0 || mustRotateCCW) {
+          // Need to move LEFT (CCW)
+          if (azDirection == DIR_CW) {
+            // Direction reversal detected — stop, delay, then start
+            stopAzimuth();
+            protocolAzReversing = true;
+            protocolAzReverseStart = millis();
+            protocolAzPendingDir = "LEFT";
+          } else {
+            executeAzimuthMove("LEFT");
+          }
         } else {
           stopAzimuth();
           protocolTargetAzSet = false;
@@ -1603,9 +1651,27 @@ void processEasycomCommand(const char* cmd, int len) {
         // Calculate direction
         float diff = targetEl - currentEl;
         if (diff > 1.0) {
-          executeElevationMove("UP");
+          // Need to move UP
+          if (elDirection == DIR_DOWN) {
+            // Direction reversal detected — stop, delay, then start
+            stopElevation();
+            protocolElReversing = true;
+            protocolElReverseStart = millis();
+            protocolElPendingDir = "UP";
+          } else {
+            executeElevationMove("UP");
+          }
         } else if (diff < -1.0) {
-          executeElevationMove("DOWN");
+          // Need to move DOWN
+          if (elDirection == DIR_UP) {
+            // Direction reversal detected — stop, delay, then start
+            stopElevation();
+            protocolElReversing = true;
+            protocolElReverseStart = millis();
+            protocolElPendingDir = "DOWN";
+          } else {
+            executeElevationMove("DOWN");
+          }
         } else {
           stopElevation();
           protocolTargetElSet = false;
@@ -2319,16 +2385,21 @@ int waitForWifiConnection(bool allowCancel = true);
 // Dynamic labels
 char setupBaudLabel[32];
 char setupShowCmdLabel[32];
+char setupReverseDelayLabel[32];
 void updateBaudLabel() {
   snprintf(setupBaudLabel, sizeof(setupBaudLabel), "Baud Rate (%ld)", getProtocolBaud());
 }
 void updateShowCmdLabel() {
   snprintf(setupShowCmdLabel, sizeof(setupShowCmdLabel), "Show Commands (%c)", protocolShowCommands ? 'Y' : 'N');
 }
+void updateReverseDelayLabel() {
+  snprintf(setupReverseDelayLabel, sizeof(setupReverseDelayLabel), "Reverse Delay (%ds)", protocolReverseDelay);
+}
 
 void actionPcInterface() {
   updateBaudLabel();
   updateShowCmdLabel();
+  updateReverseDelayLabel();
   currentMenu = &pcInterfaceMenu;
   currentMenu->init();
   currentMenu->setFooter(showCmdFooter());
@@ -2345,6 +2416,14 @@ void actionToggleShowCommands() {
   saveProtocolSettings();
   updateShowCmdLabel();
   currentMenu->setFooter(showCmdFooter());
+  currentMenu->draw();
+}
+
+void actionToggleReverseDelay() {
+  // Cycle through 0, 1, 2, 3 seconds
+  protocolReverseDelay = (protocolReverseDelay + 1) % 4;
+  saveProtocolSettings();
+  updateReverseDelayLabel();
   currentMenu->draw();
 }
 
@@ -2373,11 +2452,12 @@ Menu baudMenu("Select Baud Rate", baudItems, 5, &pcInterfaceMenu);
 
 // PC Interface menu items
 MenuItem pcInterfaceItems[] = {
-  {setupBaudLabel,      actionPcBaudRate,       0, true, nullptr, nullptr},
-  {setupShowCmdLabel,   actionToggleShowCommands, 0, true, nullptr, nullptr},
+  {setupBaudLabel,        actionPcBaudRate,           0, true, nullptr, nullptr},
+  {setupShowCmdLabel,     actionToggleShowCommands,   0, true, nullptr, nullptr},
+  {setupReverseDelayLabel, actionToggleReverseDelay,  0, true, nullptr, nullptr},
 };
 
-Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 2, &setupMenu);
+Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 3, &setupMenu);
 
 MenuItem bootItems[] = {
   {"Rotator Ctrl", actionBootSkip, 3, true, nullptr, nullptr},    // 3s timeout auto-select
@@ -3891,12 +3971,25 @@ void loop() {
   } else {
     // Rotator control mode
     static unsigned long lastUpdate = 0;
-    const unsigned long UPDATE_INTERVAL = 400;
+    const unsigned long UPDATE_INTERVAL = 200;
     
     if (millis() - lastUpdate >= UPDATE_INTERVAL) {
       readPositions();
+      // Handle direction reversal delay
+      if (protocolAzReversing) {
+        if (millis() - protocolAzReverseStart >= (unsigned long)(protocolReverseDelay * 1000)) {
+          protocolAzReversing = false;
+          executeAzimuthMove(protocolAzPendingDir);
+        }
+      }
+      if (protocolElReversing) {
+        if (millis() - protocolElReverseStart >= (unsigned long)(protocolReverseDelay * 1000)) {
+          protocolElReversing = false;
+          executeElevationMove(protocolElPendingDir);
+        }
+      }
       // Auto-stop protocol targets when reached (after position is updated)
-      if (protocolTargetAzSet) {
+      if (protocolTargetAzSet && !protocolAzReversing) {
         float currentAzDisplay = displayAzimuth(currentAz);
         float diff = protocolTargetAz - currentAzDisplay;
         if (diff > 180.0) diff -= 360.0;
@@ -3906,7 +3999,7 @@ void loop() {
           protocolTargetAzSet = false;
         }
       }
-      if (protocolTargetElSet) {
+      if (protocolTargetElSet && !protocolElReversing) {
         float diff = protocolTargetEl - currentEl;
         if (abs(diff) <= 1.0) {
           stopElevation();
