@@ -2699,8 +2699,7 @@ void actionApMode() {
 }
 
 void actionRotatorControl() {
-  Serial.println("Action: Rotator Control");
-  // Stop any active movement before switching to rotator mode
+  // Enter rotator control mode
   stopAll();
   currentMenu = nullptr;  // nullptr = rotator control mode
 }
@@ -3358,28 +3357,42 @@ void updateRotatorDisplay() {
       display.print("  N/A");
     }
     
-    // Moving/Selected just above footer
-    display.setTextSize(1);
-    display.setCursor(0, 40);
-    if (currentMove.compareTo("IDLE") != 0) {
+    // Check if we have a recent command to display (RX/TX mode)
+    bool showCmd = (protocolShowCommands && strlen(protocolLastCommand) > 0);
+    
+    if (showCmd) {
+      // RX/TX mode: divider above Az/El, two command lines below
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 32, SSD1306_WHITE);
+      }
+      display.setCursor(0, 34);
+      display.print("RX: ");
+      display.print(protocolLastCommand);
+      display.setCursor(0, 45);
+      display.print("TX: ");
+      display.print(protocolLastResponse);
+    } else if (currentMove.compareTo("IDLE") != 0) {
+      display.setCursor(0, 40);
       display.print("Moving: ");
       display.println(currentMove);
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
+      }
     } else {
-      if (protocolShowCommands && strlen(protocolLastCommand) > 0) {
-        display.print("Cmd: ");
-        display.println(protocolLastCommand);
-      } else {
-        display.print("Selected: ");
-        display.println(directions[rotatorMenuSelection]);
+      display.setCursor(0, 40);
+      display.print("Selected: ");
+      display.println(directions[rotatorMenuSelection]);
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
       }
     }
     
-    // Dotted separator above footer
-    for (int x = 0; x < 128; x += 3) {
-      display.drawPixel(x, 53, SSD1306_WHITE);
-    }
     display.setCursor(0, 56);
-    display.println("1.Cycle 2!Go I2!1|RST");
+    if (showCmd) {
+      display.println("PC Interface Active");
+    } else {
+      display.println("1.Cycle 2!Go I2!1|RST");
+    }
   }
   
   display.display();

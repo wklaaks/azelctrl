@@ -392,15 +392,27 @@ def test_easycom_unknown(tester: ProtocolTester) -> bool:
 # then does a combined movement (both axes), waits 5s, then returns.
 
 def parse_az(response: str) -> Optional[float]:
-    """Extract azimuth from AZnnn.n or AZELnnn.n.nnn.n response."""
-    m = re.search(r'AZ([-\d.]+)', response)
+    """Extract azimuth from AZnnn.n or AZEL response."""
+    # Handle combined AZEL format: AZEL355.0.20.2.0
+    if response.startswith('AZEL'):
+        m = re.match(r'AZEL(\d+\.\d+)', response)
+        if m:
+            return float(m.group(1))
+    # Handle standalone AZ format: AZ355.0
+    m = re.match(r'AZ(\d+\.\d+)', response)
     if m:
         return float(m.group(1))
     return None
 
 def parse_el(response: str) -> Optional[float]:
-    """Extract elevation from ELnnn.n or AZELnnn.n.nnn.n response."""
-    m = re.search(r'EL([-\d.]+)', response)
+    """Extract elevation from ELnnn.n or AZEL response."""
+    # Handle combined AZEL format: AZEL355.0.20.2.0
+    if response.startswith('AZEL'):
+        m = re.match(r'AZEL\d+\.\d+\.(\d+\.\d+)', response)
+        if m:
+            return float(m.group(1))
+    # Handle standalone EL format: EL20.2
+    m = re.match(r'EL(\d+\.\d+)', response)
     if m:
         return float(m.group(1))
     return None
