@@ -1603,7 +1603,8 @@ void processEasycomCommand(const char* cmd, int len) {
           mustRotateCCW = true;
         }
         
-        if (diff > 1.0 || mustRotateCW) {
+        // Constraint overrides shortest-path calculation
+        if (mustRotateCW || (diff > 1.0 && !mustRotateCCW)) {
           // Need to move RIGHT (CW)
           if (azDirection == DIR_CCW) {
             // Direction reversal detected — stop, delay, then start
@@ -1614,7 +1615,7 @@ void processEasycomCommand(const char* cmd, int len) {
           } else {
             executeAzimuthMove("RIGHT");
           }
-        } else if (diff < -1.0 || mustRotateCCW) {
+        } else if (mustRotateCCW || (diff < -1.0 && !mustRotateCW)) {
           // Need to move LEFT (CCW)
           if (azDirection == DIR_CW) {
             // Direction reversal detected — stop, delay, then start
