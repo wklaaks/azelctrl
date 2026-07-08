@@ -3407,14 +3407,14 @@ void updateRotatorDisplay() {
     if (showCmd) {
       // Switch to small font for RX/TX lines
       display.setTextSize(1);
-      // Dotted separator above Az/El
+      // Dotted separator below Az/El with breathing room
       for (int x = 0; x < 128; x += 3) {
-        display.drawPixel(x, 32, SSD1306_WHITE);
+        display.drawPixel(x, 38, SSD1306_WHITE);
       }
-      display.setCursor(0, 34);
+      display.setCursor(0, 40);
       display.print("RX: ");
       display.print(protocolLastCommand);
-      display.setCursor(0, 45);
+      display.setCursor(0, 51);
       display.print("TX: ");
       display.print(protocolLastResponse);
     } else if (currentMove.compareTo("IDLE") != 0) {
@@ -3433,12 +3433,9 @@ void updateRotatorDisplay() {
       }
     }
     
+    // Always show button actions footer (user can always switch to button mode)
     display.setCursor(0, 56);
-    if (showCmd) {
-      display.println("PC Interface Active");
-    } else {
-      display.println("1.Cycle 2!Go I2!1|RST");
-    }
+    display.println("1.Cycle 2!Go I2!1|RST");
   }
   
   display.display();
@@ -3626,6 +3623,9 @@ void handleButtons() {
   // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
   // ALSO: restart sequence - when IDLE selected, hold Btn2 + long-press Btn1
   if (btn1 && !btn1WasPressed) {
+    // Any button press clears protocol command display (user is back in control)
+    protocolLastCommand[0] = '\0';
+    protocolLastResponse[0] = '\0';
     btn1PressStart = now;
     btn1LongPressTriggered = false;
   }
