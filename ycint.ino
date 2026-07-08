@@ -36,6 +36,36 @@
 #include <DNSServer.h>
 #include <EEPROM.h>
 
+// ==================== COMPILE-TIME DEBUG FLAGS ====================
+// Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
+// Set to 0 to disable all debug output (zero overhead)
+#define DEBUG_ENABLED 0
+#define DEBUG_PROTOCOL 0  // Debug protocol parsing details
+#define DEBUG_MOVEMENT 0  // Debug movement commands
+
+// Debug helper macros - output prefixed with 'DBG:' so Python tests can filter
+#if DEBUG_ENABLED
+  #define DBG_PRINT(msg) Serial.print("DBG:" msg)
+  #define DBG_PRINTLN(msg) Serial.println("DBG:" msg)
+  #define DBG_PRINT_VAL(val) Serial.print("DBG:" #val "="); Serial.print(val); Serial.println("")
+#else
+  #define DBG_PRINT(msg)
+  #define DBG_PRINTLN(msg)
+  #define DBG_PRINT_VAL(val)
+#endif
+
+// ==================== PROTOCOL CONFIGURATION ====================
+// Enable GS-232A/B and Easycom protocol support
+#define PROTOCOL_GS232A 1
+#define PROTOCOL_GS232B 1
+#define PROTOCOL_EASYCOM 1
+
+// Baud rate for protocol serial communication (USB)
+#define PROTOCOL_BAUD 115200
+
+// Protocol command buffer size
+#define PROTOCOL_BUF_SIZE 64
+
 // ==================== PIN DEFINITIONS ====================
 const int AZ_ENABLE  = D2;   // GPIO4
 const int AZ_DIR_CW  = D3;   // GPIO0
@@ -74,6 +104,51 @@ bool moving = false;
 // WiFi mode: STA (connect to home), AP (field mode), or DISABLED
 enum DeviceWifiMode { MODE_STA, MODE_AP, MODE_DISABLED };
 DeviceWifiMode deviceWifiMode = MODE_DISABLED;
+
+// ==================== GS-232A/B & EASYCOM PROTOCOL ====================
+// Protocol command buffer
+char protocolBuf[PROTOCOL_BUF_SIZE];
+int protocolBufIdx = 0;
+
+// Protocol state
+bool protocolActive = false;
+unsigned long protocolLastCmd = 0;
+const unsigned long PROTOCOL_TIMEOUT_MS = 5000;
+
+// Helper: send a protocol response string over serial
+void protocolSend(const String& response) {
+  Serial.println(response);
+  DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
+}
+
+// Helper: parse integer from buffer starting at index, returns length consumed (0 if none)
+int parseNumber(const char* buf, int start, int* num, int* consumed) {
+  int i = start;
+  int len = strlen(buf);
+  bool negative = false;
+  int value = 0;
+  
+  if (i < len && buf[i] == '-') {
+    negative = true;
+    i++;
+  }
+  
+  while (i < len && buf[i] >= '0' && buf[i] <= '9') {
+    value = value * 10 + (buf[i] - '0');
+    i++;
+  }
+  
+  if (i == start) {
+    *consumed = 0;
+    return -1;  // No number found
+  }
+  
+  *num = negative ? -value : value;
+  *consumed = i - start;
+  return 0;
+}
+
+
 
 // ==================== MENU SYSTEM ====================
 typedef void (*MenuAction)();
@@ -1182,6 +1257,9 @@ void setupRotatorModel() {
   bool btn2WasPressed = false;
 
   while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
     bool btn1 = digitalRead(BTN1);      // HIGH = pressed
     bool btn2 = !digitalRead(BTN2);     // LOW = pressed
 
@@ -1301,6 +1379,219 @@ void exitCalibrationMode() {
   stopAll();
   Serial.println("CAL: Exiting calibration");
 }
+
+// Process GS-232A/B commands
+void processGs232Command(const char* cmd, int len) {
+  char upper = toupper(cmd[0]);
+  
+  switch (upper) {
+    case 'H': {
+      float az = displayAzimuth(currentAz);
+      int azDeg = (int)round(az);
+      if (azDeg < 0) azDeg += 360;
+      if (azDeg >= 360) azDeg -= 360;
+      protocolSend(String("H") + String(azDeg, DEC));
+      break;
+    }
+    case 'V': {
+      float el = currentEl;
+      int elDeg = (int)round(el);
+      protocolSend(String("V") + String(elDeg, DEC));
+      break;
+    }
+    case 'C': {
+      float az = displayAzimuth(currentAz);
+      float el = currentEl;
+      protocolSend(String("C") + String(az, 1) + "." + String(el, 1) + ".0");
+      break;
+    }
+    case 'L': {
+      startMove("LEFT");
+      protocolSend("OK");
+      break;
+    }
+    case 'R': {
+      startMove("RIGHT");
+      protocolSend("OK");
+      break;
+    }
+    case 'U': {
+      startMove("UP");
+      protocolSend("OK");
+      break;
+    }
+    case 'D': {
+      startMove("DOWN");
+      protocolSend("OK");
+      break;
+    }
+    case 'S': {
+      stopAll();
+      protocolSend("OK");
+      break;
+    }
+    case 'X':
+    case 'T':
+    case 'P':
+    case 'N':
+    case 'F':
+      protocolSend("OK");
+      break;
+    default:
+      protocolSend("ERR");
+      break;
+  }
+}
+
+// Process Easycom commands
+void processEasycomCommand(const char* cmd, int len) {
+  while (len > 0 && (cmd[len-1] == ' ' || cmd[len-1] == '\t')) len--;
+  
+  if (len > 0 && cmd[0] == '\\') {
+    if (len == 2 && cmd[1] == '?') {
+      protocolSend("\\?GS-232A/B,EASYCOM,ROTATOR");
+      return;
+    }
+    protocolSend("ERR");
+    return;
+  }
+  
+  String cmdStr = String(cmd);
+  cmdStr.toUpperCase();
+  
+  if (cmdStr == "AZEL") {
+    // Combined AZEL query - MUST check before AZ
+    float az = displayAzimuth(currentAz);
+    protocolSend(String("AZEL") + String(az, 1) + "." + String(currentEl, 1) + ".0");
+  } else if (cmdStr.startsWith("AZ")) {
+    if (cmdStr.length() == 2) {
+      float az = displayAzimuth(currentAz);
+      protocolSend(String("AZ") + String(az, 1));
+    } else {
+      int azDeg = 0;
+      int consumed = 0;
+      if (parseNumber(cmd, 2, &azDeg, &consumed) == 0) {
+        protocolSend("OK");
+      } else {
+        protocolSend("ERR");
+      }
+    }
+  } else if (cmdStr.startsWith("EL")) {
+    if (cmdStr.length() == 2) {
+      protocolSend(String("EL") + String(currentEl, 1));
+    } else {
+      int elDeg = 0;
+      int consumed = 0;
+      if (parseNumber(cmd, 2, &elDeg, &consumed) == 0) {
+        protocolSend("OK");
+      } else {
+        protocolSend("ERR");
+      }
+    }
+  } else if (cmdStr == "CW") {
+    startMove("RIGHT");
+    protocolSend("OK");
+  } else if (cmdStr == "CCW") {
+    startMove("LEFT");
+    protocolSend("OK");
+  } else if (cmdStr == "UP") {
+    startMove("UP");
+    protocolSend("OK");
+  } else if (cmdStr == "DOWN") {
+    startMove("DOWN");
+    protocolSend("OK");
+  } else if (cmdStr == "STOP") {
+    stopAll();
+    protocolSend("OK");
+  } else if (cmdStr.startsWith("TIMEOUT") || cmdStr.startsWith("SPEED") || cmdStr == "PARK") {
+    protocolSend("OK");
+  } else if (cmdStr == "HELP") {
+    protocolSend("HELP:GS-232A/B,EASYCOM,ROTATOR");
+  } else {
+    protocolSend("ERR");
+  }
+}
+
+// Main protocol input handler - called from loop()
+void processProtocolInput() {
+  while (Serial.available()) {
+    char ch = Serial.read();
+    
+    if (ch == '\n' || ch == '\r') {
+      if (protocolBufIdx > 0) {
+        protocolBuf[protocolBufIdx] = '\0';
+        DBG_PRINT("PROTOCOL:RX:"); DBG_PRINTLN(protocolBuf);
+        
+        // Special command: MODE:ROTATOR (force rotator control mode)
+        if (strncmp(protocolBuf, "MODE:ROTATOR", 12) == 0) {
+          stopAll();
+          exitCalibrationMode();
+          currentMenu = nullptr;
+          Serial.println("MODE:ROTATOR");
+          protocolBufIdx = 0;
+          protocolLastCmd = millis();
+          return;
+        }
+        
+        if (protocolBuf[0] == '\\') {
+          processEasycomCommand(protocolBuf, protocolBufIdx);
+        } else if (protocolBufIdx == 1 && protocolBuf[0] >= 'A' && protocolBuf[0] <= 'Z') {
+          // Single uppercase letter - GS-232
+          processGs232Command(protocolBuf, protocolBufIdx);
+        } else if (protocolBufIdx == 1 && protocolBuf[0] >= 'a' && protocolBuf[0] <= 'z') {
+          // Single lowercase letter - treat as case-insensitive GS-232
+          processGs232Command(protocolBuf, protocolBufIdx);
+        } else if (protocolBufIdx > 1) {
+          // Multi-letter: check if it's a GS-232 command with params (Xnnn, Tnnn, Pnnn, Nnnn, Fnnn)
+          char first = toupper(protocolBuf[0]);
+          if (first == 'X' || first == 'T' || first == 'P' || first == 'N' || first == 'F') {
+            // GS-232 command with parameters
+            processGs232Command(protocolBuf, protocolBufIdx);
+          } else {
+            // Easycom command (AZ, EL, AZEL, CW, CCW, UP, DOWN, STOP, etc.)
+            processEasycomCommand(protocolBuf, protocolBufIdx);
+          }
+        } else {
+          protocolSend("ERR");
+        }
+        
+        protocolBufIdx = 0;
+        protocolLastCmd = millis();
+      }
+    } else {
+      if (protocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
+        protocolBuf[protocolBufIdx++] = ch;
+      }
+    }
+  }
+}
+
+// Check for MODE:ROTATOR command in serial buffer (called from blocking loops)
+bool checkModeCommand() {
+  while (Serial.available()) {
+    char ch = Serial.read();
+    static char modeBuf[32];
+    static int modeIdx = 0;
+    
+    if (ch == '\n' || ch == '\r') {
+      modeBuf[modeIdx] = '\0';
+      if (strncmp(modeBuf, "MODE:ROTATOR", 12) == 0) {
+        stopAll();
+        exitCalibrationMode();
+        currentMenu = nullptr;
+        Serial.println("MODE:ROTATOR");
+        modeIdx = 0;
+        return true;
+      }
+      modeIdx = 0;
+    } else if (modeIdx < 31) {
+      modeBuf[modeIdx++] = ch;
+    }
+  }
+  return false;
+}
+
+
 
 void setCalDirection(int dir) {
   calDirection = dir;
@@ -2114,7 +2405,10 @@ void actionReviewWifi() {
   }
   delay(100);
   
-  while (true) {  // Wait indefinitely for user input
+  while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+  // Wait indefinitely for user input
     if (digitalRead(BTN1)) {
       delay(300);
       currentMenu->draw();  // Preserve cursor position
@@ -2316,7 +2610,10 @@ void actionApStatus() {
   }
   delay(100);
   
-  while (true) {  // Wait indefinitely for user input
+  while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+  // Wait indefinitely for user input
     if (digitalRead(BTN1)) {
       delay(300);
       currentMenu = &apModeMenu;
@@ -2361,6 +2658,9 @@ void actionRotatorModel() {
   delay(100);
   
   while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
     if (digitalRead(BTN1)) {
       delay(300);
       // Re-enter setup
@@ -2443,6 +2743,9 @@ void actionSetupWipe() {
 
   // Wait for user choice
   while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
     if (digitalRead(BTN1)) {
       delay(300);
       // Wipe all EEPROM settings
@@ -2536,6 +2839,9 @@ void showStationSettings() {
   bool firstDraw = true;
 
   while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
     btn1WasPressed = false;
     btn2WasPressed = false;
     btn1PressStart = 0;
@@ -2551,6 +2857,9 @@ void showStationSettings() {
     const char* opts[2] = {"Set via HTTP", opt1};
 
     while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
       display.clearDisplay();
       display.setTextSize(1);
 
@@ -2661,6 +2970,9 @@ void showStationSettings() {
 
           unsigned long btn2Hold = 0;
           while (true) {
+    // Check for MODE:ROTATOR command to escape blocking menu
+    if (checkModeCommand()) return;
+
             tickCaptivePortal();
             if (!captivePortalActive) {
               // Captive portal stopped (credentials saved or timeout)
@@ -3321,6 +3633,8 @@ void setup() {
 
 // ====================== MAIN LOOP ======================
 void loop() {
+  // Handle protocol commands
+  processProtocolInput();
   // Handle web server
   if (!captivePortalActive) {
     server.handleClient();
