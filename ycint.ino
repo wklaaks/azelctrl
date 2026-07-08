@@ -1596,10 +1596,10 @@ void processEasycomCommand(const char* cmd, int len) {
         // Each variant has a physical stop angle that cannot be crossed CCW
         float physicalStop;
         switch (rotModel) {
-          case ROT_N360: physicalStop = 180.0; break;  // Stop at 180°
-          case ROT_S360: physicalStop = 0.0; break;    // Stop at 0°/360°
-          case ROT_N450: physicalStop = 270.0; break;  // Stop at 270°
-          case ROT_S450: physicalStop = 0.0; break;    // Stop at 0°/450°
+          case ROT_N360: physicalStop = 180.0; break;   // Center=0°, ±180° travel → CCW stop at 180°
+          case ROT_S360: physicalStop = 0.0; break;     // Center=180°, ±180° travel → CCW stop at 0°/360°
+          case ROT_N450: physicalStop = 135.0; break;   // Center=0°, ±225° travel → CCW stop at 135° (-225°)
+          case ROT_S450: physicalStop = 315.0; break;   // Center=180°, ±225° travel → CCW stop at 315° (180°-225°=-45°=315°)
           default: physicalStop = 180.0; break;
         }
         
