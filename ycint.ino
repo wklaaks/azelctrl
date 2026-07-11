@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.println(response);  // GS-232B expects \r\n line ending
+  Serial.print(response + "\r");  // GS-232B expects CR only, not CRLF
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -1016,6 +1016,11 @@ void stopAll() {
   stopElevation();
   moving = false;
   currentMove = "IDLE";
+  // Clear protocol targets so auto-stop logic doesn't restart movement
+  protocolTargetAzSet = false;
+  protocolTargetElSet = false;
+  protocolAzReversing = false;
+  protocolElReversing = false;
 }
 
 void executeAzimuthMove(String dir) {
@@ -1563,11 +1568,20 @@ void processGs232Command(const char* cmd, int len) {
       protocolSend("OK");
       break;
     }
+    case 'A':  // All Stop (both axes)
     case 'S': {
       stopAll();
       protocolSend("OK");
       break;
     }
+    case 'E':  // Stop elevation only
+      stopElevation();
+      protocolSend("OK");
+      break;
+    case 'Z':  // Stop azimuth only
+      stopAzimuth();
+      protocolSend("OK");
+      break;
     case 'X':
     case 'T':
     case 'P':
