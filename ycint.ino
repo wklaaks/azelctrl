@@ -1511,9 +1511,27 @@ void processGs232Command(const char* cmd, int len) {
       break;
     }
     case 'C': {
+      // GS-232B C command family:
+      // C  = Current position (azimuth, elevation)
+      // C1 = Current position with rate of change
+      // C2 = Current position with status
+      // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
-      protocolSend(String("C") + String(az, 1) + "." + String(el, 1) + ".0");
+      String resp = String("C") + String(az, 1) + "." + String(el, 1) + ".0";
+      if (len > 1) {
+        char suffix = toupper(cmd[1]);
+        if (suffix >= '1' && suffix <= '3') {
+          // Append status: 0 = IDLE, 1 = MOVING
+          resp += ".0";  // Rate of change (not available)
+          if (suffix == '2') {
+            resp += ".0";  // Status: 0 = normal
+          } else if (suffix == '3') {
+            resp += ".0.0";  // Status + error code
+          }
+        }
+      }
+      protocolSend(resp);
       break;
     }
     case 'L': {
