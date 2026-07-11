@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.println(response);  // GS-232B expects CRLF line ending
+  Serial.print(response + "\r");  // GS-232B expects CR only (\r)
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -4314,6 +4314,10 @@ void loop() {
   static unsigned long lastAutoStopUpdate = 0;
   if (millis() - lastAutoStopUpdate >= 200) {
     lastAutoStopUpdate = millis();
+    // Ensure positions are read before checking auto-stop
+    if (protocolTargetAzSet || protocolTargetElSet) {
+      readPositions();
+    }
     if (protocolTargetAzSet && !protocolAzReversing) {
       float currentAzDisplay = displayAzimuth(currentAz);
       float diff = protocolTargetAz - currentAzDisplay;
