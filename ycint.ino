@@ -1518,21 +1518,24 @@ void processGs232Command(const char* cmd, int len) {
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
-      String resp = String("C") + String(az, 1) + "." + String(el, 1);
+      char buf[32];
+      int pos = 0;
+      // GS-232B format: azimuth=nnn.n, elevation=nn.n
+      pos += snprintf(buf + pos, sizeof(buf) - pos, "C%04.1f.%03.1f", az, el);
       if (len > 1) {
         char suffix = toupper(cmd[1]);
         if (suffix == '1') {
           // C1: azimuth, elevation, rate
-          resp += ".0";  // Rate of change (not available)
+          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0");
         } else if (suffix == '2') {
           // C2: azimuth, elevation, rate, status
-          resp += ".0.0";  // Rate + status (0 = stopped)
+          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0.0");
         } else if (suffix == '3') {
           // C3: azimuth, elevation, rate, status, error
-          resp += ".0.0.0";  // Rate + status + error
+          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0.0.0");
         }
       }
-      protocolSend(resp);
+      protocolSend(String(buf));
       break;
     }
     case 'L': {
