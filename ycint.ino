@@ -1500,6 +1500,77 @@ void exitCalibrationMode() {
   Serial.println("CAL: Exiting calibration");
 }
 
+// Protocol movement helpers — used by both GS-232 and Easycom handlers
+void executeProtocolAzMove(float targetAz) {
+  if (targetAz < 0.0) targetAz = 0.0;
+  if (targetAz > 360.0) targetAz = 360.0;
+  protocolTargetAz = targetAz;
+  protocolTargetAzSet = true;
+  float currentAzDisplay = displayAzimuth(currentAz);
+  float diff = targetAz - currentAzDisplay;
+  if (diff > 180.0) diff -= 360.0;
+  if (diff < -180.0) diff += 360.0;
+  float physicalStop;
+  switch (rotModel) {
+    case ROT_N360: physicalStop = 180.0; break;
+    case ROT_S360: physicalStop = 0.0; break;
+    case ROT_N450: physicalStop = 135.0; break;
+    case ROT_S450: physicalStop = 315.0; break;
+    default: physicalStop = 180.0; break;
+  }
+  bool mustRotateCW = false;
+  bool mustRotateCCW = false;
+  if (currentAzDisplay >= physicalStop && targetAz < physicalStop) {
+    mustRotateCW = true;
+  } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
+    mustRotateCCW = true;
+  }
+  if (rotModel == ROT_N450 || rotModel == ROT_S450) {
+    float centerHeading = (rotModel == ROT_N450) ? 0.0 : 180.0;
+    float targetOffset = targetAz - centerHeading;
+    if (targetOffset > 180.0) targetOffset -= 360.0;
+    if (targetOffset < -180.0) targetOffset += 360.0;
+    float cwDist = targetOffset - mechanicalAzOffset;
+    float ccwDist = mechanicalAzOffset - targetOffset;
+    float maxTravel = 225.0;
+    bool cwValid = (mechanicalAzOffset + cwDist) <= maxTravel;
+    bool ccwValid = (mechanicalAzOffset - ccwDist) >= -maxTravel;
+    if (cwValid && ccwValid) {
+      if (abs(cwDist) < abs(ccwDist)) mustRotateCW = true; else mustRotateCCW = true;
+    } else if (cwValid) { mustRotateCW = true; } else if (ccwValid) { mustRotateCCW = true; }
+  }
+  if (mustRotateCW || (diff > 1.0 && !mustRotateCCW)) {
+    if (azDirection == DIR_CCW) {
+      stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "RIGHT";
+    } else { executeAzimuthMove("RIGHT"); }
+  } else if (mustRotateCCW || diff < -1.0) {
+    if (azDirection == DIR_CW) {
+      stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "LEFT";
+    } else { executeAzimuthMove("LEFT"); }
+  } else {
+    stopAzimuth(); protocolTargetAzSet = false;
+  }
+}
+
+void executeProtocolElMove(float targetEl) {
+  if (targetEl < 0.0) targetEl = 0.0;
+  if (targetEl > 180.0) targetEl = 180.0;
+  protocolTargetEl = targetEl;
+  protocolTargetElSet = true;
+  float diff = targetEl - currentEl;
+  if (diff > 1.0) {
+    if (elDirection == DIR_DOWN) {
+      stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
+    } else { executeElevationMove("UP"); }
+  } else if (diff < -1.0) {
+    if (elDirection == DIR_UP) {
+      stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
+    } else { executeElevationMove("DOWN"); }
+  } else {
+    stopElevation(); protocolTargetElSet = false;
+  }
+}
+
 // Process GS-232A/B commands
 void processGs232Command(const char* cmd, int len) {
   char upper = toupper(cmd[0]);
