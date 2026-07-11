@@ -1506,11 +1506,79 @@ void processGs232Command(const char* cmd, int len) {
   
   switch (upper) {
     case 'H': {
-      float az = displayAzimuth(currentAz);
-      int azDeg = (int)round(az);
-      if (azDeg < 0) azDeg += 360;
-      if (azDeg >= 360) azDeg -= 360;
-      protocolSend(String("H") + String(azDeg, DEC));
+      if (len == 1) {
+        // H = query heading
+        float az = displayAzimuth(currentAz);
+        int azDeg = (int)round(az);
+        if (azDeg < 0) azDeg += 360;
+        if (azDeg >= 360) azDeg -= 360;
+        protocolSend(String("H") + String(azDeg, DEC));
+      } else {
+        // Hnnn = set heading (same as Mnnn)
+        int targetAz = 0;
+        int consumed = 0;
+        if (parseNumber(cmd, 1, &targetAz, &consumed) == 0) {
+          if (targetAz >= 0 && targetAz <= 360) {
+            executeProtocolAzMove(targetAz);
+            protocolSend("OK");
+          } else {
+            protocolSend("ERR");
+          }
+        } else {
+          protocolSend("ERR");
+        }
+      }
+      break;
+    }
+    case 'M': {
+      // Mnnn = move azimuth to heading
+      if (len > 1) {
+        int targetAz = 0;
+        int consumed = 0;
+        if (parseNumber(cmd, 1, &targetAz, &consumed) == 0) {
+          if (targetAz >= 0 && targetAz <= 360) {
+            executeProtocolAzMove(targetAz);
+            protocolSend("OK");
+          } else {
+            protocolSend("ERR");
+          }
+        } else {
+          protocolSend("ERR");
+        }
+      } else {
+        protocolSend("ERR");
+      }
+      break;
+    }
+    case 'W': {
+      // Wnnn nnn = move to azimuth/elevation position
+      if (len > 1) {
+        int targetAz = 0, targetEl = 0;
+        int consumed = 0;
+        // Parse azimuth (3 digits)
+        if (parseNumber(cmd, 1, &targetAz, &consumed) == 0) {
+          // Skip space separator
+          int elOffset = 1 + consumed;
+          while (elOffset < len && cmd[elOffset] == ' ') elOffset++;
+          // Parse elevation
+          int elConsumed = 0;
+          if (parseNumber(cmd, elOffset, &targetEl, &elConsumed) == 0) {
+            if (targetAz >= 0 && targetAz <= 360 && targetEl >= 0 && targetEl <= 180) {
+              executeProtocolAzMove(targetAz);
+              executeProtocolElMove(targetEl);
+              protocolSend("OK");
+            } else {
+              protocolSend("ERR");
+            }
+          } else {
+            protocolSend("ERR");
+          }
+        } else {
+          protocolSend("ERR");
+        }
+      } else {
+        protocolSend("ERR");
+      }
       break;
     }
     case 'V': {
