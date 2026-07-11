@@ -39,14 +39,14 @@
 // ==================== COMPILE-TIME DEBUG FLAGS ====================
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
 // Set to 0 to disable all debug output (zero overhead)
-#define DEBUG_ENABLED 0
-#define DEBUG_PROTOCOL 0  // Debug protocol parsing details
-#define DEBUG_MOVEMENT 0  // Debug movement commands
+#define DEBUG_ENABLED 1
+#define DEBUG_PROTOCOL 1  // Debug protocol parsing details
+#define DEBUG_MOVEMENT 1  // Debug movement commands
 
 // Debug helper macros - output prefixed with 'DBG:' so Python tests can filter
 #if DEBUG_ENABLED
   #define DBG_PRINT(msg) Serial.print("DBG:" msg)
-  #define DBG_PRINTLN(msg) Serial.println("DBG:" msg)
+  #define DBG_PRINTLN(msg) do { Serial.print("DBG:"); Serial.println(msg); } while(0)
   #define DBG_PRINT_VAL(val) Serial.print("DBG:" #val "="); Serial.print(val); Serial.println("")
 #else
   #define DBG_PRINT(msg)
@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.print(response + "\r");  // GS-232B expects CR only (\r)
+  Serial.print(response + "\r\n");  // GS-232B expects CRLF line ending
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -1003,7 +1003,7 @@ void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
   azDirection = DIR_STOPPED;
-  protocolTargetAzSet = false;
+  // Don't clear protocolTargetAzSet here — it's cleared by auto-stop or explicit stop commands
   protocolAzReversing = false;
 }
 
@@ -1011,7 +1011,7 @@ void stopElevation() {
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
-  protocolTargetElSet = false;
+  // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit stop commands
   protocolElReversing = false;
 }
 
@@ -1506,6 +1506,8 @@ void executeProtocolAzMove(float targetAz) {
   if (targetAz > 360.0) targetAz = 360.0;
   protocolTargetAz = targetAz;
   protocolTargetAzSet = true;
+  Serial.print("DBG:PROT_AZ:target="); Serial.print(targetAz);
+  Serial.print(" cur="); Serial.println(displayAzimuth(currentAz));
   float currentAzDisplay = displayAzimuth(currentAz);
   float diff = targetAz - currentAzDisplay;
   if (diff > 180.0) diff -= 360.0;
@@ -1679,7 +1681,7 @@ void processGs232Command(const char* cmd, int len) {
       // GS-232B C command family:
       // C  = Current position (azimuth, elevation)
       // C1 = Current position with rate of change
-      // C2 = Current position with status (AZ=aaa   EL=eee)
+      // C2 = Current position with status (+nnnn+nnnn - original Yaesu format)
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
@@ -1692,14 +1694,14 @@ void processGs232Command(const char* cmd, int len) {
       if (len > 1) {
         char suffix = toupper(cmd[1]);
         if (suffix == '1') {
-          // C1: AZ=aaa   EL=eee   RATE=00.0
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d   RATE=00.0", azDeg, elDeg);
+          // C1: +nnnn+nnnn   RATE=00.0
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d   RATE=00.0", azDeg, elDeg);
         } else if (suffix == '2') {
-          // C2: AZ=aaa   EL=eee (Hamlib standard format)
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d", azDeg, elDeg);
+          // C2: +nnnn+nnnn (original Yaesu GS-232B format)
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d", azDeg, elDeg);
         } else if (suffix == '3') {
-          // C3: AZ=aaa   EL=eee   STATUS=0
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d   STATUS=0", azDeg, elDeg);
+          // C3: +nnnn+nnnn   STATUS=0
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d   STATUS=0", azDeg, elDeg);
         }
       } else {
         // Bare C: Caaa.ee
@@ -4311,28 +4313,87 @@ void loop() {
     }
   }
   // Auto-stop protocol targets when reached (always run, even in menu mode)
-  static unsigned long lastAutoStopUpdate = 0;
-  if (millis() - lastAutoStopUpdate >= 200) {
-    lastAutoStopUpdate = millis();
-    // Ensure positions are read before checking auto-stop
-    if (protocolTargetAzSet || protocolTargetElSet) {
-      readPositions();
-    }
-    if (protocolTargetAzSet && !protocolAzReversing) {
-      float currentAzDisplay = displayAzimuth(currentAz);
-      float diff = protocolTargetAz - currentAzDisplay;
-      if (diff > 180.0) diff -= 360.0;
-      if (diff < -180.0) diff += 360.0;
-      if (abs(diff) <= 1.0) {
-        stopAzimuth();
-        protocolTargetAzSet = false;
+  // Use direction-based cross-target detection
+  static unsigned long lastAutoStopRead = 0;
+  // Debug: log flag state every 500ms
+  static unsigned long lastDebugPrint = 0;
+  if (millis() - lastDebugPrint >= 500) {
+    lastDebugPrint = millis();
+    Serial.print("DBG:AUTO_CHECK:azSet="); Serial.print(protocolTargetAzSet);
+    Serial.print(" elSet="); Serial.print(protocolTargetElSet);
+    Serial.print(" azRev="); Serial.print(protocolAzReversing);
+    Serial.print(" ads="); Serial.println(adsPresent);
+  }
+  if (protocolTargetAzSet || protocolTargetElSet) {
+    unsigned long now = millis();
+    if (adsPresent && (now - lastAutoStopRead >= 16)) {
+      lastAutoStopRead = now;
+      if (protocolTargetAzSet) {
+        int16_t adcAz = ads.readADC_SingleEnded(0);
+        adcAz = constrain(adcAz, 0, 32767);
+        float v = (float)adcAz / 32767.0 * 4.096F;
+        if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
+          float fraction = (v - calAzMinV) / (calAzMaxV - calAzMinV);
+          fraction = constrain(fraction, 0, 1);
+          currentAz = azOffset() + (fraction * azSpan());
+        } else {
+          float azFraction = (float)adcAz / 32767.0;
+          currentAz = azFraction * 360.0;
+        }
+        if (!protocolAzReversing) {
+          float curAzDisplay = displayAzimuth(currentAz);
+          float targetAz = protocolTargetAz;
+          float diff = targetAz - curAzDisplay;
+          if (diff > 180.0) diff -= 360.0;
+          if (diff < -180.0) diff += 360.0;
+          Serial.print("DBG:AUTO_AZ:cur="); Serial.print(curAzDisplay);
+          Serial.print(" tgt="); Serial.print(protocolTargetAz);
+          Serial.print(" diff="); Serial.print(diff);
+          Serial.print(" dir="); Serial.println(azDirection);
+          bool crossed = false;
+          if (azDirection == DIR_CW) {
+            // Moving CW: heading increases. Stop when we've reached or passed target.
+            // After wrap normalization, diff < 0 means current > target
+            if (diff <= 0.0) crossed = true;
+          } else if (azDirection == DIR_CCW) {
+            // Moving CCW: heading decreases. Stop when we've reached or passed target.
+            // After wrap normalization, diff >= 0 means current <= target
+            if (diff >= 0.0) crossed = true;
+          }
+          if (crossed || abs(diff) <= 1.0) {
+            Serial.println("DBG:AUTO_AZ:STOP!");
+            stopAzimuth();
+            protocolTargetAzSet = false;
+          }
+        }
       }
-    }
-    if (protocolTargetElSet && !protocolElReversing) {
-      float diff = protocolTargetEl - currentEl;
-      if (abs(diff) <= 1.0) {
-        stopElevation();
-        protocolTargetElSet = false;
+      if (protocolTargetElSet) {
+        int16_t adcEl = ads.readADC_SingleEnded(1);
+        adcEl = constrain(adcEl, 0, 32767);
+        float v = (float)adcEl / 32767.0 * 4.096F;
+        if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
+          float fraction = (v - calElMinV) / (calElMaxV - calElMinV);
+          fraction = constrain(fraction, 0, 1);
+          currentEl = fraction * 180.0F;
+        } else {
+          float elFraction = (float)adcEl / 32767.0;
+          currentEl = elFraction * 180.0;
+        }
+        if (!protocolElReversing) {
+          float diff = protocolTargetEl - currentEl;
+          Serial.print("DBG:AUTO_EL:cur="); Serial.print(currentEl);
+          Serial.print(" tgt="); Serial.print(protocolTargetEl);
+          Serial.print(" diff="); Serial.print(diff);
+          Serial.print(" dir="); Serial.println(elDirection);
+          bool crossed = false;
+          if (elDirection == DIR_UP && diff < 0.0) crossed = true;
+          if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
+          if (crossed || abs(diff) <= 1.0) {
+            Serial.println("DBG:AUTO_EL:STOP!");
+            stopElevation();
+            protocolTargetElSet = false;
+          }
+        }
       }
     }
   }
