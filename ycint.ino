@@ -1742,13 +1742,27 @@ void processGs232Command(const char* cmd, int len) {
       stopAzimuth();
       protocolSend("OK");
       break;
-    case 'X':
-    case 'T':
-    case 'P':
-    case 'N':
-    case 'F':
-      protocolSend("OK");
+    case 'X': {
+      // Xn = Set speed (1-4, where 1=slowest, 4=fastest)
+      if (len > 1) {
+        int speed = 0;
+        int consumed = 0;
+        if (parseNumber(cmd, 1, &speed, &consumed) == 0) {
+          if (speed >= 1 && speed <= 4) {
+            // Store speed for future use (not currently used for motor control)
+            // protocolSpeed = speed;
+            protocolSend("OK");
+          } else {
+            protocolSend("ERR");
+          }
+        } else {
+          protocolSend("ERR");
+        }
+      } else {
+        protocolSend("ERR");
+      }
       break;
+    }
     default:
       protocolSend("ERR");
       break;
