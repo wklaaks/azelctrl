@@ -1003,12 +1003,16 @@ void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
   azDirection = DIR_STOPPED;
+  protocolTargetAzSet = false;
+  protocolAzReversing = false;
 }
 
 void stopElevation() {
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
+  protocolTargetElSet = false;
+  protocolElReversing = false;
 }
 
 void stopAll() {
