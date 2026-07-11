@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.println(response);
+  Serial.print(response + "\r");  // GS-232B expects CR only, not CRLF
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -1518,17 +1518,18 @@ void processGs232Command(const char* cmd, int len) {
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
-      String resp = String("C") + String(az, 1) + "." + String(el, 1) + ".0";
+      String resp = String("C") + String(az, 1) + "." + String(el, 1);
       if (len > 1) {
         char suffix = toupper(cmd[1]);
-        if (suffix >= '1' && suffix <= '3') {
-          // Append status: 0 = IDLE, 1 = MOVING
+        if (suffix == '1') {
+          // C1: azimuth, elevation, rate
           resp += ".0";  // Rate of change (not available)
-          if (suffix == '2') {
-            resp += ".0";  // Status: 0 = normal
-          } else if (suffix == '3') {
-            resp += ".0.0";  // Status + error code
-          }
+        } else if (suffix == '2') {
+          // C2: azimuth, elevation, rate, status
+          resp += ".0.0";  // Rate + status (0 = stopped)
+        } else if (suffix == '3') {
+          // C3: azimuth, elevation, rate, status, error
+          resp += ".0.0.0";  // Rate + status + error
         }
       }
       protocolSend(resp);
