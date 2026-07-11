@@ -1653,9 +1653,26 @@ void processGs232Command(const char* cmd, int len) {
       break;
     }
     case 'V': {
-      float el = currentEl;
-      int elDeg = (int)round(el);
-      protocolSend(String("V") + String(elDeg, DEC));
+      if (len == 1) {
+        // V = query elevation
+        float el = currentEl;
+        int elDeg = (int)round(el);
+        protocolSend(String("V") + String(elDeg, DEC));
+      } else {
+        // Vnnn = set elevation
+        int targetEl = 0;
+        int consumed = 0;
+        if (parseNumber(cmd, 1, &targetEl, &consumed) == 0) {
+          if (targetEl >= 0 && targetEl <= 180) {
+            executeProtocolElMove((float)targetEl);
+            protocolSend("OK");
+          } else {
+            protocolSend("ERR");
+          }
+        } else {
+          protocolSend("ERR");
+        }
+      }
       break;
     }
     case 'C': {
