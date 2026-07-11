@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.print(response + "\r");  // GS-232B expects CR only, not CRLF
+  Serial.println(response);  // GS-232B expects CRLF line ending
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -2011,8 +2011,8 @@ void processProtocolInput() {
           // Multi-letter: route to correct handler
           char first = toupper(protocolBuf[0]);
           if (first == 'X' || first == 'T' || first == 'P' || first == 'N' || first == 'F' ||
-              first == 'C' || first == 'H' || first == 'V') {
-            // GS-232 command (C/C1/C2/C3, Hnnn, Vnn, Xnnn, Tnnn, Pnnn, Nnnn, Fnnn)
+              first == 'C' || first == 'H' || first == 'V' || first == 'M' || first == 'W') {
+            // GS-232 command (C/C1/C2/C3, Hnnn, Vnnn, Mnnn, Wnnn nnn, Xn, Tnnn, Pnnn, Nnnn, Fnnn)
             processGs232Command(protocolBuf, protocolBufIdx);
           } else {
             // Easycom command (AZ, EL, AZEL, CW, CCW, UP, DOWN, STOP, etc.)
