@@ -154,7 +154,7 @@ long getProtocolBaud() {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.print(response + "\r");  // GS-232B expects CR only, not CRLF
+  Serial.println(response);  // GS-232B expects \r\n line ending
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -1514,26 +1514,31 @@ void processGs232Command(const char* cmd, int len) {
       // GS-232B C command family:
       // C  = Current position (azimuth, elevation)
       // C1 = Current position with rate of change
-      // C2 = Current position with status
+      // C2 = Current position with status (AZ=aaa   EL=eee)
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
+      int azDeg = (int)round(az);
+      int elDeg = (int)round(el);
+      if (azDeg < 0) azDeg += 360;
+      if (azDeg >= 360) azDeg -= 360;
       char buf[32];
       int pos = 0;
-      // GS-232B format: azimuth=nnn.n, elevation=nn.n
-      pos += snprintf(buf + pos, sizeof(buf) - pos, "C%04.1f.%03.1f", az, el);
       if (len > 1) {
         char suffix = toupper(cmd[1]);
         if (suffix == '1') {
-          // C1: azimuth, elevation, rate
-          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0");
+          // C1: AZ=aaa   EL=eee   RATE=00.0
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d   RATE=00.0", azDeg, elDeg);
         } else if (suffix == '2') {
-          // C2: azimuth, elevation, rate, status
-          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0.0");
+          // C2: AZ=aaa   EL=eee (Hamlib standard format)
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d", azDeg, elDeg);
         } else if (suffix == '3') {
-          // C3: azimuth, elevation, rate, status, error
-          pos += snprintf(buf + pos, sizeof(buf) - pos, ".0.0.0");
+          // C3: AZ=aaa   EL=eee   STATUS=0
+          pos += snprintf(buf + pos, sizeof(buf) - pos, "AZ=%03d   EL=%03d   STATUS=0", azDeg, elDeg);
         }
+      } else {
+        // Bare C: Caaa.ee
+        pos += snprintf(buf + pos, sizeof(buf) - pos, "C%03d.%02d", azDeg, elDeg);
       }
       protocolSend(String(buf));
       break;
