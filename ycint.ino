@@ -1811,10 +1811,11 @@ void processProtocolInput() {
           // Single lowercase letter - treat as case-insensitive GS-232
           processGs232Command(protocolBuf, protocolBufIdx);
         } else if (protocolBufIdx > 1) {
-          // Multi-letter: check if it's a GS-232 command with params (Xnnn, Tnnn, Pnnn, Nnnn, Fnnn)
+          // Multi-letter: route to correct handler
           char first = toupper(protocolBuf[0]);
-          if (first == 'X' || first == 'T' || first == 'P' || first == 'N' || first == 'F') {
-            // GS-232 command with parameters
+          if (first == 'X' || first == 'T' || first == 'P' || first == 'N' || first == 'F' ||
+              first == 'C' || first == 'H' || first == 'V') {
+            // GS-232 command (C/C1/C2/C3, Hnnn, Vnn, Xnnn, Tnnn, Pnnn, Nnnn, Fnnn)
             processGs232Command(protocolBuf, protocolBufIdx);
           } else {
             // Easycom command (AZ, EL, AZEL, CW, CCW, UP, DOWN, STOP, etc.)
