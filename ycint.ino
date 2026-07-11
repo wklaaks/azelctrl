@@ -4310,6 +4310,28 @@ void loop() {
       lastUpdate = millis();
     }
   }
+  // Auto-stop protocol targets when reached (always run, even in menu mode)
+  static unsigned long lastAutoStopUpdate = 0;
+  if (millis() - lastAutoStopUpdate >= 200) {
+    lastAutoStopUpdate = millis();
+    if (protocolTargetAzSet && !protocolAzReversing) {
+      float currentAzDisplay = displayAzimuth(currentAz);
+      float diff = protocolTargetAz - currentAzDisplay;
+      if (diff > 180.0) diff -= 360.0;
+      if (diff < -180.0) diff += 360.0;
+      if (abs(diff) <= 1.0) {
+        stopAzimuth();
+        protocolTargetAzSet = false;
+      }
+    }
+    if (protocolTargetElSet && !protocolElReversing) {
+      float diff = protocolTargetEl - currentEl;
+      if (abs(diff) <= 1.0) {
+        stopElevation();
+        protocolTargetElSet = false;
+      }
+    }
+  }
   
   delay(10);
 }
