@@ -39,9 +39,9 @@
 // ==================== COMPILE-TIME DEBUG FLAGS ====================
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
 // Set to 0 to disable all debug output (zero overhead)
-#define DEBUG_ENABLED 1
-#define DEBUG_PROTOCOL 1  // Debug protocol parsing details
-#define DEBUG_MOVEMENT 1  // Debug movement commands
+#define DEBUG_ENABLED 0
+#define DEBUG_PROTOCOL 0  // Debug protocol parsing details
+#define DEBUG_MOVEMENT 0  // Debug movement commands
 
 // Debug helper macros - output prefixed with 'DBG:' so Python tests can filter
 #if DEBUG_ENABLED
@@ -1506,8 +1506,10 @@ void executeProtocolAzMove(float targetAz) {
   if (targetAz > 360.0) targetAz = 360.0;
   protocolTargetAz = targetAz;
   protocolTargetAzSet = true;
+#if DEBUG_ENABLED
   Serial.print("DBG:PROT_AZ:target="); Serial.print(targetAz);
   Serial.print(" cur="); Serial.println(displayAzimuth(currentAz));
+#endif
   float currentAzDisplay = displayAzimuth(currentAz);
   float diff = targetAz - currentAzDisplay;
   if (diff > 180.0) diff -= 360.0;
@@ -4319,10 +4321,12 @@ void loop() {
   static unsigned long lastDebugPrint = 0;
   if (millis() - lastDebugPrint >= 500) {
     lastDebugPrint = millis();
+    #if DEBUG_ENABLED
     Serial.print("DBG:AUTO_CHECK:azSet="); Serial.print(protocolTargetAzSet);
     Serial.print(" elSet="); Serial.print(protocolTargetElSet);
     Serial.print(" azRev="); Serial.print(protocolAzReversing);
     Serial.print(" ads="); Serial.println(adsPresent);
+    #endif
   }
   if (protocolTargetAzSet || protocolTargetElSet) {
     unsigned long now = millis();
@@ -4346,10 +4350,12 @@ void loop() {
           float diff = targetAz - curAzDisplay;
           if (diff > 180.0) diff -= 360.0;
           if (diff < -180.0) diff += 360.0;
+          #if DEBUG_ENABLED
           Serial.print("DBG:AUTO_AZ:cur="); Serial.print(curAzDisplay);
           Serial.print(" tgt="); Serial.print(protocolTargetAz);
           Serial.print(" diff="); Serial.print(diff);
           Serial.print(" dir="); Serial.println(azDirection);
+          #endif
           bool crossed = false;
           if (azDirection == DIR_CW) {
             // Moving CW: heading increases. Stop when we've reached or passed target.
@@ -4361,7 +4367,9 @@ void loop() {
             if (diff >= 0.0) crossed = true;
           }
           if (crossed || abs(diff) <= 1.0) {
+            #if DEBUG_ENABLED
             Serial.println("DBG:AUTO_AZ:STOP!");
+            #endif
             stopAzimuth();
             protocolTargetAzSet = false;
           }
@@ -4381,15 +4389,19 @@ void loop() {
         }
         if (!protocolElReversing) {
           float diff = protocolTargetEl - currentEl;
+          #if DEBUG_ENABLED
           Serial.print("DBG:AUTO_EL:cur="); Serial.print(currentEl);
           Serial.print(" tgt="); Serial.print(protocolTargetEl);
           Serial.print(" diff="); Serial.print(diff);
           Serial.print(" dir="); Serial.println(elDirection);
+          #endif
           bool crossed = false;
           if (elDirection == DIR_UP && diff < 0.0) crossed = true;
           if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
           if (crossed || abs(diff) <= 1.0) {
+            #if DEBUG_ENABLED
             Serial.println("DBG:AUTO_EL:STOP!");
+            #endif
             stopElevation();
             protocolTargetElSet = false;
           }
