@@ -35,7 +35,6 @@
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <EEPROM.h>
-#include <ESP8266mDNS.h>
 
 // ==================== FIRMWARE VERSION ====================
 #define FIRMWARE_VERSION "1.0.0"
@@ -46,6 +45,7 @@ const int ROTCTL_PORT = 4533;  // Hamlib default port for rotctld
 WiFiServer rotctlServer(ROTCTL_PORT);
 WiFiClient rotctlClient;
 bool rotctlConnected = false;
+bool rotctlServerStarted = false;  // Guard against double init
 
 // ==================== COMPILE-TIME DEBUG FLAGS ====================
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
@@ -754,7 +754,6 @@ void startApMode() {
   
   setupWebServer();
   startRotctlServer();
-  MDNS.begin("azelctrl");
   
   Serial.println("AP Mode: " + String(AP_SSID));
   Serial.println("IP: " + String(AP_IP));
@@ -777,7 +776,6 @@ void tickWifi() {
       Serial.println(" dBm");
       setupWebServer();
       startRotctlServer();
-      MDNS.begin("azelctrl");
     } else if (millis() - wifiStart > WIFI_TIMEOUT) {
       wifiState = WIFI_FAILED;
       Serial.println("WiFi connection timed out");
@@ -816,7 +814,7 @@ int waitForWifiConnection(bool allowCancel) {
   }
 
   if (wifiState == WIFI_CONNECTED) {
-    // Show connected screen with signal strength
+    // Show connected screen with IP, signal strength, and countdown
     int rssi = WiFi.RSSI();
     String quality;
     if (rssi >= -50) quality = "Excellent";
@@ -824,13 +822,37 @@ int waitForWifiConnection(bool allowCancel) {
     else if (rssi >= -70) quality = "Fair";
     else quality = "Poor";
 
-    String rssiLine = String(rssi) + " dBm";
-    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str(), true);
+    String ipStr = WiFi.localIP().toString();
 
-    // Wait 2 seconds so user can see
-    for (int i = 0; i < 20; i++) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Connected!");
+    display.setTextSize(1);
+    display.setCursor(0, 24);
+    display.print("IP: "); display.println(ipStr);
+    display.setCursor(0, 36);
+    display.print("Signal: "); display.print(rssi); display.println(" dBm");
+    display.setCursor(0, 48);
+    display.print("Quality: "); display.println(quality);
+
+    // Countdown from 5 seconds at bottom
+    for (int sec = 5; sec > 0; sec--) {
       ESP.wdtFeed();
-      delay(100);
+      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+      display.setCursor(0, 56);
+      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.display();
+
+      // Check for button press to skip ahead
+      for (int i = 0; i < 20; i++) {
+        if (digitalRead(BTN1) || !digitalRead(BTN2)) {
+          delay(300);
+          return 1;  // Connected
+        }
+        delay(50);
+      }
     }
 
     return 1;  // Connected
@@ -874,13 +896,15 @@ void stopCaptivePortal() {
 // Accepts one client at a time; when disconnected, reverts to serial-only
 
 void startRotctlServer() {
+  if (rotctlServerStarted) return;  // Already running
+  rotctlServerStarted = true;
   rotctlServer.begin();
   rotctlServer.setNoDelay(true);
-  MDNS.addService("rotctld", "tcp", ROTCTL_PORT);
   Serial.println("ROTCTL: TCP server started on port " + String(ROTCTL_PORT));
 }
 
 void stopRotctlServer() {
+  rotctlServerStarted = false;
   if (rotctlConnected) {
     rotctlClient.stop();
     rotctlConnected = false;
@@ -3058,6 +3082,7 @@ MenuItem wifiConnectItems[] = {
   {"Set WiFi Creds", actionSetWifi, 0, true, nullptr, nullptr},
   {"Review Creds", actionReviewWifi, 0, true, nullptr, nullptr},
   {"Connect WiFi", actionConnectWifi, 5, false, nullptr, nullptr},  // Hidden until SSID saved
+  {"Show IP", actionShowIP, 0, true, nullptr, nullptr},
   {"AP Mode (Field)", actionApMode, 0, true, nullptr, nullptr},
   {"Rotator Model", actionRotatorModel, 0, true, nullptr, nullptr}
 };
@@ -3080,7 +3105,7 @@ MenuItem calPotsItems[] = {
 Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
-Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 5, nullptr);
+Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
 Menu calPotsMenu("Voltage Calibration", calPotsItems, 2, &setupMenu);
 
@@ -3222,7 +3247,7 @@ void actionConnectWifi() {
   }
   
   if (wifiState == WIFI_CONNECTED) {
-    // Show connected screen with signal strength
+    // Show connected screen with IP, signal strength, and countdown
     int rssi = WiFi.RSSI();
     String quality;
     if (rssi >= -50) quality = "Excellent";
@@ -3230,13 +3255,38 @@ void actionConnectWifi() {
     else if (rssi >= -70) quality = "Fair";
     else quality = "Poor";
     
-    String rssiLine = String(rssi) + " dBm";
-    Menu::drawQuickNotice("Connected", rssiLine.c_str(), quality.c_str(), true);
+    String ipStr = WiFi.localIP().toString();
     
-    // Wait 5 seconds
-    for (int i = 0; i < 50; i++) {
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Connected!");
+    display.setTextSize(1);
+    display.setCursor(0, 24);
+    display.print("IP: "); display.println(ipStr);
+    display.setCursor(0, 36);
+    display.print("Signal: "); display.print(rssi); display.println(" dBm");
+    display.setCursor(0, 48);
+    display.print("Quality: "); display.println(quality);
+    
+    // Countdown from 5 seconds at bottom
+    for (int sec = 5; sec > 0; sec--) {
       ESP.wdtFeed();
-      delay(100);
+      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+      display.setCursor(0, 56);
+      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.display();
+      
+      // Check for button press to skip ahead
+      for (int i = 0; i < 20; i++) {
+        if (digitalRead(BTN1) || !digitalRead(BTN2)) {
+          delay(300);
+          currentMenu = nullptr;  // Rotator control mode
+          return;
+        }
+        delay(50);
+      }
     }
     
     currentMenu = nullptr;  // Rotator control mode
@@ -3445,11 +3495,135 @@ void actionRotatorModel() {
 
 // ====================== BOOT & SETUP ACTIONS ======================
 
+// Show WiFi connecting screen on OLED
+void showWifiConnecting() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("WiFi");
+  display.setCursor(0, 20);
+  display.println("Connect");
+  display.setTextSize(1);
+  display.setCursor(0, 44);
+  display.print("SSID: "); display.println(savedSsid);
+  display.setCursor(0, 56);
+  display.println("Please wait...");
+  display.display();
+}
+
+// Wait for WiFi connection during boot with visual feedback
+void waitForBootWifi() {
+  int dotCount = 0;
+  unsigned long startTime = millis();
+  const unsigned long TIMEOUT = 15000;
+  
+  while (wifiState == WIFI_CONNECTING && millis() - startTime < TIMEOUT) {
+    tickWifi();
+    ESP.wdtFeed();
+    
+    dotCount++;
+    if (dotCount % 4 == 0) {
+      // Update waiting dots
+      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+      display.setCursor(0, 56);
+      display.print("Waiting: "); display.print(dotCount / 4); display.println("s");
+      display.display();
+    }
+    delay(250);
+  }
+  
+  if (wifiState == WIFI_CONNECTED) {
+    // Show connected screen with IP and 5-second countdown
+    String ipStr = WiFi.localIP().toString();
+    String rssiStr = String(WiFi.RSSI()) + " dBm";
+    
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Connected!");
+    display.setTextSize(1);
+    display.setCursor(0, 24);
+    display.print("IP: "); display.println(ipStr);
+    display.setCursor(0, 36);
+    display.print("Signal: "); display.println(rssiStr);
+    display.setCursor(0, 48);
+    display.print("SSID: "); display.println(savedSsid);
+    
+    // Countdown from 5 seconds at bottom
+    for (int sec = 5; sec > 0; sec--) {
+      ESP.wdtFeed();
+      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
+      display.setCursor(0, 56);
+      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.display();
+      
+      // Check for button press to skip ahead
+      for (int i = 0; i < 20; i++) {
+        if (digitalRead(BTN1) || !digitalRead(BTN2)) {
+          delay(300);
+          return;
+        }
+        delay(50);
+      }
+    }
+  } else {
+    // Connection failed — show error briefly
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 12);
+    display.println("WiFi");
+    display.setCursor(0, 28);
+    display.println("Failed!");
+    display.display();
+    delay(2000);
+    WiFi.disconnect();
+  }
+}
+
+// Show current IP address on a notice screen
+void actionShowIP() {
+  if (WiFi.status() == WL_CONNECTED) {
+    String ipStr = WiFi.localIP().toString();
+    String rssiStr = String(WiFi.RSSI()) + " dBm";
+    String modeStr = (deviceWifiMode == MODE_STA) ? "Station" : "AP Mode";
+    const char* lines[] = {
+      modeStr.c_str(),
+      "",
+      ("IP: " + ipStr).c_str(),
+      ("Signal: " + rssiStr).c_str(),
+      ("SSID: " + savedSsid).c_str()
+    };
+    Menu::drawNotice("WiFi Status", lines, 5, "1|OK  2.Back", true);
+    
+    // Wait for button press
+    while (true) {
+      ESP.wdtFeed();
+      if (digitalRead(BTN1)) {
+        delay(300);
+        return;
+      }
+      if (!digitalRead(BTN2)) {
+        delay(300);
+        return;
+      }
+      delay(50);
+    }
+  } else {
+    Menu::drawQuickNotice("WiFi", "Not Connected", "", true);
+    delay(2000);
+  }
+}
+
 void actionBootSkip() {
   Serial.println("BOOT: Rotator Ctrl selected");
-  // Apply saved WiFi mode
-  if (deviceWifiMode == MODE_STA && hasWifiCredentials()) {
+  // Apply saved WiFi mode (skip if already connected)
+  if (deviceWifiMode == MODE_STA && hasWifiCredentials() && wifiState != WIFI_CONNECTED) {
+    showWifiConnecting();
     connectWifiSta();
+    waitForBootWifi();
   } else if (deviceWifiMode == MODE_AP) {
     startApMode();
   }
