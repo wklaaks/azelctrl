@@ -837,12 +837,12 @@ int waitForWifiConnection(bool allowCancel) {
     display.setCursor(0, 48);
     display.print("Quality: "); display.println(quality);
 
-    // Countdown from 5 seconds at bottom
+    // Countdown from 5 seconds — just a timer in bottom-right corner
     for (int sec = 5; sec > 0; sec--) {
       ESP.wdtFeed();
-      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
-      display.setCursor(0, 56);
-      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.fillRect(118, 56, 10, 8, SSD1306_BLACK);
+      display.setCursor(120, 56);
+      display.print(sec);
       display.display();
 
       // Check for button press to skip ahead
@@ -3270,12 +3270,12 @@ void actionConnectWifi() {
     display.setCursor(0, 48);
     display.print("Quality: "); display.println(quality);
     
-    // Countdown from 5 seconds at bottom
+    // Countdown from 5 seconds — just a timer in bottom-right corner
     for (int sec = 5; sec > 0; sec--) {
       ESP.wdtFeed();
-      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
-      display.setCursor(0, 56);
-      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.fillRect(118, 56, 10, 8, SSD1306_BLACK);
+      display.setCursor(120, 56);
+      display.print(sec);
       display.display();
       
       // Check for button press to skip ahead
@@ -3551,12 +3551,12 @@ void waitForBootWifi() {
     display.setCursor(0, 48);
     display.print("SSID: "); display.println(savedSsid);
     
-    // Countdown from 5 seconds at bottom
+    // Countdown from 5 seconds — just a timer in bottom-right corner
     for (int sec = 5; sec > 0; sec--) {
       ESP.wdtFeed();
-      display.fillRect(0, 56, 128, 8, SSD1306_BLACK);
-      display.setCursor(0, 56);
-      display.print("Continuing in "); display.print(sec); display.println("s");
+      display.fillRect(118, 56, 10, 8, SSD1306_BLACK);
+      display.setCursor(120, 56);
+      display.print(sec);
       display.display();
       
       // Check for button press to skip ahead
@@ -3841,9 +3841,11 @@ void showStationSettings() {
         display.println("SSID: None");
       }
 
-      // Password info
+      // Connection info (IP if connected, password if not)
       display.setCursor(2, 44);
-      if (savedPass.length() > 1) {
+      if (WiFi.status() == WL_CONNECTED) {
+        display.print("IP: "); display.println(WiFi.localIP().toString());
+      } else if (savedPass.length() > 1) {
         String masked = String(savedPass[0]) + "*..*" + String(savedPass[savedPass.length() - 1]);
         display.print("Passwd: ");
         display.println(masked);
@@ -3997,7 +3999,7 @@ void showStationSettings() {
 
 // ====================== ROTATOR CONTROL DISPLAY ======================
 int rotatorMenuSelection = 0;
-const char* directions[7] = {"IDLE", "LEFT", "RIGHT", "UP", "DOWN", "AZ POT", "EL POT"};
+const char* directions[5] = {"SETUP", "LEFT", "RIGHT", "UP", "DOWN"};
 
 void updateRotatorDisplay() {
   display.clearDisplay();
@@ -4187,7 +4189,11 @@ void updateRotatorDisplay() {
     // Show button actions footer only when NOT in PC interface mode
     if (!showCmd) {
       display.setCursor(0, 56);
-      display.println("1.Cycle 2!Go I2!1|RST");
+      if (rotatorMenuSelection == 0) {
+        display.println("1.Cycle 2!Go 1+2!|RST");
+      } else {
+        display.println("1.Cycle 2!Go");
+      }
     }
   }
   
@@ -4204,9 +4210,10 @@ bool btn1LongPressTriggered = false;
 bool skipBtnProcessing = false;  // Skip one cycle of button processing after menu transition
 bool btn2LongPressTriggered = false;
 unsigned long btn1LastPress = 0;
-
 // Track physical button state for web UI
 bool btn2Physical = false;
+// Flag: came from rotator control (AzEl screen) → Back should go there
+bool cameFromRotatorControl = false;
 
 void handleButtons() {
   bool btn1 = digitalRead(BTN1);      // HIGH = pressed
@@ -4255,6 +4262,10 @@ void handleButtons() {
         // Disable Back on SETUP menu when mandatory items incomplete
         if (currentMenu == &setupMenu && !allSetupComplete()) {
           // Do nothing — Back is disabled until all mandatory setup is done
+        } else if (cameFromRotatorControl && currentMenu == &setupMenu) {
+          // Came from AzEl → go back there directly
+          cameFromRotatorControl = false;
+          currentMenu = nullptr;  // Rotator control mode
         } else {
           // When returning from calPotsMenu to setupMenu, update labels and timers
           if (currentMenu == &calPotsMenu && currentMenu->getParent() == &setupMenu) {
@@ -4394,15 +4405,9 @@ void handleButtons() {
     btn1LongPressTriggered = false;
   }
   
-  // Long press Btn1 while Btn2 held + IDLE selected = restart
+  // Long press Btn1 while Btn2 held + SETUP selected = reboot (handled in Btn2 section)
   if (btn1 && (now - btn1PressStart >= BTN_LONG_MS) && !btn1LongPressTriggered) {
-    if (rotatorMenuSelection == 0 && btn2Physical) {
-      btn1LongPressTriggered = true;
-      Serial.println("RESTART: Btn2 held + Btn1 long-press - restarting from scratch");
-      Menu::drawQuickNotice("Restarting", "...", "", true);
-      delay(1000);
-      ESP.restart();
-    }
+    btn1LongPressTriggered = true;
   }
   
   // Short press Btn1 = cycle directions (only if not long-pressed)
@@ -4417,21 +4422,51 @@ void handleButtons() {
   btn1WasPressed = btn1;
   
   // Btn2: press = start, release = stop (momentary)
+  // Long-press Btn2 (1s+) = go to Setup menu
   if (btn2 && !btn2WasPressed) {
+    btn2PressStart = now;
+    btn2LongPressTriggered = false;
     // Button just pressed - start movement
     if (!isPausing) {
       if (rotatorMenuSelection == 1) startMove("LEFT");
       else if (rotatorMenuSelection == 2) startMove("RIGHT");
       else if (rotatorMenuSelection == 3) startMove("UP");
       else if (rotatorMenuSelection == 4) startMove("DOWN");
-      else if (rotatorMenuSelection == 5) enterCalibrationMode(0);  // AZ
-      else if (rotatorMenuSelection == 6) enterCalibrationMode(1);  // EL
     }
   }
   
-  if (!btn2 && btn2WasPressed) {
-    // Button just released - stop movement
+  // Long-press Btn2 = go to Setup menu or reboot
+  if (btn2 && (now - btn2PressStart >= 1000) && !btn2LongPressTriggered) {
+    btn2LongPressTriggered = true;
+    
+    // If SETUP selected + Btn1 held = reboot
+    if (rotatorMenuSelection == 0 && btn1) {
+      stopAll();
+      Serial.println("RESTART: Btn1+Btn2 long-press - restarting");
+      Menu::drawQuickNotice("Restarting", "...", "", true);
+      delay(1000);
+      ESP.restart();
+    }
+    
+    // Normal: go to Setup
     stopAll();
+    Serial.println("ROT: Long-press Btn2 - going to Setup");
+    updateSetupLabels();
+    updateSetupTimers();
+    cameFromRotatorControl = true;  // Remember we came from AzEl
+    currentMenu = &setupMenu;
+    currentMenu->init();
+    skipBtnProcessing = true;
+    return;
+  }
+  
+  if (!btn2 && btn2WasPressed && !btn2LongPressTriggered) {
+    // Button just released (short press) - stop movement
+    stopAll();
+  }
+  
+  if (!btn2) {
+    btn2PressStart = 0;
   }
   
   btn2WasPressed = btn2;
