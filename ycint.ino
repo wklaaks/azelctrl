@@ -36,6 +36,10 @@
 #include <DNSServer.h>
 #include <EEPROM.h>
 
+// ==================== FIRMWARE VERSION ====================
+#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_DATE __DATE__
+
 // ==================== COMPILE-TIME DEBUG FLAGS ====================
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
 // Set to 0 to disable all debug output (zero overhead)
@@ -4301,29 +4305,26 @@ void setup() {
   // Update menu visibility based on credentials
   wifiConnectItems[2].visible = hasWifiCredentials();
   
-  // Boot screen
+  // Boot screen with version info (display for 2 seconds)
   display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  // Center the product name
+  const char* productName = "AZELCtrl";
   display.setCursor(0, 0);
-  display.println("AZELCTRL");
-  display.println("----------");
-  display.println("Booting...");
+  display.println(productName);
+  display.setTextSize(1);
+  display.setCursor(0, 22);
+  display.print("Ver: "); display.println(FIRMWARE_VERSION);
+  display.setCursor(0, 34);
+  display.print("Date: "); display.println(FIRMWARE_DATE);
+  display.setCursor(0, 46);
+  display.println("By: ZS6TW");
   display.display();
-  delay(1000);
+  delay(3000);
   
   // Load saved WiFi mode
   loadWifiMode();
-
-  // Update menu visibility based on credentials
-  wifiConnectItems[2].visible = hasWifiCredentials();
-
-  // Boot screen
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("AZELCTRL");
-  display.println("----------");
-  display.println("Booting...");
-  display.display();
-  delay(1000);
 
   // If mandatory settings missing, show "Missing Settings" then go straight to setup
   if (!allSetupComplete()) {
