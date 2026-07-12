@@ -1084,6 +1084,10 @@ void stopAzimuth() {
   azDirection = DIR_STOPPED;
   // Don't clear protocolTargetAzSet here — it's cleared by auto-stop or explicit stop commands
   protocolAzReversing = false;
+  // Clear movement indicator if azimuth was moving
+  if (currentMove == "LEFT" || currentMove == "RIGHT" || currentMove == "AZ POT") {
+    currentMove = "IDLE";
+  }
 }
 
 void stopElevation() {
@@ -1092,6 +1096,10 @@ void stopElevation() {
   elDirection = DIR_STOPPED;
   // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit stop commands
   protocolElReversing = false;
+  // Clear movement indicator if elevation was moving
+  if (currentMove == "UP" || currentMove == "DOWN" || currentMove == "EL POT") {
+    currentMove = "IDLE";
+  }
 }
 
 void stopAll() {
