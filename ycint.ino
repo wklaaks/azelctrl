@@ -132,6 +132,15 @@ bool protocolTargetElSet = false;
 float protocolTargetAz = 0.0;
 float protocolTargetEl = 0.0;
 
+// Protocol variant selection (stored in EEPROM)
+enum ProtocolVariant {
+  PROTO_GS232A,   // Yaesu original format (+nnnn+nnnn)
+  PROTO_GS232B,   // Hamlib standard (AZ=nnn   EL=nnn)
+  PROTO_EASYCOM   // Easycom protocol
+};
+ProtocolVariant currentProtocol = PROTO_GS232A;  // Default: GS-232A
+
+
 // Direction reversal safeguard — configurable delay before reversing direction
 int protocolReverseDelay = 1;  // Default: 1 second
 bool protocolAzReversing = false;
@@ -145,12 +154,71 @@ long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
 }
 
+// Protocol-specific response formatting helpers
+void formatPositionResponse(char* buf, size_t bufsize, int azDeg, int elDeg, const char* suffix) {
+  switch (currentProtocol) {
+    case PROTO_GS232A:
+      // Yaesu original format: +nnnn+nnnn [suffix]
+      if (suffix && suffix[0]) {
+        snprintf(buf, bufsize, "+%04d+%04d %s", azDeg, elDeg, suffix);
+      } else {
+        snprintf(buf, bufsize, "+%04d+%04d", azDeg, elDeg);
+      }
+      break;
+      
+    case PROTO_GS232B:
+      // Hamlib standard: AZ=nnn   EL=nnn [suffix]
+      if (suffix && suffix[0]) {
+        snprintf(buf, bufsize, "AZ=%03d   EL=%03d %s", azDeg, elDeg, suffix);
+      } else {
+        snprintf(buf, bufsize, "AZ=%03d   EL=%03d", azDeg, elDeg);
+      }
+      break;
+      
+    case PROTO_EASYCOM:
+      // Easycom: AZnnn.0ELnnn.0 [suffix]
+      if (suffix && suffix[0]) {
+        snprintf(buf, bufsize, "AZ%d.0EL%d.0 %s", azDeg, elDeg, suffix);
+      } else {
+        snprintf(buf, bufsize, "AZ%d.0EL%d.0", azDeg, elDeg);
+      }
+      break;
+  }
+}
+
+// Get protocol-specific line ending
+const char* getProtocolLineEnding() {
+  switch (currentProtocol) {
+    case PROTO_GS232A:
+    case PROTO_GS232B:
+      return "\r\n";  // GS-232 protocols use CRLF
+    case PROTO_EASYCOM:
+      return "\r\n";  // Easycom also uses CRLF
+  }
+  return "\r\n";
+}
+
+// Process command based on current protocol variant
+void processProtocolCommand(const char* cmd, int len) {
+  switch (currentProtocol) {
+    case PROTO_GS232A:
+    case PROTO_GS232B:
+      processGs232Command(cmd, len);
+      break;
+    case PROTO_EASYCOM:
+      processEasycomCommand(cmd, len);
+      break;
+  }
+}
+
+
 // EEPROM storage for protocol settings (byte 67+)
 #define EEPROM_PROTO_BAUD_IDX 67
 #define EEPROM_PROTO_SHOW_CMDS 68
 #define EEPROM_PROTO_REVERSE_DELAY 70
 #define EEPROM_PROTO_MAGIC    69
 #define EEPROM_PROTO_MAGIC_VAL 0xB7
+#define EEPROM_PROTO_VARIANT 71
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
@@ -174,6 +242,10 @@ void loadProtocolSettings() {
     if (revDelay <= 3) {
       protocolReverseDelay = revDelay;
     }
+    uint8_t variant = EEPROM.read(EEPROM_PROTO_VARIANT);
+    if (variant <= 2) {
+      currentProtocol = (ProtocolVariant)variant;
+    }
   }
 }
 
@@ -182,6 +254,7 @@ void saveProtocolSettings() {
   EEPROM.write(EEPROM_PROTO_BAUD_IDX, (uint8_t)protocolBaudIndex);
   EEPROM.write(EEPROM_PROTO_SHOW_CMDS, (uint8_t)(protocolShowCommands ? 1 : 0));
   EEPROM.write(EEPROM_PROTO_REVERSE_DELAY, (uint8_t)protocolReverseDelay);
+  EEPROM.write(EEPROM_PROTO_VARIANT, (uint8_t)currentProtocol);
   EEPROM.write(EEPROM_PROTO_MAGIC, EEPROM_PROTO_MAGIC_VAL);
   EEPROM.commit();
 }
@@ -241,6 +314,10 @@ public:
   Menu(const char* title, MenuItem* items, int itemCount, Menu* parent = nullptr)
     : title(title), items(items), itemCount(itemCount), parent(parent),
       cursor(0), scrollOffset(0), timerStart(0), timerActive(false), userInteracted(false), footerText(nullptr) {}
+
+  void setParent(Menu* p) {
+    parent = p;
+  }
 
   void init() {
     cursor = 0;
@@ -1582,12 +1659,22 @@ void processGs232Command(const char* cmd, int len) {
   switch (upper) {
     case 'H': {
       if (len == 1) {
-        // H = query heading
+        // H = query heading — protocol-specific format
         float az = displayAzimuth(currentAz);
         int azDeg = (int)round(az);
         if (azDeg < 0) azDeg += 360;
         if (azDeg >= 360) azDeg -= 360;
-        protocolSend(String("H") + String(azDeg, DEC));
+        char buf[32];
+        switch (currentProtocol) {
+          case PROTO_GS232A:
+          case PROTO_GS232B:
+            snprintf(buf, sizeof(buf), "H%03d", azDeg);
+            break;
+          case PROTO_EASYCOM:
+            snprintf(buf, sizeof(buf), "AZ%.1f", az);
+            break;
+        }
+        protocolSend(String(buf));
       } else {
         // Hnnn = set heading (same as Mnnn)
         int targetAz = 0;
@@ -1683,7 +1770,7 @@ void processGs232Command(const char* cmd, int len) {
       // GS-232B C command family:
       // C  = Current position (azimuth, elevation)
       // C1 = Current position with rate of change
-      // C2 = Current position with status (+nnnn+nnnn - original Yaesu format)
+      // C2 = Current position with status
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
@@ -1691,19 +1778,19 @@ void processGs232Command(const char* cmd, int len) {
       int elDeg = (int)round(el);
       if (azDeg < 0) azDeg += 360;
       if (azDeg >= 360) azDeg -= 360;
-      char buf[32];
+      char buf[64];
       int pos = 0;
       if (len > 1) {
         char suffix = toupper(cmd[1]);
         if (suffix == '1') {
-          // C1: +nnnn+nnnn   RATE=00.0
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d   RATE=00.0", azDeg, elDeg);
+          // C1: position with rate of change
+          formatPositionResponse(buf, sizeof(buf), azDeg, elDeg, "RATE=00.0");
         } else if (suffix == '2') {
-          // C2: +nnnn+nnnn (original Yaesu GS-232B format)
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d", azDeg, elDeg);
+          // C2: current position with status
+          formatPositionResponse(buf, sizeof(buf), azDeg, elDeg, "");
         } else if (suffix == '3') {
-          // C3: +nnnn+nnnn   STATUS=0
-          pos += snprintf(buf + pos, sizeof(buf) - pos, "+%04d+%04d   STATUS=0", azDeg, elDeg);
+          // C3: position with full status
+          formatPositionResponse(buf, sizeof(buf), azDeg, elDeg, "STATUS=0");
         }
       } else {
         // Bare C: Caaa.ee
@@ -2003,27 +2090,15 @@ void processProtocolInput() {
           return;
         }
         
-        if (protocolBuf[0] == '\\') {
-          processEasycomCommand(protocolBuf, protocolBufIdx);
-        } else if (protocolBufIdx == 1 && protocolBuf[0] >= 'A' && protocolBuf[0] <= 'Z') {
-          // Single uppercase letter - GS-232
-          processGs232Command(protocolBuf, protocolBufIdx);
-        } else if (protocolBufIdx == 1 && protocolBuf[0] >= 'a' && protocolBuf[0] <= 'z') {
-          // Single lowercase letter - treat as case-insensitive GS-232
-          processGs232Command(protocolBuf, protocolBufIdx);
-        } else if (protocolBufIdx > 1) {
-          // Multi-letter: route to correct handler
-          char first = toupper(protocolBuf[0]);
-          if (first == 'X' || first == 'T' || first == 'P' || first == 'N' || first == 'F' ||
-              first == 'C' || first == 'H' || first == 'V' || first == 'M' || first == 'W') {
-            // GS-232 command (C/C1/C2/C3, Hnnn, Vnnn, Mnnn, Wnnn nnn, Xn, Tnnn, Pnnn, Nnnn, Fnnn)
+        // Route command based on selected protocol variant
+        switch (currentProtocol) {
+          case PROTO_GS232A:
+          case PROTO_GS232B:
             processGs232Command(protocolBuf, protocolBufIdx);
-          } else {
-            // Easycom command (AZ, EL, AZEL, CW, CCW, UP, DOWN, STOP, etc.)
+            break;
+          case PROTO_EASYCOM:
             processEasycomCommand(protocolBuf, protocolBufIdx);
-          }
-        } else {
-          protocolSend("ERR");
+            break;
         }
         
         protocolBufIdx = 0;
@@ -2671,10 +2746,49 @@ void updateReverseDelayLabel() {
   snprintf(setupReverseDelayLabel, sizeof(setupReverseDelayLabel), "Reverse Delay (%ds)", protocolReverseDelay);
 }
 
+// Protocol variant label and submenu
+char setupProtocolLabel[32];
+const char* protocolNames[] = {"GS-232A", "GS-232B", "Easycom"};
+
+void updateProtocolLabel() {
+  snprintf(setupProtocolLabel, sizeof(setupProtocolLabel), "Protocol (%s)", protocolNames[currentProtocol]);
+}
+
+void actionSetProtocol(int variant) {
+  if (variant >= 0 && variant <= 2) {
+    currentProtocol = (ProtocolVariant)variant;
+    saveProtocolSettings();
+    updateProtocolLabel();
+  }
+}
+
+// Protocol submenu actions
+void actionProtoGS232A() { actionSetProtocol(PROTO_GS232A); }
+void actionProtoGS232B() { actionSetProtocol(PROTO_GS232B); }
+void actionProtoEasycom() { actionSetProtocol(PROTO_EASYCOM); }
+
+// Protocol submenu items
+MenuItem protocolItems[] = {
+  {"GS-232A (Yaesu)",   actionProtoGS232A,   0, true, nullptr, nullptr},
+  {"GS-232B (Hamlib)",  actionProtoGS232B,   0, true, nullptr, nullptr},
+  {"Easycom",           actionProtoEasycom,  0, true, nullptr, nullptr},
+};
+
+Menu protocolMenu("Protocol", protocolItems, 3, nullptr);
+
+void actionSelectProtocol() {
+  updateProtocolLabel();
+  protocolMenu.setParent(&pcInterfaceMenu);
+  currentMenu = &protocolMenu;
+  currentMenu->init();
+  currentMenu->setFooter(showCmdFooter());
+}
+
 void actionPcInterface() {
   updateBaudLabel();
   updateShowCmdLabel();
   updateReverseDelayLabel();
+  updateProtocolLabel();
   currentMenu = &pcInterfaceMenu;
   currentMenu->init();
   currentMenu->setFooter(showCmdFooter());
@@ -2730,9 +2844,10 @@ MenuItem pcInterfaceItems[] = {
   {setupBaudLabel,        actionPcBaudRate,           0, true, nullptr, nullptr},
   {setupShowCmdLabel,     actionToggleShowCommands,   0, true, nullptr, nullptr},
   {setupReverseDelayLabel, actionToggleReverseDelay,  0, true, nullptr, nullptr},
+  {setupProtocolLabel,    actionSelectProtocol,       0, true, nullptr, nullptr},
 };
 
-Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 3, &setupMenu);
+Menu pcInterfaceMenu("PC Interface", pcInterfaceItems, 4, &setupMenu);
 
 MenuItem bootItems[] = {
   {"Rotator Ctrl", actionBootSkip, 3, true, nullptr, nullptr},    // 3s timeout auto-select
