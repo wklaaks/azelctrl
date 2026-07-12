@@ -4641,5 +4641,68 @@ void loop() {
     }
   }
   
+  // Elevation limit protection — always run when elevation is moving,
+  // regardless of whether movement came from protocol or buttons
+  if (adsPresent && elDirection != DIR_STOPPED) {
+    static unsigned long lastElRead = 0;
+    if (millis() - lastElRead >= 500) {
+      lastElRead = millis();
+      int16_t adcEl = ads.readADC_SingleEnded(1);
+      adcEl = constrain(adcEl, 0, 32767);
+      float v = (float)adcEl / 32767.0 * 4.096F;
+      float newEl;
+      if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
+        float fraction = (v - calElMinV) / (calElMaxV - calElMinV);
+        fraction = constrain(fraction, 0, 1);
+        newEl = fraction * 180.0F;
+      } else {
+        newEl = (float)adcEl / 32767.0 * 180.0;
+      }
+      
+      static float lastElReading = -1;
+      static unsigned long lastElCheck = 0;
+      static int stallCount = 0;  // Consecutive stalled checks before stopping
+      bool shouldStop = false;
+      
+      // Hard limit: DOWN at bottom (< 0.5°) or UP at top (> 179.5°)
+      if (elDirection == DIR_DOWN && newEl < 0.5F) {
+        shouldStop = true;
+      }
+      if (elDirection == DIR_UP && newEl > 179.5F) {
+        shouldStop = true;
+      }
+      
+      // Stall detection: elevation hasn't changed by 0.5° in the timeout period
+      // When moving UP near bottom (< 1°), allow 3s (dead zone where display stays at 0)
+      // Require 3 consecutive stalled readings before triggering (gives rotator time to accelerate)
+      unsigned long stallTimeout = (elDirection == DIR_UP && newEl < 1.0F) ? 3000 : 500;
+      if (!shouldStop && millis() - lastElCheck >= stallTimeout) {
+        lastElCheck = millis();
+        if (lastElReading >= 0) {
+          float elChange = abs(newEl - lastElReading);
+          if (elChange < 0.5F) {
+            stallCount++;
+            if (stallCount >= 3) {
+              shouldStop = true;
+            }
+          } else {
+            stallCount = 0;  // Reset on any movement
+          }
+        }
+        lastElReading = newEl;
+      }
+      
+      if (shouldStop) {
+        #if DEBUG_ENABLED
+        Serial.print("DBG:EL_LIMIT:STOP:el="); Serial.print(newEl);
+        Serial.print(" dir="); Serial.println(elDirection == DIR_UP ? "UP" : "DOWN");
+        #endif
+        stopElevation();
+        protocolTargetElSet = false;
+        lastElReading = -1;
+      }
+    }
+  }
+  
   delay(10);
 }
