@@ -167,11 +167,11 @@ void formatPositionResponse(char* buf, size_t bufsize, int azDeg, int elDeg, con
       break;
       
     case PROTO_GS232B:
-      // Hamlib standard: AZ=nnn   EL=nnn [suffix]
+      // Hamlib standard: AZ=nnn EL=nnn [suffix]
       if (suffix && suffix[0]) {
-        snprintf(buf, bufsize, "AZ=%03d   EL=%03d %s", azDeg, elDeg, suffix);
+        snprintf(buf, bufsize, "AZ=%03d EL=%03d %s", azDeg, elDeg, suffix);
       } else {
-        snprintf(buf, bufsize, "AZ=%03d   EL=%03d", azDeg, elDeg);
+        snprintf(buf, bufsize, "AZ=%03d EL=%03d", azDeg, elDeg);
       }
       break;
       
@@ -187,13 +187,15 @@ void formatPositionResponse(char* buf, size_t bufsize, int azDeg, int elDeg, con
 }
 
 // Get protocol-specific line ending
+// Hamlib source: gs232a.c REPLY_EOM="\n", gs232b.c REPLY_EOM="\r\n"
 const char* getProtocolLineEnding() {
   switch (currentProtocol) {
     case PROTO_GS232A:
+      return "\n";     // GS-232A: hamlib reads until LF only
     case PROTO_GS232B:
-      return "\r\n";  // GS-232 protocols use CRLF
+      return "\r\n";   // GS-232B: hamlib reads until CRLF
     case PROTO_EASYCOM:
-      return "\r\n";  // Easycom also uses CRLF
+      return "\r\n";   // Easycom uses CRLF
   }
   return "\r\n";
 }
@@ -222,7 +224,7 @@ void processProtocolCommand(const char* cmd, int len) {
 
 // Helper: send a protocol response string over serial
 void protocolSend(const String& response) {
-  Serial.print(response + "\r\n");  // GS-232B expects CRLF line ending
+  Serial.print(response + getProtocolLineEnding());
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
   DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
@@ -4284,7 +4286,8 @@ void setupWebServer() {
 
 // ====================== SETUP ======================
 void setup() {
-  // Load protocol settings before initializing serial
+  // Initialize EEPROM first — needed for loading saved settings
+  EEPROM.begin(CAL_EEPROM_SIZE);
   loadProtocolSettings();
   Serial.begin(getProtocolBaud());
   delay(200);
@@ -4339,7 +4342,6 @@ void setup() {
   display.setTextColor(SSD1306_WHITE);
   
   // Load saved WiFi credentials
-  EEPROM.begin(CAL_EEPROM_SIZE);
   loadWifiCredentials();
   loadRotatorModel();
   loadCalibration();
