@@ -40,8 +40,8 @@
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
 // Set to 0 to disable all debug output (zero overhead)
 #define DEBUG_ENABLED 0
-#define DEBUG_PROTOCOL 0  // Debug protocol parsing details
-#define DEBUG_MOVEMENT 0  // Debug movement commands
+#define DEBUG_PROTOCOL 1  // Debug protocol parsing details
+#define DEBUG_MOVEMENT 1  // Debug movement commands
 
 // Debug helper macros - output prefixed with 'DBG:' so Python tests can filter
 #if DEBUG_ENABLED
@@ -1584,13 +1584,18 @@ void executeProtocolAzMove(float targetAz) {
   protocolTargetAz = targetAz;
   protocolTargetAzSet = true;
 #if DEBUG_ENABLED
-  Serial.print("DBG:PROT_AZ:target="); Serial.print(targetAz);
-  Serial.print(" cur="); Serial.println(displayAzimuth(currentAz));
+  Serial.print("DBG:PROT_AZ:RECEIVED:target="); Serial.print(targetAz);
+  Serial.print(" curRaw="); Serial.print(currentAz);
+  Serial.print(" curDisp="); Serial.println(displayAzimuth(currentAz));
 #endif
   float currentAzDisplay = displayAzimuth(currentAz);
   float diff = targetAz - currentAzDisplay;
+  float rawDiff = diff;
   if (diff > 180.0) diff -= 360.0;
   if (diff < -180.0) diff += 360.0;
+#if DEBUG_ENABLED
+  Serial.printf("DBG:PROT_AZ:DIFF:rawDiff=%.1f normDiff=%.1f\n", rawDiff, diff);
+#endif
   float physicalStop;
   switch (rotModel) {
     case ROT_N360: physicalStop = 180.0; break;
@@ -1599,12 +1604,21 @@ void executeProtocolAzMove(float targetAz) {
     case ROT_S450: physicalStop = 315.0; break;
     default: physicalStop = 180.0; break;
   }
+#if DEBUG_ENABLED
+  Serial.printf("DBG:PROT_AZ:PHYSSTOP:physicalStop=%.1f rotModel=%d\n", physicalStop, rotModel);
+#endif
   bool mustRotateCW = false;
   bool mustRotateCCW = false;
   if (currentAzDisplay >= physicalStop && targetAz < physicalStop) {
     mustRotateCW = true;
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:MUST_CW:curDisp=%.1f>=stop=%.1f AND tgt=%.1f<stop=%.1f\n", currentAzDisplay, physicalStop, targetAz, physicalStop);
+#endif
   } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
     mustRotateCCW = true;
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:MUST_CCW:curDisp=%.1f<stop=%.1f AND tgt=%.1f>=stop=%.1f\n", currentAzDisplay, physicalStop, targetAz, physicalStop);
+#endif
   }
   if (rotModel == ROT_N450 || rotModel == ROT_S450) {
     float centerHeading = (rotModel == ROT_N450) ? 0.0 : 180.0;
@@ -1616,19 +1630,67 @@ void executeProtocolAzMove(float targetAz) {
     float maxTravel = 225.0;
     bool cwValid = (mechanicalAzOffset + cwDist) <= maxTravel;
     bool ccwValid = (mechanicalAzOffset - ccwDist) >= -maxTravel;
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:N450S450:center=%.1f tgtOff=%.1f cwDist=%.1f ccwDist=%.1f cwVal=%d ccwVal=%d\n", 
+      centerHeading, targetOffset, cwDist, ccwDist, cwValid, ccwValid);
+#endif
     if (cwValid && ccwValid) {
       if (abs(cwDist) < abs(ccwDist)) mustRotateCW = true; else mustRotateCCW = true;
     } else if (cwValid) { mustRotateCW = true; } else if (ccwValid) { mustRotateCCW = true; }
   }
+#if DEBUG_ENABLED
+  Serial.printf("DBG:PROT_AZ:FLAGS:mustCW=%d mustCCW=%d diff=%.1f\n", mustRotateCW, mustRotateCCW, diff);
+#endif
   if (mustRotateCW || (diff > 1.0 && !mustRotateCCW)) {
+    // Need to move CW (RIGHT)
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:ACTION:NEED_CW:azDir=%d\n", azDirection);
+#endif
     if (azDirection == DIR_CCW) {
+      // Direction reversal — stop, delay, then resume
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:REVERSAL_CW");
+#endif
       stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "RIGHT";
-    } else { executeAzimuthMove("RIGHT"); }
+    } else if (azDirection != DIR_CW) {
+      // Not currently moving — start CW movement
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:START_CW");
+#endif
+      executeAzimuthMove("RIGHT");
+    } else {
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:CONTINUE_CW");
+#endif
+    }
+    // If already DIR_CW: do nothing, movement continues toward new target
   } else if (mustRotateCCW || diff < -1.0) {
+    // Need to move CCW (LEFT)
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:ACTION:NEED_CCW:azDir=%d\n", azDirection);
+#endif
     if (azDirection == DIR_CW) {
+      // Direction reversal — stop, delay, then resume
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:REVERSAL_CCW");
+#endif
       stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "LEFT";
-    } else { executeAzimuthMove("LEFT"); }
+    } else if (azDirection != DIR_CCW) {
+      // Not currently moving — start CCW movement
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:START_CCW");
+#endif
+      executeAzimuthMove("LEFT");
+    } else {
+#if DEBUG_ENABLED
+      Serial.println("DBG:PROT_AZ:ACTION:CONTINUE_CCW");
+#endif
+    }
+    // If already DIR_CCW: do nothing, movement continues toward new target
   } else {
+#if DEBUG_ENABLED
+    Serial.println("DBG:PROT_AZ:ACTION:STOPPED (at target)");
+#endif
     stopAzimuth(); protocolTargetAzSet = false;
   }
 }
@@ -2762,10 +2824,21 @@ void actionSetProtocol(int variant) {
   }
 }
 
-// Protocol submenu actions
-void actionProtoGS232A() { actionSetProtocol(PROTO_GS232A); }
-void actionProtoGS232B() { actionSetProtocol(PROTO_GS232B); }
-void actionProtoEasycom() { actionSetProtocol(PROTO_EASYCOM); }
+void actionProtoGS232A() {
+  actionSetProtocol(PROTO_GS232A);
+  updateProtocolLabel();
+  currentMenu->back();
+}
+void actionProtoGS232B() {
+  actionSetProtocol(PROTO_GS232B);
+  updateProtocolLabel();
+  currentMenu->back();
+}
+void actionProtoEasycom() {
+  actionSetProtocol(PROTO_EASYCOM);
+  updateProtocolLabel();
+  currentMenu->back();
+}
 
 // Protocol submenu items
 MenuItem protocolItems[] = {
@@ -4472,16 +4545,57 @@ void loop() {
           Serial.print(" dir="); Serial.println(azDirection);
           #endif
           bool crossed = false;
-          if (azDirection == DIR_CW) {
-            // Moving CW: heading increases. Stop when we've reached or passed target.
-            // After wrap normalization, diff < 0 means current > target
-            if (diff <= 0.0) crossed = true;
-          } else if (azDirection == DIR_CCW) {
-            // Moving CCW: heading decreases. Stop when we've reached or passed target.
-            // After wrap normalization, diff >= 0 means current <= target
-            if (diff >= 0.0) crossed = true;
+          // Use static variables to track wrap-around state across iterations
+          static bool inCWWrap = false;
+          static bool inCCWWrap = false;
+          
+          // Detect wrap-around ONCE at the start of movement
+          if (!inCWWrap && !inCCWWrap) {
+            if (azDirection == DIR_CW && curAzDisplay > 180.0 && protocolTargetAz < 180.0) {
+              inCWWrap = true;
+            } else if (azDirection == DIR_CCW && curAzDisplay < 180.0 && protocolTargetAz > 180.0) {
+              inCCWWrap = true;
+            }
           }
-          if (crossed || abs(diff) <= 1.0) {
+          
+          // For CW wrap-around: compare in unwrapped space
+          if (inCWWrap) {
+            float unwrappedTarget = protocolTargetAz + 360.0;
+            float compareCurrent = curAzDisplay;
+            // Once we've wrapped past 0, current drops below 180, so add 360
+            if (compareCurrent < 180.0) {
+              compareCurrent += 360.0;
+            }
+            if (compareCurrent >= unwrappedTarget) crossed = true;
+            
+            // Reset when stopped or target cleared
+            if (crossed || !protocolTargetAzSet) {
+              inCWWrap = false;
+            }
+          }
+          // For CCW wrap-around: compare in unwrapped space
+          else if (inCCWWrap) {
+            float unwrappedTarget = protocolTargetAz - 360.0;
+            float compareCurrent = curAzDisplay;
+            // Once we've wrapped past 360/0, current rises above 180, so subtract 360
+            if (compareCurrent > 180.0) {
+              compareCurrent -= 360.0;
+            }
+            if (compareCurrent <= unwrappedTarget) crossed = true;
+            
+            // Reset when stopped or target cleared
+            if (crossed || !protocolTargetAzSet) {
+              inCCWWrap = false;
+            }
+          }
+          
+          // Also stop if within tolerance (for precise stops without overshoot)
+          float normDiff = diff;
+          if (normDiff > 180.0) normDiff -= 360.0;
+          if (normDiff < -180.0) normDiff += 360.0;
+          if (abs(normDiff) <= 1.0) crossed = true;
+          
+          if (crossed) {
             #if DEBUG_ENABLED
             Serial.println("DBG:AUTO_AZ:STOP!");
             #endif
