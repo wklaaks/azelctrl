@@ -195,7 +195,7 @@ const char* getProtocolLineEnding() {
     case PROTO_GS232B:
       return "\r\n";   // GS-232B: hamlib reads until CRLF
     case PROTO_EASYCOM:
-      return "\r\n";   // Easycom uses CRLF
+      return "\n";     // Easycom: hamlib reads until LF only
   }
   return "\r\n";
 }
@@ -1928,206 +1928,148 @@ void processGs232Command(const char* cmd, int len) {
 void processEasycomCommand(const char* cmd, int len) {
   while (len > 0 && (cmd[len-1] == ' ' || cmd[len-1] == '\t')) len--;
   
-  if (len > 0 && cmd[0] == '\\') {
-    if (len == 2 && cmd[1] == '?') {
-      protocolSend("\\?GS-232A/B,EASYCOM,ROTATOR");
-      return;
-    }
+  // Parse first token (command identifier)
+  int tokenLen = 0;
+  while (tokenLen < len && cmd[tokenLen] != ' ' && cmd[tokenLen] != '\t') tokenLen++;
+  
+  // Convert first two chars of token to uppercase for matching
+  char token[4];
+  if (tokenLen >= 2) {
+    token[0] = toupper(cmd[0]);
+    token[1] = toupper(cmd[1]);
+    token[2] = '\0';
+  } else if (tokenLen == 1) {
+    token[0] = toupper(cmd[0]);
+    token[1] = '\0';
+    token[2] = '\0';
+  } else {
     protocolSend("ERR");
     return;
   }
   
-  String cmdStr = String(cmd);
-  cmdStr.toUpperCase();
-  
-  if (cmdStr == "AZEL") {
-    // Combined AZEL query - MUST check before AZ
-    float az = displayAzimuth(currentAz);
-    protocolSend(String("AZEL") + String(az, 1) + "." + String(currentEl, 1) + ".0");
-  } else if (cmdStr.startsWith("AZ")) {
-    if (cmdStr.length() == 2) {
+  // AZ — query or set azimuth
+  if (strcmp(token, "AZ") == 0) {
+    if (len <= tokenLen) {
+      // Bare AZ query — hamlib sends "AZ\n", expects "AZxxx.x"
       float az = displayAzimuth(currentAz);
-      protocolSend(String("AZ") + String(az, 1));
+      char buf[32];
+      snprintf(buf, sizeof(buf), "AZ%.1f", az);
+      protocolSend(String(buf));
     } else {
-      int azDeg = 0;
-      int consumed = 0;
-      if (parseNumber(cmd, 2, &azDeg, &consumed) == 0) {
-        // Convert to float and clamp
-        float targetAz = (float)azDeg;
-        if (targetAz < 0.0) targetAz = 0.0;
-        if (targetAz > 360.0) targetAz = 360.0;
-        // Set protocol target for auto-stop
-        protocolTargetAz = targetAz;
-        protocolTargetAzSet = true;
-        // Calculate direction based on current vs target
-        // IMPORTANT: Rotator cannot rotate CCW past 180° (physical stop)
-        // - From 180-360° to lower heading: must rotate CW (through 360/0)
-        // - From 0-179° to higher heading (>180°): must rotate CCW (through 0)
-        float currentAzDisplay = displayAzimuth(currentAz);
-        float diff = targetAz - currentAzDisplay;
-        // Handle wrap-around (shortest path)
-        if (diff > 180.0) diff -= 360.0;
-        if (diff < -180.0) diff += 360.0;
-        
-        // Apply physical constraint based on rotator variant
-        // For N450/S450, track mechanical offset from center to handle overlap zone
-        float physicalStop;
-        switch (rotModel) {
-          case ROT_N360: physicalStop = 180.0; break;   // Center=0°, ±180° travel → CCW stop at 180°
-          case ROT_S360: physicalStop = 0.0; break;     // Center=180°, ±180° travel → CCW stop at 0°/360°
-          case ROT_N450: physicalStop = 135.0; break;   // Center=0°, ±225° travel → CCW stop at 135° (-225°)
-          case ROT_S450: physicalStop = 315.0; break;   // Center=180°, ±225° travel → CCW stop at 315° (180°-225°=-45°=315°)
-          default: physicalStop = 180.0; break;
-        }
-        
-        bool mustRotateCW = false;
-        bool mustRotateCCW = false;
-        
-        // Cannot rotate CCW past physical stop
-        if (currentAzDisplay >= physicalStop && targetAz < physicalStop) {
-          // From above stop to below stop: must go CW through max/0
-          mustRotateCW = true;
-        } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
-          // From below stop to above stop: must go CCW through 0
-          mustRotateCCW = true;
-        }
-        
-        // For N450/S450: use mechanical offset to determine correct path in overlap zone
-        if (rotModel == ROT_N450 || rotModel == ROT_S450) {
-          // Calculate target mechanical offset from compass heading
-          float centerHeading;
-          if (rotModel == ROT_N450) centerHeading = 0.0;
-          else centerHeading = 180.0;
-          
-          // Convert target heading to mechanical offset
-          float targetOffset = targetAz - centerHeading;
-          if (targetOffset > 180.0) targetOffset -= 360.0;
-          if (targetOffset < -180.0) targetOffset += 360.0;
-          
-          // Calculate CW and CCW distances in mechanical space
-          float cwDist = targetOffset - mechanicalAzOffset;
-          float ccwDist = mechanicalAzOffset - targetOffset;
-          
-          // Check if both paths are within mechanical limits
-          float maxTravel = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 225.0 : 180.0;
-          bool cwValid = (mechanicalAzOffset + cwDist) <= maxTravel;
-          bool ccwValid = (mechanicalAzOffset - ccwDist) >= -maxTravel;
-          
-          if (cwValid && ccwValid) {
-            // Both paths valid - use shortest path
-            if (abs(cwDist) < abs(ccwDist)) {
-              mustRotateCW = true;
-            } else {
-              mustRotateCCW = true;
-            }
-          } else if (cwValid) {
-            mustRotateCW = true;
-          } else if (ccwValid) {
-            mustRotateCCW = true;
-          }
-        }
-        
-        // Constraint overrides shortest-path calculation
-        if (mustRotateCW || (diff > 1.0 && !mustRotateCCW)) {
-          // Need to move RIGHT (CW)
-          if (azDirection == DIR_CCW) {
-            // Direction reversal detected — stop, delay, then start
-            stopAzimuth();
-            protocolAzReversing = true;
-            protocolAzReverseStart = millis();
-            protocolAzPendingDir = "RIGHT";
-          } else {
-            executeAzimuthMove("RIGHT");
-          }
-        } else if (mustRotateCCW || (diff < -1.0 && !mustRotateCW)) {
-          // Need to move LEFT (CCW)
-          if (azDirection == DIR_CW) {
-            // Direction reversal detected — stop, delay, then start
-            stopAzimuth();
-            protocolAzReversing = true;
-            protocolAzReverseStart = millis();
-            protocolAzPendingDir = "LEFT";
-          } else {
-            executeAzimuthMove("LEFT");
-          }
-        } else {
-          stopAzimuth();
-          protocolTargetAzSet = false;
-        }
+      // AZ xxx.x — set azimuth (skip spaces after token)
+      const char* val = cmd + tokenLen;
+      while (*val == ' ' || *val == '\t') val++;
+      float targetAz = parseFloat(val);
+      if (targetAz >= 0.0 && targetAz <= 360.0) {
+        executeProtocolAzMove(targetAz);
         protocolSend("OK");
       } else {
         protocolSend("ERR");
       }
     }
-  } else if (cmdStr.startsWith("EL")) {
-    if (cmdStr.length() == 2) {
-      protocolSend(String("EL") + String(currentEl, 1));
+  }
+  // EL — query or set elevation
+  else if (strcmp(token, "EL") == 0) {
+    if (len <= tokenLen) {
+      // Bare EL query — hamlib sends "EL\n", expects "ELyy.y"
+      char buf[32];
+      snprintf(buf, sizeof(buf), "EL%.1f", currentEl);
+      protocolSend(String(buf));
     } else {
-      int elDeg = 0;
-      int consumed = 0;
-      if (parseNumber(cmd, 2, &elDeg, &consumed) == 0) {
-        // Convert to float and clamp
-        float targetEl = (float)elDeg;
-        if (targetEl < 0.0) targetEl = 0.0;
-        if (targetEl > 180.0) targetEl = 180.0;
-        // Set protocol target for auto-stop
-        protocolTargetEl = targetEl;
-        protocolTargetElSet = true;
-        // Calculate direction
-        float diff = targetEl - currentEl;
-        if (diff > 1.0) {
-          // Need to move UP
-          if (elDirection == DIR_DOWN) {
-            // Direction reversal detected — stop, delay, then start
-            stopElevation();
-            protocolElReversing = true;
-            protocolElReverseStart = millis();
-            protocolElPendingDir = "UP";
-          } else {
-            executeElevationMove("UP");
-          }
-        } else if (diff < -1.0) {
-          // Need to move DOWN
-          if (elDirection == DIR_UP) {
-            // Direction reversal detected — stop, delay, then start
-            stopElevation();
-            protocolElReversing = true;
-            protocolElReverseStart = millis();
-            protocolElPendingDir = "DOWN";
-          } else {
-            executeElevationMove("DOWN");
-          }
-        } else {
-          stopElevation();
-          protocolTargetElSet = false;
-        }
+      // EL yy.y — set elevation (skip spaces after token)
+      const char* val = cmd + tokenLen;
+      while (*val == ' ' || *val == '\t') val++;
+      float targetEl = parseFloat(val);
+      if (targetEl >= 0.0 && targetEl <= 180.0) {
+        executeProtocolElMove(targetEl);
         protocolSend("OK");
       } else {
         protocolSend("ERR");
       }
     }
-  } else if (cmdStr == "CW") {
-    startMove("RIGHT");
-    protocolSend("OK");
-  } else if (cmdStr == "CCW") {
+  }
+  // ML — move left (azimuth decrease / CCW)
+  else if (strcmp(token, "ML") == 0) {
     startMove("LEFT");
     protocolSend("OK");
-  } else if (cmdStr == "UP") {
+  }
+  // MR — move right (azimuth increase / CW)
+  else if (strcmp(token, "MR") == 0) {
+    startMove("RIGHT");
+    protocolSend("OK");
+  }
+  // MU — move up (elevation increase)
+  else if (strcmp(token, "MU") == 0) {
     startMove("UP");
     protocolSend("OK");
-  } else if (cmdStr == "DOWN") {
+  }
+  // MD — move down (elevation decrease)
+  else if (strcmp(token, "MD") == 0) {
     startMove("DOWN");
     protocolSend("OK");
-  } else if (cmdStr == "STOP") {
+  }
+  // SA — stop azimuth
+  else if (strcmp(token, "SA") == 0) {
+    stopAzimuth();
+    protocolSend("OK");
+  }
+  // SE — stop elevation
+  else if (strcmp(token, "SE") == 0) {
+    stopElevation();
+    protocolSend("OK");
+  }
+  // S — all stop (also accepted by hamlib)
+  else if (strcmp(token, "S") == 0 || tokenLen == 1 && token[0] == 'S') {
     stopAll();
     protocolSend("OK");
-  } else if (cmdStr.startsWith("TIMEOUT") || cmdStr.startsWith("SPEED") || cmdStr == "PARK") {
+  }
+  // VE — version query
+  else if (strcmp(token, "VE") == 0) {
+    protocolSend("VEYCINT/1.0");
+  }
+  // GS — get status
+  else if (strcmp(token, "GS") == 0) {
+    // Status: 1=Idle, 2=Moving, 4=Pointing, 8=Error
+    int status = moving ? 2 : 1;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "GS%d", status);
+    protocolSend(String(buf));
+  }
+  // VL/VR/VU/VD — velocity commands (EasyComm 3)
+  else if (token[0] == 'V' && (token[1] == 'L' || token[1] == 'R' || token[1] == 'U' || token[1] == 'D')) {
+    // Velocity move — start movement in direction
+    if (token[1] == 'L') startMove("LEFT");
+    else if (token[1] == 'R') startMove("RIGHT");
+    else if (token[1] == 'U') startMove("UP");
+    else if (token[1] == 'D') startMove("DOWN");
     protocolSend("OK");
-  } else if (cmdStr == "HELP") {
-    protocolSend("HELP:GS-232A/B,EASYCOM,ROTATOR");
-  } else {
+  }
+  // AO / LO — AOS / LOS (acknowledge, no action needed)
+  else if (strcmp(token, "AO") == 0 || strcmp(token, "LO") == 0) {
+    protocolSend("OK");
+  }
+  // UP / DN / DM / UM / DR / UR — radio control (not implemented, acknowledge)
+  else if (strcmp(token, "UP") == 0 || strcmp(token, "DN") == 0 ||
+           strcmp(token, "DM") == 0 || strcmp(token, "UM") == 0 ||
+           strcmp(token, "DR") == 0 || strcmp(token, "UR") == 0 ||
+           strcmp(token, "OP") == 0 || strcmp(token, "IP") == 0 ||
+           strcmp(token, "AN") == 0 || strcmp(token, "ST") == 0) {
+    protocolSend("OK");
+  }
+  // Backslash query (rotctl identification)
+  else if (len >= 2 && cmd[0] == '\\' && cmd[1] == '?') {
+    protocolSend("\\?EASYCOM,ROTATOR");
+  }
+  else {
     protocolSend("ERR");
   }
+}
+
+// Helper: parse a float from string (handles optional decimal point)
+static float parseFloat(const char* s) {
+  char* end;
+  float val = strtof(s, &end);
+  return val;
 }
 
 // Main protocol input handler - called from loop()
