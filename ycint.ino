@@ -35,10 +35,17 @@
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <EEPROM.h>
+#include <ESP8266mDNS.h>
 
 // ==================== FIRMWARE VERSION ====================
 #define FIRMWARE_VERSION "1.0.0"
 #define FIRMWARE_DATE __DATE__
+
+// ==================== NETWORK PROTOCOL SERVER ====================
+const int ROTCTL_PORT = 4533;  // Hamlib default port for rotctld
+WiFiServer rotctlServer(ROTCTL_PORT);
+WiFiClient rotctlClient;
+bool rotctlConnected = false;
 
 // ==================== COMPILE-TIME DEBUG FLAGS ====================
 // Set to 1 to enable debug output (prefixed with 'DBG:' for easy filtering)
@@ -225,14 +232,6 @@ void processProtocolCommand(const char* cmd, int len) {
 #define EEPROM_PROTO_MAGIC    69
 #define EEPROM_PROTO_MAGIC_VAL 0xB7
 #define EEPROM_PROTO_VARIANT 71
-
-// Helper: send a protocol response string over serial
-void protocolSend(const String& response) {
-  Serial.print(response + getProtocolLineEnding());
-  strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
-  protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
-  DBG_PRINT("PROTOCOL:TX:"); DBG_PRINTLN(response);
-}
 
 // Load protocol settings from EEPROM
 void loadProtocolSettings() {
@@ -754,6 +753,8 @@ void startApMode() {
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
   setupWebServer();
+  startRotctlServer();
+  MDNS.begin("azelctrl");
   
   Serial.println("AP Mode: " + String(AP_SSID));
   Serial.println("IP: " + String(AP_IP));
@@ -775,6 +776,8 @@ void tickWifi() {
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
       setupWebServer();
+      startRotctlServer();
+      MDNS.begin("azelctrl");
     } else if (millis() - wifiStart > WIFI_TIMEOUT) {
       wifiState = WIFI_FAILED;
       Serial.println("WiFi connection timed out");
@@ -864,6 +867,111 @@ void stopCaptivePortal() {
   dnsServer.stop();
   server.stop();
   WiFi.mode(WIFI_OFF);
+}
+
+// ==================== ROTCTL TCP SERVER ====================
+// Hamlib rotctld-compatible TCP server on port 4533
+// Accepts one client at a time; when disconnected, reverts to serial-only
+
+void startRotctlServer() {
+  rotctlServer.begin();
+  rotctlServer.setNoDelay(true);
+  MDNS.addService("rotctld", "tcp", ROTCTL_PORT);
+  Serial.println("ROTCTL: TCP server started on port " + String(ROTCTL_PORT));
+}
+
+void stopRotctlServer() {
+  if (rotctlConnected) {
+    rotctlClient.stop();
+    rotctlConnected = false;
+  }
+  rotctlServer.close();
+  Serial.println("ROTCTL: TCP server stopped");
+}
+
+void checkRotctlClient() {
+  // Accept new connection
+  if (!rotctlConnected && rotctlServer.hasClient()) {
+    if (rotctlClient) rotctlClient.stop();  // Close any lingering client
+    rotctlClient = rotctlServer.available();
+    rotctlConnected = true;
+    Serial.println("ROTCTL: Client connected from " + rotctlClient.remoteIP().toString());
+    return;
+  }
+  
+  // Check for disconnection
+  if (rotctlConnected && !rotctlClient.connected()) {
+    rotctlClient.stop();
+    rotctlConnected = false;
+    Serial.println("ROTCTL: Client disconnected");
+    return;
+  }
+  
+  // Read data from TCP client and route to protocol handler
+  if (rotctlConnected && rotctlClient.available()) {
+    while (rotctlClient.available()) {
+      char ch = rotctlClient.read();
+      processProtocolChar(ch);
+    }
+  }
+}
+
+// Modified protocolSend to also send to TCP client when connected
+void protocolSend(const String& response) {
+  const char* lineEnding = getProtocolLineEnding();
+  String fullResponse = response + lineEnding;
+  
+  // Always send to serial
+  Serial.print(fullResponse);
+  
+  // Also send to TCP client if connected
+  if (rotctlConnected && rotctlClient.connected()) {
+    rotctlClient.print(fullResponse);
+  }
+  
+  strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
+  protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
+}
+
+// Feed a single character into the protocol parser (used by both Serial and TCP)
+void processProtocolChar(char ch) {
+  if (ch == '\n' || ch == '\r') {
+    if (protocolBufIdx > 0) {
+      protocolBuf[protocolBufIdx] = '\0';
+      strncpy(protocolLastCommand, protocolBuf, PROTOCOL_BUF_SIZE - 1);
+      protocolLastCommand[PROTOCOL_BUF_SIZE - 1] = '\0';
+      DBG_PRINT("PROTOCOL:RX:"); DBG_PRINTLN(protocolBuf);
+      
+      // Special command: MODE:ROTATOR
+      if (strncmp(protocolBuf, "MODE:ROTATOR", 12) == 0) {
+        stopAll();
+        exitCalibrationMode();
+        currentMenu = nullptr;
+        protocolSend("MODE:ROTATOR");
+        protocolBufIdx = 0;
+        protocolLastCmd = millis();
+        return;
+      }
+      
+      // Route based on selected protocol variant
+      switch (currentProtocol) {
+        case PROTO_GS232A:
+        case PROTO_GS232B:
+          processGs232Command(protocolBuf, protocolBufIdx);
+          break;
+        case PROTO_EASYCOM:
+          processEasycomCommand(protocolBuf, protocolBufIdx);
+          break;
+      }
+      
+      protocolBufIdx = 0;
+      protocolLastCmd = millis();
+    }
+  } else {
+    if (protocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
+      protocolBuf[protocolBufIdx++] = ch;
+    }
+  }
 }
 
 // ==================== PROGMEM HTML PAGES ====================
@@ -2084,49 +2192,11 @@ static float parseFloat(const char* s) {
   return val;
 }
 
-// Main protocol input handler - called from loop()
+// Main protocol input handler — read from serial and feed to parser
 void processProtocolInput() {
   while (Serial.available()) {
     char ch = Serial.read();
-    
-    if (ch == '\n' || ch == '\r') {
-      if (protocolBufIdx > 0) {
-        protocolBuf[protocolBufIdx] = '\0';
-        // Store last command for display
-        strncpy(protocolLastCommand, protocolBuf, PROTOCOL_BUF_SIZE - 1);
-        protocolLastCommand[PROTOCOL_BUF_SIZE - 1] = '\0';
-        DBG_PRINT("PROTOCOL:RX:"); DBG_PRINTLN(protocolBuf);
-        
-        // Special command: MODE:ROTATOR (force rotator control mode)
-        if (strncmp(protocolBuf, "MODE:ROTATOR", 12) == 0) {
-          stopAll();
-          exitCalibrationMode();
-          currentMenu = nullptr;
-          Serial.println("MODE:ROTATOR");
-          protocolBufIdx = 0;
-          protocolLastCmd = millis();
-          return;
-        }
-        
-        // Route command based on selected protocol variant
-        switch (currentProtocol) {
-          case PROTO_GS232A:
-          case PROTO_GS232B:
-            processGs232Command(protocolBuf, protocolBufIdx);
-            break;
-          case PROTO_EASYCOM:
-            processEasycomCommand(protocolBuf, protocolBufIdx);
-            break;
-        }
-        
-        protocolBufIdx = 0;
-        protocolLastCmd = millis();
-      }
-    } else {
-      if (protocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
-        protocolBuf[protocolBufIdx++] = ch;
-      }
-    }
+    processProtocolChar(ch);
   }
 }
 
@@ -3515,6 +3585,7 @@ void actionWifiModeDisable() {
   deviceWifiMode = MODE_DISABLED;
   saveWifiMode();
   stopCaptivePortal();
+  stopRotctlServer();
   // Go back to setup menu
   updateSetupLabels();
   updateSetupTimers();
@@ -3757,6 +3828,11 @@ const char* directions[7] = {"IDLE", "LEFT", "RIGHT", "UP", "DOWN", "AZ POT", "E
 void updateRotatorDisplay() {
   display.clearDisplay();
   display.setTextSize(1);
+  
+  // Network connection indicator — top-right corner (2x2 filled pixels)
+  if (rotctlConnected) {
+    display.fillRect(125, 0, 2, 2, SSD1306_WHITE);
+  }
   
   if (isPausing) {
     // Title bar (white on black)
@@ -4364,6 +4440,10 @@ void setup() {
 void loop() {
   // Handle protocol commands
   processProtocolInput();
+  
+  // Check for TCP client connections
+  checkRotctlClient();
+  
   // Handle web server
   if (!captivePortalActive) {
     server.handleClient();
