@@ -1459,10 +1459,10 @@ float calEstimatedHeading(float voltage, int axis) {
 }
 
 // Cardinal headings for the return sweep (ordered max→min for CCW sweep)
-// For compass headings: S(180), SE(135), E(90), NE(45), N(0), NW(-45), W(-90), SW(-135), S(-180)
-const char* calCardinalNames[] = {"S", "SE", "E", "NE", "N", "NW", "W", "SW", "S"};
-const float calCardinalAngles[] = {180, 135, 90, 45, 0, -45, -90, -135, -180};
-const int calCardinalCount = 9;
+// Covers full range for all variants: N360/S360 (±180°), N450/S450 (+270° to -180°)
+const char* calCardinalNames[] = {"W", "SW", "S", "SE", "E", "NE", "N", "NW", "W", "SW", "S"};
+const float calCardinalAngles[] = {270, 225, 180, 135, 90, 45, 0, -45, -90, -135, -180};
+const int calCardinalCount = 11;
 
 // Get the next cardinal heading index we should pause at during return sweep
 // Returns -1 when no more headings to pause at
