@@ -137,6 +137,10 @@ bool protocolShowCommands = true;
 char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
 char protocolLastResponse[PROTOCOL_BUF_SIZE];  // Last sent response for display
 
+// TCP input buffer (Default Protocol over TCP)
+char tcpProtocolBuf[PROTOCOL_BUF_SIZE];
+int tcpProtocolBufIdx = 0;
+
 // Protocol target tracking — auto-stop when target is reached
 bool protocolTargetAzSet = false;
 bool protocolTargetElSet = false;
@@ -919,6 +923,7 @@ void checkRotctlClient() {
     if (rotctlClient) rotctlClient.stop();  // Close any lingering client
     rotctlClient = rotctlServer.available();
     rotctlConnected = true;
+    tcpProtocolBufIdx = 0;  // Reset TCP buffer
     Serial.println("ROTCTL: Client connected from " + rotctlClient.remoteIP().toString());
     return;
   }
@@ -927,15 +932,28 @@ void checkRotctlClient() {
   if (rotctlConnected && !rotctlClient.connected()) {
     rotctlClient.stop();
     rotctlConnected = false;
+    tcpProtocolBufIdx = 0;
     Serial.println("ROTCTL: Client disconnected");
     return;
   }
   
-  // Read data from TCP client and route to protocol handler
+  // Read data from TCP client and route through Default Protocol handler
   if (rotctlConnected && rotctlClient.available()) {
     while (rotctlClient.available()) {
       char ch = rotctlClient.read();
-      processProtocolChar(ch);
+      
+      if (ch == '\n' || ch == '\r') {
+        if (tcpProtocolBufIdx > 0) {
+          tcpProtocolBuf[tcpProtocolBufIdx] = '\0';
+          DBG_PRINT("DP:RX:"); DBG_PRINTLN(tcpProtocolBuf);
+          processDefaultProtocolCommand(tcpProtocolBuf, tcpProtocolBufIdx);
+          tcpProtocolBufIdx = 0;
+        }
+      } else {
+        if (tcpProtocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
+          tcpProtocolBuf[tcpProtocolBufIdx++] = ch;
+        }
+      }
     }
   }
 }
@@ -1857,6 +1875,190 @@ void executeProtocolElMove(float targetEl) {
     } else { executeElevationMove("DOWN"); }
   } else {
     stopElevation(); protocolTargetElSet = false;
+  }
+}
+
+// ==================== DEFAULT PROTOCOL HANDLER ====================
+// Hamlib's universal protocol - used over TCP by clients like Gpredict/rotctl
+// Command format: single char + optional args, separated by spaces
+// Response format: "RPRT 0\n" for success, "value\n" for queries, "RPRT -N\n" for errors
+
+// Send a Default Protocol response (TCP only)
+void dpSend(const String& response) {
+  String full = response + "\n";
+  
+  // Always send to serial too for debugging
+  Serial.print(full);
+  
+  // Send to TCP client if connected
+  if (rotctlConnected && rotctlClient.connected()) {
+    rotctlClient.print(full);
+  }
+}
+
+// Send RPRT response
+void dpRprt(int code) {
+  dpSend("RPRT " + String(code));
+}
+
+// Parse space-separated arguments from a command line
+// Returns number of args found (max 4)
+int dpParseArgs(char* line, char* args[4]) {
+  int count = 0;
+  char* p = strtok(line, " ");
+  while (p && count < 4) {
+    args[count++] = p;
+    p = strtok(NULL, " ");
+  }
+  return count;
+}
+
+// Process Default Protocol commands (for TCP connections)
+void processDefaultProtocolCommand(const char* cmd, int len) {
+  if (len == 0) return;
+  
+  // Make a mutable copy for strtok
+  char buf[PROTOCOL_BUF_SIZE];
+  strncpy(buf, cmd, PROTOCOL_BUF_SIZE - 1);
+  buf[PROTOCOL_BUF_SIZE - 1] = '\0';
+  
+  char* args[4];
+  int argc = dpParseArgs(buf, args);
+  if (argc == 0) return;
+  
+  char cmdChar = args[0][0];
+  
+  switch (cmdChar) {
+    case 'p': {
+      // Get position → returns azimuth\nelevation\n
+      float az = displayAzimuth(currentAz);
+      float el = currentEl;
+      dpSend(String(az, 2));
+      dpSend(String(el, 2));
+      break;
+    }
+    
+    case 'P': {
+      // Set position: P azimuth elevation
+      if (argc >= 3) {
+        float targetAz = atof(args[1]);
+        float targetEl = atof(args[2]);
+        
+        // Clamp values
+        if (targetAz < 0) targetAz += 360;
+        if (targetAz >= 360) targetAz -= 360;
+        if (targetEl < 0) targetEl = 0;
+        if (targetEl > 180) targetEl = 180;
+        
+        // Move to position using direction commands
+        float diffAz = targetAz - currentAz;
+        if (diffAz > 180) diffAz -= 360;
+        if (diffAz < -180) diffAz += 360;
+        
+        if (abs(diffAz) > 1.0) {
+          executeAzimuthMove(diffAz > 0 ? "RIGHT" : "LEFT");
+        } else {
+          stopAzimuth();
+        }
+        
+        float diffEl = targetEl - currentEl;
+        if (abs(diffEl) > 1.0) {
+          executeElevationMove(diffEl > 0 ? "UP" : "DOWN");
+        } else {
+          stopElevation();
+        }
+      }
+      dpRprt(0);
+      break;
+    }
+    
+    case 'S': {
+      // Stop rotation
+      stopAll();
+      dpRprt(0);
+      break;
+    }
+    
+    case 's': {
+      // Get status: returns status flags as integer
+      // 0 = OK, 1 = parking, 2 = error, etc.
+      // For our implementation: 0 = idle/OK
+      int status = 0;
+      if (azDirection != DIR_STOPPED || elDirection != DIR_STOPPED) {
+        status |= 4;  // Moving
+      }
+      dpSend(String(status));
+      break;
+    }
+    
+    case 'M': {
+      // Move: M direction [speed]
+      // Direction: LEFT, RIGHT, UP, DOWN, or numeric
+      if (argc >= 2) {
+        String dir = args[1];
+        dir.toUpperCase();
+        if (dir == "LEFT" || dir == "CCW") executeAzimuthMove("LEFT");
+        else if (dir == "RIGHT" || dir == "CW") executeAzimuthMove("RIGHT");
+        else if (dir == "UP") executeElevationMove("UP");
+        else if (dir == "DOWN") executeElevationMove("DOWN");
+        else {
+          // Numeric direction
+          int d = atoi(args[1]);
+          if (d == 1 || d == -1) executeAzimuthMove(d > 0 ? "RIGHT" : "LEFT");
+          else if (d == 2 || d == -2) executeElevationMove(d > 0 ? "UP" : "DOWN");
+        }
+      }
+      dpRprt(0);
+      break;
+    }
+    
+    case '_': {
+      // Get info/version
+      dpSend("AZELCtrl v" + String(FIRMWARE_VERSION));
+      break;
+    }
+    
+    case 'K': {
+      // Park (not implemented, treat as stop)
+      stopAll();
+      dpRprt(0);
+      break;
+    }
+    
+    case 'R': {
+      // Reset: R reset_type
+      // reset_type: 0 = soft, 1 = hard, 2 = park
+      stopAll();
+      dpRprt(0);
+      break;
+    }
+    
+    case 'v': {
+      // Get level: v level_name
+      // ROT_LEVEL_ROT_SPEED = rotation speed (not implemented, return default)
+      if (argc >= 2 && strcmp(args[1], "ROT_LEVEL_ROT_SPEED") == 0) {
+        dpSend("1");  // Default speed
+      } else {
+        dpRprt(-2);  // EINVAL
+      }
+      break;
+    }
+    
+    case 'V': {
+      // Set level: V level_name value
+      if (argc >= 3 && strcmp(args[1], "ROT_LEVEL_ROT_SPEED") == 0) {
+        // Speed setting not yet implemented, accept silently
+        dpRprt(0);
+      } else {
+        dpRprt(-2);  // EINVAL
+      }
+      break;
+    }
+    
+    default: {
+      dpRprt(-2);  // EINVAL - unknown command
+      break;
+    }
   }
 }
 
