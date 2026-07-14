@@ -4268,7 +4268,7 @@ void updateRotatorDisplay() {
       display.print(azVal);
       // Movement indicator — draw arrow near right edge
       int ax = 114;  // Near right edge (128px - 9px arrow - 2px margin)
-      if (currentMove.compareTo("RIGHT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
+      if (azDirection == DIR_CW || (currentMove.compareTo("AZ POT") == 0 && calDirection > 0)) {
         // Right arrow: → (9 wide, 12 tall)
         // Shaft x=0..3, arrowhead x=4..8 (triangular)
         display.drawPixel(ax, 5, SSD1306_WHITE);
@@ -4289,7 +4289,7 @@ void updateRotatorDisplay() {
         display.drawPixel(ax+7, 7, SSD1306_WHITE);
         display.drawPixel(ax+8, 5, SSD1306_WHITE);
         display.drawPixel(ax+8, 6, SSD1306_WHITE);
-      } else if (currentMove.compareTo("LEFT") == 0 || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
+      } else if (azDirection == DIR_CCW || (currentMove.compareTo("AZ POT") == 0 && calDirection < 0)) {
         // Left arrow: ← (9 wide, 12 tall)
         // Arrowhead x=0..4 (triangular), shaft x=5..8
         display.drawPixel(ax, 5, SSD1306_WHITE);
@@ -4323,7 +4323,7 @@ void updateRotatorDisplay() {
       // Movement indicator — draw arrow near right edge
       int ex = 114;  // Near right edge (128px - 9px arrow - 2px margin)
       int ey = 20;
-      if (currentMove.compareTo("UP") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
+      if (elDirection == DIR_UP || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
         // Up arrow: ↑ (9 wide, 12 tall)
         // Arrowhead y=0..4 (triangular), shaft y=5..8
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
@@ -4339,7 +4339,7 @@ void updateRotatorDisplay() {
         display.drawPixel(ex+4, ey+6, SSD1306_WHITE);
         display.drawPixel(ex+4, ey+7, SSD1306_WHITE);
         display.drawPixel(ex+4, ey+8, SSD1306_WHITE);
-      } else if (currentMove.compareTo("DOWN") == 0 || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
+      } else if (elDirection == DIR_DOWN || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
         // Down arrow: ↓ (9 wide, 12 tall)
         // Shaft y=0..4, arrowhead y=5..8 (triangular)
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
