@@ -1459,47 +1459,41 @@ float calEstimatedHeading(float voltage, int axis) {
 }
 
 // Cardinal headings for the return sweep (ordered max→min for CCW sweep)
-// Uses compass headings (0-360°) in decreasing order.
-// N360/S360 start at index 1 (S=180), N450/S450 start at index 0 (SW=225)
-const char* calCardinalNames[] = {"SW", "S", "SE", "E", "NE", "N", "NW", "W", "SW", "S", "SE"};
-const float calCardinalAngles[] = {225, 180, 135, 90, 45, 0, 315, 270, 225, 180, 135};
+// Uses raw mechanical headings from calEstimatedHeading() (no compass conversion needed)
+// Full range covers all variants:
+// Index 0: +270° = W (N450/S450 start only)
+// Index 1: +225° = SW (N450/S450 only)
+// Index 2: +180° = S (all variants start here or later)
+// Index 3: +135° = SE
+// Index 4: +90° = E
+// Index 5: +45° = NE
+// Index 6: 0° = N
+// Index 7: -45° = NW
+// Index 8: -90° = W
+// Index 9: -135° = SW
+// Index 10: -180° = S (end for all variants)
+const char* calCardinalNames[] = {"W", "SW", "S", "SE", "E", "NE", "N", "NW", "W", "SW", "S"};
+const float calCardinalAngles[] = {270, 225, 180, 135, 90, 45, 0, -45, -90, -135, -180};
 const int calCardinalCount = 11;
 
 // Get the next cardinal heading index we should pause at during return sweep
 // Returns -1 when no more headings to pause at
 int calNextCardinalHeading(float currentHeading) {
-  // Convert mechanical offset to compass heading (0-360°) for lookup
-  float compassHeading = currentHeading;
-  while (compassHeading >= 360.0F) compassHeading -= 360.0F;
-  while (compassHeading < 0.0F) compassHeading += 360.0F;
-  
   // Calculate the last heading index for this variant
-  // N360/S360: start at index 1, end at index 9 (S=180)
-  // N450/S450: start at index 0, end at index 10 (SE=135)
-  int lastIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 10 : 9;
+  // N360/S360: start at index 2 (S=+180), end at index 10 (S=-180)
+  // N450/S450: start at index 0 (W=+270), end at index 10 (S=-180)
+  int startIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 0 : 2;
+  int lastIndex = 10;
   
-  // We're sweeping CCW from max toward min, so compass headings decrease
-  // Handle wrap-around at N(0°): after N(0), next is NW(315), W(270), etc.
+  // Clamp calLastHeadingIndex to valid range
+  if (calLastHeadingIndex < startIndex) calLastHeadingIndex = startIndex;
+  
+  // We're sweeping CCW from max toward min, so mechanical headings decrease
   for (int i = calLastHeadingIndex + 1; i <= lastIndex; i++) {
-    if (i >= calCardinalCount) return -1;
-    
-    float target = calCardinalAngles[i];
-    float prev = calCardinalAngles[i-1];
-    
-    // Check if we've crossed from prev down to target
-    bool reached;
-    if (prev > target) {
-      // Normal decrease (no wrap): e.g., 180 → 135
-      float tolerance = (i == lastIndex) ? 0.0F : 1.0F;
-      reached = (compassHeading <= target + tolerance);
-    } else {
-      // Wrap-around at N: e.g., 0 → 315
-      reached = (compassHeading >= target - 1.0F || compassHeading <= prev + 1.0F);
-    }
-    
-    if (reached) {
-      Serial.print("CAL: Compass ");
-      Serial.print(compassHeading, 1);
+    float tolerance = (i == lastIndex) ? 0.0F : 1.0F;
+    if (currentHeading <= calCardinalAngles[i] + tolerance) {
+      Serial.print("CAL: Heading ");
+      Serial.print(currentHeading, 1);
       Serial.print("° reached cardinal ");
       Serial.println(calCardinalNames[i]);
       return i;
@@ -4623,8 +4617,8 @@ void handleButtons() {
           // AZ: start return sweep
           calState = CAL_RETURN_MIN;
           calPhaseStart = millis();
-          // N450/S450 start at SW(225°), N360/S360 start at S(180°)
-          calLastHeadingIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 0 : 1;
+          // N450/S450 start at index 0 (W=+270), N360/S360 start at index 2 (S=+180)
+          calLastHeadingIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 0 : 2;
           calCurrentHeading = "";
           calHeadingPauseStart = 0;
           calVSampleIdx = 0;
@@ -4749,12 +4743,13 @@ void handleButtons() {
     }
   }
   
-  // Long-press Btn2 = go to Setup menu or reboot
-  if (btn2 && (now - btn2PressStart >= 1000) && !btn2LongPressTriggered) {
+  // Long-press Btn2 on SETUP = go to Setup menu or reboot
+  // For direction selections, Btn2 is momentary (press=start, release=stop) - no long-press action
+  if (btn2 && rotatorMenuSelection == 0 && (now - btn2PressStart >= 1000) && !btn2LongPressTriggered) {
     btn2LongPressTriggered = true;
     
     // If SETUP selected + Btn1 held = reboot
-    if (rotatorMenuSelection == 0 && btn1) {
+    if (btn1) {
       stopAll();
       Serial.println("RESTART: Btn1+Btn2 long-press - restarting");
       Menu::drawQuickNotice("Restarting", "...", "", true);
