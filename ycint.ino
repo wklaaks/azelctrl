@@ -1459,23 +1459,48 @@ float calEstimatedHeading(float voltage, int axis) {
 }
 
 // Cardinal headings for the return sweep (ordered max→min for CCW sweep)
-// Covers full range for all variants: N360/S360 (±180°), N450/S450 (+270° to -180°)
-const char* calCardinalNames[] = {"W", "SW", "S", "SE", "E", "NE", "N", "NW", "W", "SW", "S"};
-const float calCardinalAngles[] = {270, 225, 180, 135, 90, 45, 0, -45, -90, -135, -180};
+// Uses compass headings (0-360°) in decreasing order.
+// N360/S360 start at index 1 (S=180), N450/S450 start at index 0 (SW=225)
+const char* calCardinalNames[] = {"SW", "S", "SE", "E", "NE", "N", "NW", "W", "SW", "S", "SE"};
+const float calCardinalAngles[] = {225, 180, 135, 90, 45, 0, 315, 270, 225, 180, 135};
 const int calCardinalCount = 11;
 
 // Get the next cardinal heading index we should pause at during return sweep
 // Returns -1 when no more headings to pause at
 int calNextCardinalHeading(float currentHeading) {
-  // We're sweeping CCW from max toward min, so headings decrease
-  // Find the next heading we've reached or passed (within 1° tolerance)
-  // Last heading (S at -180°) uses 0° tolerance since hard stop follows
-  for (int i = calLastHeadingIndex + 1; i < calCardinalCount; i++) {
-    float tolerance = (i == calCardinalCount - 1) ? 0.0F : 1.0F;
-    if (currentHeading <= calCardinalAngles[i] + tolerance) {
-      Serial.print("CAL: Heading ");
-      Serial.print(currentHeading, 1);
-      Serial.print(" reached cardinal ");
+  // Convert mechanical offset to compass heading (0-360°) for lookup
+  float compassHeading = currentHeading;
+  while (compassHeading >= 360.0F) compassHeading -= 360.0F;
+  while (compassHeading < 0.0F) compassHeading += 360.0F;
+  
+  // Calculate the last heading index for this variant
+  // N360/S360: start at index 1, end at index 9 (S=180)
+  // N450/S450: start at index 0, end at index 10 (SE=135)
+  int lastIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 10 : 9;
+  
+  // We're sweeping CCW from max toward min, so compass headings decrease
+  // Handle wrap-around at N(0°): after N(0), next is NW(315), W(270), etc.
+  for (int i = calLastHeadingIndex + 1; i <= lastIndex; i++) {
+    if (i >= calCardinalCount) return -1;
+    
+    float target = calCardinalAngles[i];
+    float prev = calCardinalAngles[i-1];
+    
+    // Check if we've crossed from prev down to target
+    bool reached;
+    if (prev > target) {
+      // Normal decrease (no wrap): e.g., 180 → 135
+      float tolerance = (i == lastIndex) ? 0.0F : 1.0F;
+      reached = (compassHeading <= target + tolerance);
+    } else {
+      // Wrap-around at N: e.g., 0 → 315
+      reached = (compassHeading >= target - 1.0F || compassHeading <= prev + 1.0F);
+    }
+    
+    if (reached) {
+      Serial.print("CAL: Compass ");
+      Serial.print(compassHeading, 1);
+      Serial.print("° reached cardinal ");
       Serial.println(calCardinalNames[i]);
       return i;
     }
@@ -4598,7 +4623,8 @@ void handleButtons() {
           // AZ: start return sweep
           calState = CAL_RETURN_MIN;
           calPhaseStart = millis();
-          calLastHeadingIndex = 0;
+          // N450/S450 start at SW(225°), N360/S360 start at S(180°)
+          calLastHeadingIndex = (rotModel == ROT_N450 || rotModel == ROT_S450) ? 0 : 1;
           calCurrentHeading = "";
           calHeadingPauseStart = 0;
           calVSampleIdx = 0;
