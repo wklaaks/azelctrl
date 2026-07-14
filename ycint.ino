@@ -647,9 +647,13 @@ private:
 // Forward declaration
 extern Menu* currentMenu;
 extern bool skipBtnProcessing;
+extern bool hamlibServerEnabled;
+extern char setupWifiLabel[];
+extern MenuItem networkItems[];
 extern Menu setupMenu;
 extern Menu pcInterfaceMenu;
 extern Menu baudMenu;
+extern Menu networkMenu;
 
 // ==================== WIFI CREDENTIAL MANAGEMENT ====================
 // EEPROM layout: byte 0=ssid_len, bytes 1-32=ssid, byte 33=pass_len, bytes 34-65=pass, byte 66=magic
@@ -757,7 +761,9 @@ void startApMode() {
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
   setupWebServer();
-  startRotctlServer();
+  if (hamlibServerEnabled) {
+    startRotctlServer();
+  }
   
   Serial.println("AP Mode: " + String(AP_SSID));
   Serial.println("IP: " + String(AP_IP));
@@ -779,7 +785,9 @@ void tickWifi() {
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
       setupWebServer();
-      startRotctlServer();
+      if (hamlibServerEnabled) {
+        startRotctlServer();
+      }
     } else if (millis() - wifiStart > WIFI_TIMEOUT) {
       wifiState = WIFI_FAILED;
       Serial.println("WiFi connection timed out");
@@ -1216,11 +1224,16 @@ const unsigned long CAL_HEADING_PAUSE = 5000;    // Pause 5s at each cardinal he
 #define WIFI_MODE_MAGIC     85
 #define WIFI_MODE_MAGIC_VAL 0x4D
 
+// Network settings in EEPROM
+#define EEPROM_NET_HAMLIB   86
+#define EEPROM_NET_MAGIC    87
+#define EEPROM_NET_MAGIC_VAL 0x4E
+
 // Rotator model config in EEPROM
-#define ROT_EEPROM_MODEL     86
-#define ROT_EEPROM_MAGIC     87
+#define ROT_EEPROM_MODEL     88
+#define ROT_EEPROM_MAGIC     89
 #define ROT_EEPROM_MAGIC_VAL 0x5A
-#define CAL_EEPROM_SIZE      88
+#define CAL_EEPROM_SIZE      90
 
 // Rotator model - single enum for all 4 options
 enum RotModel { ROT_N360, ROT_S360, ROT_N450, ROT_S450 };
@@ -3125,6 +3138,72 @@ void actionPcInterface() {
   currentMenu->setFooter(showCmdFooter());
 }
 
+// ==================== NETWORK MENU ====================
+bool hamlibServerEnabled = true;  // Default: enabled
+char setupHamlibLabel[24] = "Hamlib Server (Y)";
+
+void updateNetworkLabels() {
+  snprintf(setupHamlibLabel, sizeof(setupHamlibLabel), "Hamlib Server (%c)", hamlibServerEnabled ? 'Y' : 'N');
+  networkItems[1].label = setupHamlibLabel;
+  // WiFi mode label
+  if (deviceWifiMode == MODE_STA) {
+    strcpy(setupWifiLabel, "Wifi(Station)");
+  } else if (deviceWifiMode == MODE_AP) {
+    strcpy(setupWifiLabel, "Wifi(AP)");
+  } else if (EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL) {
+    strcpy(setupWifiLabel, "Wifi(Disabled)");
+  } else {
+    strcpy(setupWifiLabel, "Wifi(None)");
+  }
+  networkItems[0].label = setupWifiLabel;
+}
+
+const char* hamlibFooter() {
+  return hamlibServerEnabled ? "1.Nav 1|No 2.Back" : "1.Nav 1|Yes 2.Back";
+}
+
+void actionNetwork() {
+  updateNetworkLabels();
+  currentMenu = &networkMenu;
+  currentMenu->init();
+  currentMenu->setFooter(hamlibFooter());
+}
+
+void actionToggleHamlibServer() {
+  hamlibServerEnabled = !hamlibServerEnabled;
+  saveNetworkSettings();
+  updateNetworkLabels();
+  currentMenu->setFooter(hamlibFooter());
+  currentMenu->draw();
+  
+  // Start/stop TCP server immediately
+  if (hamlibServerEnabled && WiFi.status() == WL_CONNECTED) {
+    startRotctlServer();
+  } else {
+    stopRotctlServer();
+  }
+}
+
+// Load/save network settings from EEPROM
+void loadNetworkSettings() {
+  if (EEPROM.read(EEPROM_NET_MAGIC) == EEPROM_NET_MAGIC_VAL) {
+    hamlibServerEnabled = (EEPROM.read(EEPROM_NET_HAMLIB) == 1);
+  }
+}
+
+void saveNetworkSettings() {
+  EEPROM.write(EEPROM_NET_HAMLIB, hamlibServerEnabled ? 1 : 0);
+  EEPROM.write(EEPROM_NET_MAGIC, EEPROM_NET_MAGIC_VAL);
+  EEPROM.commit();
+}
+
+MenuItem networkItems[] = {
+  {setupWifiLabel,      actionSetupWifi,       0, true, nullptr, nullptr},
+  {setupHamlibLabel,    actionToggleHamlibServer, 0, true, nullptr, nullptr},
+};
+
+Menu networkMenu("Network", networkItems, 2, &setupMenu);
+
 // Get custom footer for Show Commands toggle
 const char* showCmdFooter() {
   return protocolShowCommands ? "1.Nav 1|No 2.Back" : "1.Nav 1|Yes 2.Back";
@@ -3206,7 +3285,7 @@ int getCalibrateBlockers(int* indices, int maxCount) {
 MenuItem setupItems[] = {
   {setupRotatorLabel, actionSetupRotator, 5, true, nullptr, nullptr},
   {setupCalLabel, actionSetupCalibrate, 0, true, checkCalibrateSelectable, getCalibrateBlockers},
-  {setupWifiLabel, actionSetupWifi, 0, true, nullptr, nullptr},
+  {"Network", actionNetwork, 0, true, nullptr, nullptr},
   {"PC Interface", actionPcInterface, 0, true, nullptr, nullptr},
   {"Wipe all settings", actionSetupWipe, 0, true, nullptr, nullptr}
 };
@@ -4737,6 +4816,7 @@ void setup() {
   // Initialize EEPROM first — needed for loading saved settings
   EEPROM.begin(CAL_EEPROM_SIZE);
   loadProtocolSettings();
+  loadNetworkSettings();
   Serial.begin(getProtocolBaud());
   delay(200);
   
