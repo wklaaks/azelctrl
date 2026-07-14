@@ -3344,17 +3344,8 @@ void updateSetupLabels() {
   }
   setupItems[1].label = setupCalLabel;
 
-  // WiFi mode label
-  if (deviceWifiMode == MODE_STA) {
-    strcpy(setupWifiLabel, "Wifi(Station)");
-  } else if (deviceWifiMode == MODE_AP) {
-    strcpy(setupWifiLabel, "Wifi(AP)");
-  } else if (EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL) {
-    strcpy(setupWifiLabel, "Wifi(Disabled)");
-  } else {
-    strcpy(setupWifiLabel, "Wifi(None)");
-  }
-  setupItems[2].label = setupWifiLabel;
+  // WiFi mode label is now shown inside the Network submenu, not here
+  // (label remains "Network")
 
   // Footer: hide Back button when mandatory setup items are incomplete
   if (allSetupComplete()) {
