@@ -1233,6 +1233,9 @@ const unsigned long CAL_HEADING_PAUSE = 5000;    // Pause 5s at each cardinal he
 #define ROT_EEPROM_MODEL     88
 #define ROT_EEPROM_MAGIC     89
 #define ROT_EEPROM_MAGIC_VAL 0x5A
+// Old EEPROM locations (before network settings were added) — for backward compat
+#define ROT_EEPROM_OLD_MODEL   86
+#define ROT_EEPROM_OLD_MAGIC   87
 #define CAL_EEPROM_SIZE      90
 
 // Rotator model - single enum for all 4 options
@@ -1573,7 +1576,8 @@ void saveWifiMode() {
 }
 
 bool hasRotatorModel() {
-  return EEPROM.read(ROT_EEPROM_MAGIC) == ROT_EEPROM_MAGIC_VAL;
+  return EEPROM.read(ROT_EEPROM_MAGIC) == ROT_EEPROM_MAGIC_VAL ||
+         EEPROM.read(ROT_EEPROM_OLD_MAGIC) == ROT_EEPROM_MAGIC_VAL;
 }
 
 bool hasAnySettings() {
@@ -1581,11 +1585,21 @@ bool hasAnySettings() {
 }
 
 void loadRotatorModel() {
-  if (EEPROM.read(ROT_EEPROM_MAGIC) != ROT_EEPROM_MAGIC_VAL) {
+  uint8_t magicNew = EEPROM.read(ROT_EEPROM_MAGIC);
+  uint8_t magicOld = EEPROM.read(ROT_EEPROM_OLD_MAGIC);
+  
+  if (magicNew == ROT_EEPROM_MAGIC_VAL) {
+    rotModel = (RotModel)EEPROM.read(ROT_EEPROM_MODEL);
+  } else if (magicOld == ROT_EEPROM_MAGIC_VAL) {
+    // Migrate from old location to new
+    rotModel = (RotModel)EEPROM.read(ROT_EEPROM_OLD_MODEL);
+    Serial.println("ROT: Migrating rotator model from old EEPROM location");
+    saveRotatorModel();  // Save to new location (also clears old via commit)
+    return;
+  } else {
     Serial.println("ROT: No rotator model in EEPROM - will prompt at boot");
     return;
   }
-  rotModel = (RotModel)EEPROM.read(ROT_EEPROM_MODEL);
   Serial.print("ROT: Loaded model = ");
   Serial.println(rotModel);
 }
@@ -1593,6 +1607,9 @@ void loadRotatorModel() {
 void saveRotatorModel() {
   EEPROM.write(ROT_EEPROM_MODEL, (uint8_t)rotModel);
   EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
+  // Clear old location to avoid confusion with network settings
+  EEPROM.write(ROT_EEPROM_OLD_MODEL, 0);
+  EEPROM.write(ROT_EEPROM_OLD_MAGIC, 0);
   EEPROM.commit();
   Serial.println("ROT: Rotator model saved to EEPROM");
   
