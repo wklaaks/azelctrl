@@ -4213,9 +4213,10 @@ void updateRotatorDisplay() {
   display.clearDisplay();
   display.setTextSize(1);
   
-  // Network connection indicator — top-right corner (2x2 filled pixels)
+  // Network connection indicator — above footer dotted line at y=53
+  // Dotted line is at y=53, footer text at y=56, so indicator at y=49 (3px gap)
   if (rotctlConnected) {
-    display.fillRect(125, 0, 2, 2, SSD1306_WHITE);
+    display.fillRect(125, 49, 2, 2, SSD1306_WHITE);
   }
   
   if (isPausing) {
