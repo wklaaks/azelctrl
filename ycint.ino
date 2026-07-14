@@ -1950,6 +1950,12 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         if (targetEl < 0) targetEl = 0;
         if (targetEl > 180) targetEl = 180;
         
+        // Set protocol targets for auto-stop
+        protocolTargetAz = targetAz;
+        protocolTargetAzSet = true;
+        protocolTargetEl = targetEl;
+        protocolTargetElSet = true;
+        
         // Move to position using direction commands
         float diffAz = targetAz - currentAz;
         if (diffAz > 180) diffAz -= 360;
