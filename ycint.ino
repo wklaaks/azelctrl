@@ -802,9 +802,7 @@ void startApMode() {
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
   setupWebServer();
-  if (hamlibServerEnabled) {
-    startRotctlServer();
-  }
+  startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
   
   Serial.println("AP Mode: " + String(AP_SSID));
   Serial.println("IP: " + String(AP_IP));
@@ -826,9 +824,7 @@ void tickWifi() {
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
       setupWebServer();
-      if (hamlibServerEnabled) {
-        startRotctlServer();
-      }
+      startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
     } else if (millis() - wifiStart > WIFI_TIMEOUT) {
       wifiState = WIFI_FAILED;
       Serial.println("WiFi connection timed out");
@@ -1984,41 +1980,20 @@ int dpParseArgs(char* line, char* args[4]) {
   return count;
 }
 
-// Detect if a command looks like GS-232 (vs rotctl protocol)
-// GS-232: C, C1-C3, Wnnn nnn, H, Hnnn, Mnnn, V, Vnnn, L, R, U, D, S, A, E, Z, Xn
-// Rotctl: p, P az el, S, s, M dir speed, _, K, R type, v level, V level val, q
-static bool isGs232Command(const char* cmd, int len) {
-  if (len == 0) return false;
-  char c = toupper(cmd[0]);
-
-  // Unambiguously GS-232 letters
-  if (c == 'C' || c == 'W' || c == 'H' || c == 'L' ||
-      c == 'U' || c == 'D' || c == 'A' || c == 'E' ||
-      c == 'Z' || c == 'X') return true;
-
-  // Ambiguous: letter + digits = GS-232 (Mnnn, Vnnn)
-  // Letter + space or alone = rotctl (M dir, V level val, bare S/R)
-  if ((c == 'M' || c == 'V' || c == 'R' || c == 'S') && len > 1) {
-    if (isdigit(cmd[1])) return true;  // Mnnn, Vnnn, R123 → GS-232
-    return false;                       // M dir, V level, S → rotctl
-  }
-
-  // Lowercase rotctl commands: p, s, v, q
-  if (cmd[0] >= 'a' && cmd[0] <= 'z') return false;
-
-  return false;
-}
-
-// Process Default Protocol commands (for TCP connections)
+// Process TCP commands on port 4533
+// When Hamlib Server = Y: speak rotctl text protocol (Gpredict)
+// When Hamlib Server = N: speak the configured serial protocol (GS-232A/B/Easycom)
 void processDefaultProtocolCommand(const char* cmd, int len) {
   if (len == 0) return;
 
-  // Detect GS-232 commands from clients like Rotor and route them
-  if (isGs232Command(cmd, len)) {
-    processGs232Command(cmd, len);
+  // Route based on Hamlib Server setting — no guessing required
+  if (!hamlibServerEnabled) {
+    // Speak the configured serial protocol over TCP
+    processProtocolCommand(cmd, len);
     return;
   }
 
+  // Hamlib Server enabled — speak rotctl text protocol
   // Make a mutable copy for strtok
   char buf[PROTOCOL_BUF_SIZE];
   strncpy(buf, cmd, PROTOCOL_BUF_SIZE - 1);
@@ -3336,11 +3311,9 @@ void actionToggleHamlibServer() {
   currentMenu->setFooter(hamlibFooter());
   currentMenu->draw();
   
-  // Start/stop TCP server immediately
-  if (hamlibServerEnabled && WiFi.status() == WL_CONNECTED) {
+  // Keep TCP server running — just change which protocol is spoken
+  if (WiFi.status() == WL_CONNECTED && !rotctlServerStarted) {
     startRotctlServer();
-  } else {
-    stopRotctlServer();
   }
 }
 
