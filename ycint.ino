@@ -3397,16 +3397,17 @@ MenuItem apModeItems[] = {
 // Voltage Calibration Menu
 MenuItem calPotsItems[] = {
   {"Azimuth", actionCalibrateAz, 0, true, nullptr, nullptr},
-  {"Elevation", actionCalibrateEl, 0, true, nullptr, nullptr}
+  {"Elevation", actionCalibrateEl, 0, true, nullptr, nullptr},
+  {"Skip (Az=El=3.2V)", actionCalibrateSkip, 0, true, nullptr, nullptr}
 };
 
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
-Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &setupMenu);
+Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &bootMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
-Menu calPotsMenu("Voltage Calibration", calPotsItems, 2, &setupMenu);
+Menu calPotsMenu("Voltage Calibration", calPotsItems, 3, &setupMenu);
 
 // Current active menu (nullptr = rotator control mode)
 Menu* currentMenu = &bootMenu;
@@ -3686,6 +3687,37 @@ void actionCalibrateAz() {
 void actionCalibrateEl() {
   Serial.println("Action: Calibrate EL Pot");
   enterCalibrationMode(1);
+}
+
+void actionCalibrateSkip() {
+  Serial.println("CAL: Skipping calibration - using Az=El=3.2V");
+  
+  // Set calibration values as if sweep found 0V min and 3.2V max
+  calAzMinV = 0.0F;
+  calAzMaxV = 3.2F;
+  calElMinV = 0.0F;
+  calElMaxV = 3.2F;
+  calAzValid = true;
+  calElValid = true;
+  
+  // Save to EEPROM
+  uint8_t* bytes;
+  bytes = (uint8_t*)&calAzMinV;
+  for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MIN + i, bytes[i]);
+  bytes = (uint8_t*)&calAzMaxV;
+  for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MAX + i, bytes[i]);
+  bytes = (uint8_t*)&calElMinV;
+  for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MIN + i, bytes[i]);
+  bytes = (uint8_t*)&calElMaxV;
+  for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MAX + i, bytes[i]);
+  EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
+  EEPROM.commit();
+  
+  Serial.println("CAL: Calibration saved (Az=El=0-3.2V)");
+  
+  // Return to Setup screen
+  currentMenu = &setupMenu;
+  currentMenu->init();
 }
 
 void actionBackToMain() {
