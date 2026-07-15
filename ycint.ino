@@ -1984,19 +1984,50 @@ int dpParseArgs(char* line, char* args[4]) {
   return count;
 }
 
+// Detect if a command looks like GS-232 (vs rotctl protocol)
+// GS-232: C, C1-C3, Wnnn nnn, H, Hnnn, Mnnn, V, Vnnn, L, R, U, D, S, A, E, Z, Xn
+// Rotctl: p, P az el, S, s, M dir speed, _, K, R type, v level, V level val, q
+static bool isGs232Command(const char* cmd, int len) {
+  if (len == 0) return false;
+  char c = toupper(cmd[0]);
+
+  // Unambiguously GS-232 letters
+  if (c == 'C' || c == 'W' || c == 'H' || c == 'L' ||
+      c == 'U' || c == 'D' || c == 'A' || c == 'E' ||
+      c == 'Z' || c == 'X') return true;
+
+  // Ambiguous: letter + digits = GS-232 (Mnnn, Vnnn)
+  // Letter + space or alone = rotctl (M dir, V level val, bare S/R)
+  if ((c == 'M' || c == 'V' || c == 'R' || c == 'S') && len > 1) {
+    if (isdigit(cmd[1])) return true;  // Mnnn, Vnnn, R123 → GS-232
+    return false;                       // M dir, V level, S → rotctl
+  }
+
+  // Lowercase rotctl commands: p, s, v, q
+  if (cmd[0] >= 'a' && cmd[0] <= 'z') return false;
+
+  return false;
+}
+
 // Process Default Protocol commands (for TCP connections)
 void processDefaultProtocolCommand(const char* cmd, int len) {
   if (len == 0) return;
-  
+
+  // Detect GS-232 commands from clients like Rotor and route them
+  if (isGs232Command(cmd, len)) {
+    processGs232Command(cmd, len);
+    return;
+  }
+
   // Make a mutable copy for strtok
   char buf[PROTOCOL_BUF_SIZE];
   strncpy(buf, cmd, PROTOCOL_BUF_SIZE - 1);
   buf[PROTOCOL_BUF_SIZE - 1] = '\0';
-  
+
   char* args[4];
   int argc = dpParseArgs(buf, args);
   if (argc == 0) return;
-  
+
   // Replace commas with periods in all args (Gpredict locale handling)
   for (int i = 0; i < argc; i++) {
     char* p = args[i];
@@ -2005,7 +2036,7 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
       p++;
     }
   }
-  
+
   char cmdChar = args[0][0];
   
   switch (cmdChar) {
