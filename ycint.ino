@@ -1981,19 +1981,11 @@ int dpParseArgs(char* line, char* args[4]) {
 }
 
 // Process TCP commands on port 4533
-// When Hamlib Server = Y: speak rotctl text protocol (Gpredict)
-// When Hamlib Server = N: speak the configured serial protocol (GS-232A/B/Easycom)
+// Always speaks rotctl text protocol — this is what clients like Rotor expect
+// (they connect through rotctld which translates to/from device protocols)
 void processDefaultProtocolCommand(const char* cmd, int len) {
   if (len == 0) return;
 
-  // Route based on Hamlib Server setting — no guessing required
-  if (!hamlibServerEnabled) {
-    // Speak the configured serial protocol over TCP
-    processProtocolCommand(cmd, len);
-    return;
-  }
-
-  // Hamlib Server enabled — speak rotctl text protocol
   // Make a mutable copy for strtok
   char buf[PROTOCOL_BUF_SIZE];
   strncpy(buf, cmd, PROTOCOL_BUF_SIZE - 1);
