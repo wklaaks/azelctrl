@@ -36,6 +36,43 @@
 #include <DNSServer.h>
 #include <EEPROM.h>
 
+// ==================== EEPROM LAYOUT ====================
+// All settings in one contiguous block. Using 512 bytes = one full flash sector
+// so ESP8266's EEPROM library loads everything into RAM on begin(). Every commit
+// writes the complete sector atomically — no cross-contamination between saves.
+#define EEPROM_SIZE        512
+
+// Sector 0: WiFi credentials (bytes 0-66)
+#define EEPROM_SSID_LEN    0
+#define EEPROM_SSID_DATA   1
+#define EEPROM_PASS_LEN    33
+#define EEPROM_PASS_DATA   34
+#define EEPROM_MAGIC_BYTE  66
+#define EEPROM_MAGIC       0xAA
+
+// Sector 1: Calibration data (bytes 67-83)
+#define CAL_EEPROM_AZ_MIN  67
+#define CAL_EEPROM_AZ_MAX  71
+#define CAL_EEPROM_EL_MIN  75
+#define CAL_EEPROM_EL_MAX  79
+#define CAL_EEPROM_MAGIC   83
+#define CAL_EEPROM_MAGIC_VAL 0xCA
+
+// Sector 2: WiFi mode (bytes 84-85)
+#define WIFI_MODE_EEPROM   84
+#define WIFI_MODE_MAGIC    85
+#define WIFI_MODE_MAGIC_VAL 0x4D
+
+// Sector 3: Network settings (bytes 86-87)
+#define EEPROM_NET_HAMLIB  86
+#define EEPROM_NET_MAGIC   87
+#define EEPROM_NET_MAGIC_VAL 0x4E
+
+// Sector 4: Rotator model (bytes 88-89)
+#define ROT_EEPROM_MODEL   88
+#define ROT_EEPROM_MAGIC   89
+#define ROT_EEPROM_MAGIC_VAL 0x5A
+
 // ==================== FIRMWARE VERSION ====================
 #define FIRMWARE_VERSION "1.0.0"
 #define FIRMWARE_DATE __DATE__
@@ -656,14 +693,7 @@ extern Menu baudMenu;
 extern Menu networkMenu;
 
 // ==================== WIFI CREDENTIAL MANAGEMENT ====================
-// EEPROM layout: byte 0=ssid_len, bytes 1-32=ssid, byte 33=pass_len, bytes 34-65=pass, byte 66=magic
-#define EEPROM_SSID_LEN   0
-#define EEPROM_SSID_DATA  1
-#define EEPROM_PASS_LEN   33
-#define EEPROM_PASS_DATA  34
-#define EEPROM_MAGIC_BYTE 66
-#define EEPROM_SIZE       67
-#define EEPROM_MAGIC      0xA5
+// See unified EEPROM layout below for address definitions
 
 String savedSsid = "";
 String savedPass = "";
@@ -691,6 +721,8 @@ void loadWifiCredentials() {
 }
 
 void saveWifiCredentials(const char* ssid, const char* pass) {
+  // Zero out only the credential area (bytes 0-66), not the entire EEPROM
+  // Bytes 67+ contain calibration data and must not be touched
   for (int i = 0; i < EEPROM_SIZE; i++) EEPROM.write(i, 0);
   
   uint8_t ssidLen = (uint8_t)min(strlen(ssid), (size_t)32);
@@ -1212,31 +1244,6 @@ const float CAL_DETECT_MIN_CHANGE = 70.0F;       // mV - minimum voltage change 
 const float CAL_ASSUMED_PRE_CAL_MAX = 3.200F;    // Assumed max voltage before calibration
 const unsigned long CAL_HEADING_PAUSE = 5000;    // Pause 5s at each cardinal heading during return sweep
 #define CAL_V_SAMPLES 20
-#define CAL_EEPROM_AZ_MIN    67
-#define CAL_EEPROM_AZ_MAX    71
-#define CAL_EEPROM_EL_MIN    75
-#define CAL_EEPROM_EL_MAX    79
-#define CAL_EEPROM_MAGIC     83
-#define CAL_EEPROM_MAGIC_VAL 0xCA
-
-// WiFi mode config in EEPROM
-#define WIFI_MODE_EEPROM    84
-#define WIFI_MODE_MAGIC     85
-#define WIFI_MODE_MAGIC_VAL 0x4D
-
-// Network settings in EEPROM
-#define EEPROM_NET_HAMLIB   86
-#define EEPROM_NET_MAGIC    87
-#define EEPROM_NET_MAGIC_VAL 0x4E
-
-// Rotator model config in EEPROM
-#define ROT_EEPROM_MODEL     88
-#define ROT_EEPROM_MAGIC     89
-#define ROT_EEPROM_MAGIC_VAL 0x5A
-// Old EEPROM locations (before network settings were added) — for backward compat
-#define ROT_EEPROM_OLD_MODEL   86
-#define ROT_EEPROM_OLD_MAGIC   87
-#define CAL_EEPROM_SIZE      90
 
 // Rotator model - single enum for all 4 options
 enum RotModel { ROT_N360, ROT_S360, ROT_N450, ROT_S450 };
@@ -1510,7 +1517,6 @@ int calNextCardinalHeading(float currentHeading) {
 
 void loadCalibration() {
   if (EEPROM.read(CAL_EEPROM_MAGIC) != CAL_EEPROM_MAGIC_VAL) {
-    Serial.println("CAL: No calibration data in EEPROM");
     return;
   }
   uint8_t* bytes = (uint8_t*)&calAzMinV;
@@ -1524,15 +1530,6 @@ void loadCalibration() {
   
   calAzValid = (calAzMaxV - calAzMinV > CAL_MIN_RANGE);
   calElValid = (calElMaxV - calElMinV > CAL_MIN_RANGE);
-  
-  Serial.print("CAL: Loaded AZ min=");
-  Serial.print(calAzMinV, 3);
-  Serial.print(" max=");
-  Serial.print(calAzMaxV, 3);
-  Serial.print(" EL min=");
-  Serial.print(calElMinV, 3);
-  Serial.println(" max=");
-  Serial.println(calElMaxV, 3);
 }
 
 void saveCalibration() {
@@ -1576,8 +1573,7 @@ void saveWifiMode() {
 }
 
 bool hasRotatorModel() {
-  return EEPROM.read(ROT_EEPROM_MAGIC) == ROT_EEPROM_MAGIC_VAL ||
-         EEPROM.read(ROT_EEPROM_OLD_MAGIC) == ROT_EEPROM_MAGIC_VAL;
+  return EEPROM.read(ROT_EEPROM_MAGIC) == ROT_EEPROM_MAGIC_VAL;
 }
 
 bool hasAnySettings() {
@@ -1585,36 +1581,25 @@ bool hasAnySettings() {
 }
 
 void loadRotatorModel() {
-  uint8_t magicNew = EEPROM.read(ROT_EEPROM_MAGIC);
-  uint8_t magicOld = EEPROM.read(ROT_EEPROM_OLD_MAGIC);
-  
-  if (magicNew == ROT_EEPROM_MAGIC_VAL) {
-    rotModel = (RotModel)EEPROM.read(ROT_EEPROM_MODEL);
-  } else if (magicOld == ROT_EEPROM_MAGIC_VAL) {
-    // Migrate from old location to new
-    rotModel = (RotModel)EEPROM.read(ROT_EEPROM_OLD_MODEL);
-    Serial.println("ROT: Migrating rotator model from old EEPROM location");
-    saveRotatorModel();  // Save to new location (also clears old via commit)
-    return;
-  } else {
+  if (EEPROM.read(ROT_EEPROM_MAGIC) != ROT_EEPROM_MAGIC_VAL) {
     Serial.println("ROT: No rotator model in EEPROM - will prompt at boot");
     return;
   }
+  rotModel = (RotModel)EEPROM.read(ROT_EEPROM_MODEL);
   Serial.print("ROT: Loaded model = ");
   Serial.println(rotModel);
 }
 
-void saveRotatorModel() {
+void saveRotatorModel(bool clearCal = false) {
   EEPROM.write(ROT_EEPROM_MODEL, (uint8_t)rotModel);
   EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
-  // Clear old location to avoid confusion with network settings
-  EEPROM.write(ROT_EEPROM_OLD_MODEL, 0);
-  EEPROM.write(ROT_EEPROM_OLD_MAGIC, 0);
   EEPROM.commit();
   Serial.println("ROT: Rotator model saved to EEPROM");
   
-  // Clear calibration when model changes — azimuth range may have changed
-  clearCalibration();
+  if (clearCal) {
+    // Clear calibration when model changes — azimuth range may have changed
+    clearCalibration();
+  }
 }
 
 void clearCalibration() {
@@ -1730,7 +1715,7 @@ void setupRotatorModel() {
         Serial.print("ROT: Selected model ");
         Serial.println(choice);
         rotModel = (RotModel)choice;
-        saveRotatorModel();
+        saveRotatorModel(true);  // Clear calibration when model changes
         // Return immediately — do NOT wait for button release here.
         // The caller (actionSetupRotator) will wait for release on firstDraw.
         return;
@@ -4002,7 +3987,7 @@ void actionSetupWipe() {
       delay(300);
       // Wipe all EEPROM settings
       Serial.println("SETUP: Wiping all settings...");
-      for (int i = 0; i < CAL_EEPROM_SIZE; i++) {
+      for (int i = 0; i < EEPROM_SIZE; i++) {
         EEPROM.write(i, 0);
       }
       EEPROM.commit();
@@ -4843,7 +4828,7 @@ void setupWebServer() {
 // ====================== SETUP ======================
 void setup() {
   // Initialize EEPROM first — needed for loading saved settings
-  EEPROM.begin(CAL_EEPROM_SIZE);
+  EEPROM.begin(EEPROM_SIZE);
   loadProtocolSettings();
   loadNetworkSettings();
   Serial.begin(getProtocolBaud());
