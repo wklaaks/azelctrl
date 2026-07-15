@@ -202,6 +202,15 @@ unsigned long protocolElReverseStart = 0;
 String protocolAzPendingDir = "";
 String protocolElPendingDir = "";
 
+// Motor engagement delay — suppress stale position readings while motors ramp up
+// Must be short enough that Gpredict sees progress before giving up (~1.5s timeout)
+// 200ms allows ADC sliding window (4x100ms) to stabilize without triggering Gpredict abort
+const unsigned long MOTOR_ENGAGE_DELAY_MS = 200;
+unsigned long azEngageStart = 0;
+unsigned long elEngageStart = 0;
+float azPositionAtEngage = 0.0;  // Last known good position when motors started
+float elPositionAtEngage = 0.0;
+
 long getProtocolBaud() {
   return PROTOCOL_BAUD_RATES[protocolBaudIndex];
 }
@@ -985,7 +994,7 @@ void checkRotctlClient() {
       if (ch == '\n' || ch == '\r') {
         if (tcpProtocolBufIdx > 0) {
           tcpProtocolBuf[tcpProtocolBufIdx] = '\0';
-          DBG_PRINT("DP:RX:"); DBG_PRINTLN(tcpProtocolBuf);
+          DBG_PRINTLN(tcpProtocolBuf);
           processDefaultProtocolCommand(tcpProtocolBuf, tcpProtocolBufIdx);
           tcpProtocolBufIdx = 0;
         }
@@ -1259,6 +1268,7 @@ void stopAzimuth() {
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
   azDirection = DIR_STOPPED;
+  azEngageStart = 0;  // Clear engagement timer
   // Don't clear protocolTargetAzSet here — it's cleared by auto-stop or explicit stop commands
   protocolAzReversing = false;
   // Clear movement indicator if azimuth was moving
@@ -1271,6 +1281,7 @@ void stopElevation() {
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
+  elEngageStart = 0;  // Clear engagement timer
   // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit stop commands
   protocolElReversing = false;
   // Clear movement indicator if elevation was moving
@@ -1292,7 +1303,16 @@ void stopAll() {
 }
 
 void executeAzimuthMove(String dir) {
-  stopAzimuth();
+  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction
+  bool needStop = (azDirection != DIR_STOPPED && azDirection != DIR_CCW && dir == "LEFT") ||
+                  (azDirection != DIR_STOPPED && azDirection != DIR_CW  && dir == "RIGHT");
+  if (needStop) {
+    stopAzimuth();
+  } else if (azDirection == DIR_STOPPED) {
+    // Already stopped — just ensure pins are clean (no-op, but explicit)
+    digitalWrite(AZ_ENABLE, LOW);
+    digitalWrite(AZ_DIR_CW, HIGH);
+  }
   
   // Check voltage safety before moving
   if (adsPresent && calAzValid) {
@@ -1308,6 +1328,10 @@ void executeAzimuthMove(String dir) {
   }
   moving = true;
   
+  // Mark engagement start — use current Az as the last known good position
+  azPositionAtEngage = displayAzimuth(currentAz);
+  azEngageStart = millis();
+  
   if (dir == "LEFT") {
     azDirection = DIR_CCW;
     digitalWrite(AZ_DIR_CW, HIGH);
@@ -1321,7 +1345,16 @@ void executeAzimuthMove(String dir) {
 }
 
 void executeElevationMove(String dir) {
-  stopElevation();
+  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction
+  bool needStop = (elDirection != DIR_STOPPED && elDirection != DIR_DOWN && dir == "UP") ||
+                  (elDirection != DIR_STOPPED && elDirection != DIR_UP  && dir == "DOWN");
+  if (needStop) {
+    stopElevation();
+  } else if (elDirection == DIR_STOPPED) {
+    // Already stopped — just ensure pins are clean (no-op, but explicit)
+    digitalWrite(EL_ENABLE, LOW);
+    digitalWrite(EL_DIR_UP, HIGH);
+  }
   
   // Check voltage safety before moving
   if (adsPresent && calElValid) {
@@ -1336,6 +1369,10 @@ void executeElevationMove(String dir) {
     currentMove = dir;
   }
   moving = true;
+  
+  // Mark engagement start — use current El as the last known good position
+  elPositionAtEngage = currentEl;
+  elEngageStart = millis();
   
   if (dir == "UP") {
     elDirection = DIR_UP;
@@ -1960,15 +1997,42 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
   int argc = dpParseArgs(buf, args);
   if (argc == 0) return;
   
+  // Replace commas with periods in all args (Gpredict locale handling)
+  for (int i = 0; i < argc; i++) {
+    char* p = args[i];
+    while (*p) {
+      if (*p == ',') *p = '.';
+      p++;
+    }
+  }
+  
   char cmdChar = args[0][0];
   
   switch (cmdChar) {
     case 'p': {
-      // Get position → returns azimuth\nelevation\n
+      // Get position → returns azimuth\nelevation\nRPRT 0\n
       float az = displayAzimuth(currentAz);
       float el = currentEl;
+      
+      // During motor engagement, report last known good position to avoid
+      // stale ADC readings that show backward drift (mechanical backlash)
+      unsigned long now = millis();
+      if (azEngageStart > 0 && (now - azEngageStart < MOTOR_ENGAGE_DELAY_MS)) {
+        az = azPositionAtEngage;
+      }
+      if (elEngageStart > 0 && (now - elEngageStart < MOTOR_ENGAGE_DELAY_MS)) {
+        el = elPositionAtEngage;
+      }
+      
+      #if DEBUG_ENABLED
+      Serial.print("DBG:DP_P:az="); Serial.print(az, 2);
+      Serial.print(" el="); Serial.print(el, 2);
+      Serial.print(" rawAz="); Serial.print(currentAz, 2);
+      Serial.print(" rawEl="); Serial.println(currentEl, 2);
+      #endif
       dpSend(String(az, 2));
       dpSend(String(el, 2));
+      dpRprt(0);
       break;
     }
     
@@ -1984,29 +2048,46 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         if (targetEl < 0) targetEl = 0;
         if (targetEl > 180) targetEl = 180;
         
-        // Set protocol targets for auto-stop
+        // Always update protocol targets for auto-stop
         protocolTargetAz = targetAz;
         protocolTargetAzSet = true;
         protocolTargetEl = targetEl;
         protocolTargetElSet = true;
         
-        // Move to position using direction commands
+        // Calculate desired direction
         float diffAz = targetAz - currentAz;
         if (diffAz > 180) diffAz -= 360;
         if (diffAz < -180) diffAz += 360;
         
+        String wantAzDir = "STOP";
         if (abs(diffAz) > 1.0) {
-          executeAzimuthMove(diffAz > 0 ? "RIGHT" : "LEFT");
-        } else {
-          stopAzimuth();
+          wantAzDir = (diffAz > 0) ? "RIGHT" : "LEFT";
         }
         
         float diffEl = targetEl - currentEl;
+        String wantElDir = "STOP";
         if (abs(diffEl) > 1.0) {
-          executeElevationMove(diffEl > 0 ? "UP" : "DOWN");
-        } else {
-          stopElevation();
+          wantElDir = (diffEl > 0) ? "UP" : "DOWN";
         }
+        
+        // Only change motors if direction actually changed — don't restart same-direction movement
+        if (wantAzDir == "STOP") {
+          stopAzimuth();
+        } else if (azDirection == DIR_STOPPED ||
+                   (wantAzDir == "RIGHT" && azDirection != DIR_CW) ||
+                   (wantAzDir == "LEFT" && azDirection != DIR_CCW)) {
+          executeAzimuthMove(wantAzDir);
+        }
+        // else: already moving CW/CCW, same direction — just keep going
+        
+        if (wantElDir == "STOP") {
+          stopElevation();
+        } else if (elDirection == DIR_STOPPED ||
+                   (wantElDir == "UP" && elDirection != DIR_UP) ||
+                   (wantElDir == "DOWN" && elDirection != DIR_DOWN)) {
+          executeElevationMove(wantElDir);
+        }
+        // else: already moving UP/DOWN, same direction — just keep going
       }
       dpRprt(0);
       break;
@@ -2020,14 +2101,13 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
     }
     
     case 's': {
-      // Get status: returns status flags as integer
-      // 0 = OK, 1 = parking, 2 = error, etc.
-      // For our implementation: 0 = idle/OK
+      // Get status: returns status flags as integer + RPRT 0
       int status = 0;
       if (azDirection != DIR_STOPPED || elDirection != DIR_STOPPED) {
         status |= 4;  // Moving
       }
       dpSend(String(status));
+      dpRprt(0);
       break;
     }
     
@@ -2055,6 +2135,7 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
     case '_': {
       // Get info/version
       dpSend("AZELCtrl v" + String(FIRMWARE_VERSION));
+      dpRprt(0);
       break;
     }
     
@@ -2080,7 +2161,9 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         dpSend("1");  // Default speed
       } else {
         dpRprt(-2);  // EINVAL
+        return;
       }
+      dpRprt(0);
       break;
     }
     
@@ -2092,6 +2175,12 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
       } else {
         dpRprt(-2);  // EINVAL
       }
+      break;
+    }
+    
+    case 'q': {
+      // Quit connection
+      dpRprt(0);
       break;
     }
     
@@ -3022,12 +3111,25 @@ void readPositions() {
   unsigned long now = millis();
   static unsigned long lastAzRead = 0;
   static unsigned long lastElRead = 0;
-  const unsigned long ADC_INTERVAL = 200;
+  // Faster reads during tracking, smaller smoothing window
+  const unsigned long ADC_INTERVAL = 100;
+  
+  // Moving average buffers to suppress relay-induced ADC spikes
+  static int16_t azAdcHistory[4];
+  static uint8_t azHistIdx = 0;
+  static int16_t elAdcHistory[4];
+  static uint8_t elHistIdx = 0;
   
   if (now - lastAzRead >= ADC_INTERVAL) {
     lastAzRead = now;
-    int16_t adcAz = ads.readADC_SingleEnded(0);
-    adcAz = constrain(adcAz, 0, 32767);
+    int16_t rawAdcAz = ads.readADC_SingleEnded(0);
+    rawAdcAz = constrain(rawAdcAz, 0, 32767);
+    azAdcHistory[azHistIdx] = rawAdcAz;
+    azHistIdx = (azHistIdx + 1) % 4;
+    int32_t sumAz = 0;
+    for (uint8_t i = 0; i < 4; i++) sumAz += azAdcHistory[i];
+    int16_t adcAz = sumAz / 4;
+    
     azVoltage = (float)adcAz / 32767.0 * 4.096F;
     
     if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
@@ -3042,8 +3144,14 @@ void readPositions() {
   
   if (now - lastElRead >= ADC_INTERVAL) {
     lastElRead = now;
-    int16_t adcEl = ads.readADC_SingleEnded(1);
-    adcEl = constrain(adcEl, 0, 32767);
+    int16_t rawAdcEl = ads.readADC_SingleEnded(1);
+    rawAdcEl = constrain(rawAdcEl, 0, 32767);
+    elAdcHistory[elHistIdx] = rawAdcEl;
+    elHistIdx = (elHistIdx + 1) % 4;
+    int32_t sumEl = 0;
+    for (uint8_t i = 0; i < 4; i++) sumEl += elAdcHistory[i];
+    int16_t adcEl = sumEl / 4;
+    
     elVoltage = (float)adcEl / 32767.0 * 4.096F;
     
     if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
@@ -5012,6 +5120,13 @@ void loop() {
     return;
   }
   
+  // Update positions regularly regardless of mode (OLED + TCP both need fresh data)
+  static unsigned long lastPositionUpdate = 0;
+  if (millis() - lastPositionUpdate >= 200) {
+    readPositions();
+    lastPositionUpdate = millis();
+  }
+  
   // Menu mode
   if (currentMenu) {
     currentMenu->tick();
@@ -5081,8 +5196,7 @@ void loop() {
   }
   // Auto-stop protocol targets when reached (always run, even in menu mode)
   // Use direction-based cross-target detection
-  static unsigned long lastAutoStopRead = 0;
-  // Debug: log flag state every 500ms
+  // Read cached currentAz/currentEl updated by readPositions() every 200ms
   static unsigned long lastDebugPrint = 0;
   if (millis() - lastDebugPrint >= 500) {
     lastDebugPrint = millis();
@@ -5094,123 +5208,81 @@ void loop() {
     #endif
   }
   if (protocolTargetAzSet || protocolTargetElSet) {
-    unsigned long now = millis();
-    if (adsPresent && (now - lastAutoStopRead >= 16)) {
-      lastAutoStopRead = now;
-      if (protocolTargetAzSet) {
-        int16_t adcAz = ads.readADC_SingleEnded(0);
-        adcAz = constrain(adcAz, 0, 32767);
-        float v = (float)adcAz / 32767.0 * 4.096F;
-        if (calAzValid && (calAzMaxV - calAzMinV) > 0.01F) {
-          float fraction = (v - calAzMinV) / (calAzMaxV - calAzMinV);
-          fraction = constrain(fraction, 0, 1);
-          currentAz = azOffset() + (fraction * azSpan());
-        } else {
-          float azFraction = (float)adcAz / 32767.0;
-          currentAz = azFraction * 360.0;
+    // Rate-limit auto-stop checks to match position update rate (200ms)
+    static unsigned long lastAutoStopCheck = 0;
+    if (millis() - lastAutoStopCheck >= 200) {
+      lastAutoStopCheck = millis();
+      
+      if (protocolTargetAzSet && !protocolAzReversing) {
+        float curAzDisplay = displayAzimuth(currentAz);
+        float targetAz = protocolTargetAz;
+        float diff = targetAz - curAzDisplay;
+        if (diff > 180.0) diff -= 360.0;
+        if (diff < -180.0) diff += 360.0;
+        #if DEBUG_ENABLED
+        Serial.print("DBG:AUTO_AZ:cur="); Serial.print(curAzDisplay);
+        Serial.print(" tgt="); Serial.print(protocolTargetAz);
+        Serial.print(" diff="); Serial.print(diff);
+        Serial.print(" dir="); Serial.println(azDirection);
+        #endif
+        bool crossed = false;
+        static bool inCWWrap = false;
+        static bool inCCWWrap = false;
+        
+        if (!inCWWrap && !inCCWWrap) {
+          if (azDirection == DIR_CW && curAzDisplay > 180.0 && protocolTargetAz < 180.0) {
+            inCWWrap = true;
+          } else if (azDirection == DIR_CCW && curAzDisplay < 180.0 && protocolTargetAz > 180.0) {
+            inCCWWrap = true;
+          }
         }
-        if (!protocolAzReversing) {
-          float curAzDisplay = displayAzimuth(currentAz);
-          float targetAz = protocolTargetAz;
-          float diff = targetAz - curAzDisplay;
-          if (diff > 180.0) diff -= 360.0;
-          if (diff < -180.0) diff += 360.0;
+        
+        if (inCWWrap) {
+          float unwrappedTarget = protocolTargetAz + 360.0;
+          float compareCurrent = curAzDisplay;
+          if (compareCurrent < 180.0) compareCurrent += 360.0;
+          if (compareCurrent >= unwrappedTarget) crossed = true;
+          if (crossed || !protocolTargetAzSet) inCWWrap = false;
+        }
+        else if (inCCWWrap) {
+          float unwrappedTarget = protocolTargetAz - 360.0;
+          float compareCurrent = curAzDisplay;
+          if (compareCurrent > 180.0) compareCurrent -= 360.0;
+          if (compareCurrent <= unwrappedTarget) crossed = true;
+          if (crossed || !protocolTargetAzSet) inCCWWrap = false;
+        }
+        
+        float normDiff = diff;
+        if (normDiff > 180.0) normDiff -= 360.0;
+        if (normDiff < -180.0) normDiff += 360.0;
+        if (abs(normDiff) <= 1.0) crossed = true;
+        
+        if (crossed) {
           #if DEBUG_ENABLED
-          Serial.print("DBG:AUTO_AZ:cur="); Serial.print(curAzDisplay);
-          Serial.print(" tgt="); Serial.print(protocolTargetAz);
-          Serial.print(" diff="); Serial.print(diff);
-          Serial.print(" dir="); Serial.println(azDirection);
+          Serial.println("DBG:AUTO_AZ:STOP!");
           #endif
-          bool crossed = false;
-          // Use static variables to track wrap-around state across iterations
-          static bool inCWWrap = false;
-          static bool inCCWWrap = false;
-          
-          // Detect wrap-around ONCE at the start of movement
-          if (!inCWWrap && !inCCWWrap) {
-            if (azDirection == DIR_CW && curAzDisplay > 180.0 && protocolTargetAz < 180.0) {
-              inCWWrap = true;
-            } else if (azDirection == DIR_CCW && curAzDisplay < 180.0 && protocolTargetAz > 180.0) {
-              inCCWWrap = true;
-            }
-          }
-          
-          // For CW wrap-around: compare in unwrapped space
-          if (inCWWrap) {
-            float unwrappedTarget = protocolTargetAz + 360.0;
-            float compareCurrent = curAzDisplay;
-            // Once we've wrapped past 0, current drops below 180, so add 360
-            if (compareCurrent < 180.0) {
-              compareCurrent += 360.0;
-            }
-            if (compareCurrent >= unwrappedTarget) crossed = true;
-            
-            // Reset when stopped or target cleared
-            if (crossed || !protocolTargetAzSet) {
-              inCWWrap = false;
-            }
-          }
-          // For CCW wrap-around: compare in unwrapped space
-          else if (inCCWWrap) {
-            float unwrappedTarget = protocolTargetAz - 360.0;
-            float compareCurrent = curAzDisplay;
-            // Once we've wrapped past 360/0, current rises above 180, so subtract 360
-            if (compareCurrent > 180.0) {
-              compareCurrent -= 360.0;
-            }
-            if (compareCurrent <= unwrappedTarget) crossed = true;
-            
-            // Reset when stopped or target cleared
-            if (crossed || !protocolTargetAzSet) {
-              inCCWWrap = false;
-            }
-          }
-          
-          // Also stop if within tolerance (for precise stops without overshoot)
-          float normDiff = diff;
-          if (normDiff > 180.0) normDiff -= 360.0;
-          if (normDiff < -180.0) normDiff += 360.0;
-          if (abs(normDiff) <= 1.0) crossed = true;
-          
-          if (crossed) {
-            #if DEBUG_ENABLED
-            Serial.println("DBG:AUTO_AZ:STOP!");
-            #endif
-            stopAzimuth();
-            protocolTargetAzSet = false;
-          }
+          stopAzimuth();
+          protocolTargetAzSet = false;
         }
       }
-      if (protocolTargetElSet) {
-        int16_t adcEl = ads.readADC_SingleEnded(1);
-        adcEl = constrain(adcEl, 0, 32767);
-        float v = (float)adcEl / 32767.0 * 4.096F;
-        if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
-          float fraction = (v - calElMinV) / (calElMaxV - calElMinV);
-          fraction = constrain(fraction, 0, 1);
-          currentEl = fraction * 180.0F;
-        } else {
-          float elFraction = (float)adcEl / 32767.0;
-          currentEl = elFraction * 180.0;
-        }
-        if (!protocolElReversing) {
-          float diff = protocolTargetEl - currentEl;
+      
+      if (protocolTargetElSet && !protocolElReversing) {
+        float diff = protocolTargetEl - currentEl;
+        #if DEBUG_ENABLED
+        Serial.print("DBG:AUTO_EL:cur="); Serial.print(currentEl);
+        Serial.print(" tgt="); Serial.print(protocolTargetEl);
+        Serial.print(" diff="); Serial.print(diff);
+        Serial.print(" dir="); Serial.println(elDirection);
+        #endif
+        bool crossed = false;
+        if (elDirection == DIR_UP && diff < 0.0) crossed = true;
+        if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
+        if (crossed || abs(diff) <= 1.0) {
           #if DEBUG_ENABLED
-          Serial.print("DBG:AUTO_EL:cur="); Serial.print(currentEl);
-          Serial.print(" tgt="); Serial.print(protocolTargetEl);
-          Serial.print(" diff="); Serial.print(diff);
-          Serial.print(" dir="); Serial.println(elDirection);
+          Serial.println("DBG:AUTO_EL:STOP!");
           #endif
-          bool crossed = false;
-          if (elDirection == DIR_UP && diff < 0.0) crossed = true;
-          if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
-          if (crossed || abs(diff) <= 1.0) {
-            #if DEBUG_ENABLED
-            Serial.println("DBG:AUTO_EL:STOP!");
-            #endif
-            stopElevation();
-            protocolTargetElSet = false;
-          }
+          stopElevation();
+          protocolTargetElSet = false;
         }
       }
     }
@@ -5218,58 +5290,44 @@ void loop() {
   
   // Elevation limit protection — always run when elevation is moving,
   // regardless of whether movement came from protocol or buttons
-  if (adsPresent && elDirection != DIR_STOPPED) {
-    static unsigned long lastElRead = 0;
-    if (millis() - lastElRead >= 500) {
-      lastElRead = millis();
-      int16_t adcEl = ads.readADC_SingleEnded(1);
-      adcEl = constrain(adcEl, 0, 32767);
-      float v = (float)adcEl / 32767.0 * 4.096F;
-      float newEl;
-      if (calElValid && (calElMaxV - calElMinV) > 0.01F) {
-        float fraction = (v - calElMinV) / (calElMaxV - calElMinV);
-        fraction = constrain(fraction, 0, 1);
-        newEl = fraction * 180.0F;
-      } else {
-        newEl = (float)adcEl / 32767.0 * 180.0;
-      }
-      
-      static float lastElReading = -1;
-      static unsigned long lastElCheck = 0;
-      static int stallCount = 0;  // Consecutive stalled checks before stopping
+  // Use cached currentEl updated by readPositions() every 200ms
+  if (elDirection != DIR_STOPPED) {
+    static float lastElReading = -1;
+    static unsigned long lastElCheck = 0;
+    static int stallCount = 0;
+    
+    if (millis() - lastElCheck >= 500) {
+      lastElCheck = millis();
       bool shouldStop = false;
       
       // Hard limit: DOWN at bottom (< 0.5°) or UP at top (> 179.5°)
-      if (elDirection == DIR_DOWN && newEl < 0.5F) {
+      if (elDirection == DIR_DOWN && currentEl < 0.5F) {
         shouldStop = true;
       }
-      if (elDirection == DIR_UP && newEl > 179.5F) {
+      if (elDirection == DIR_UP && currentEl > 179.5F) {
         shouldStop = true;
       }
       
       // Stall detection: elevation hasn't changed by 0.5° in the timeout period
-      // When moving UP near bottom (< 1°), allow 3s (dead zone where display stays at 0)
-      // Require 3 consecutive stalled readings before triggering (gives rotator time to accelerate)
-      unsigned long stallTimeout = (elDirection == DIR_UP && newEl < 1.0F) ? 3000 : 500;
+      unsigned long stallTimeout = (elDirection == DIR_UP && currentEl < 1.0F) ? 3000 : 500;
       if (!shouldStop && millis() - lastElCheck >= stallTimeout) {
-        lastElCheck = millis();
         if (lastElReading >= 0) {
-          float elChange = abs(newEl - lastElReading);
+          float elChange = abs(currentEl - lastElReading);
           if (elChange < 0.5F) {
             stallCount++;
             if (stallCount >= 3) {
               shouldStop = true;
             }
           } else {
-            stallCount = 0;  // Reset on any movement
+            stallCount = 0;
           }
         }
-        lastElReading = newEl;
+        lastElReading = currentEl;
       }
       
       if (shouldStop) {
         #if DEBUG_ENABLED
-        Serial.print("DBG:EL_LIMIT:STOP:el="); Serial.print(newEl);
+        Serial.print("DBG:EL_LIMIT:STOP:el="); Serial.print(currentEl);
         Serial.print(" dir="); Serial.println(elDirection == DIR_UP ? "UP" : "DOWN");
         #endif
         stopElevation();
