@@ -566,7 +566,31 @@ Skip
 2. Secure internally using insulation tape and/or black duct tape.
 3. Ensure the display is firmly held and the screen is flush with the enclosure face.
 
-### 7.5 Wiring the Buttons
+### 7.5 Connecting the Motor Shield and ESP8266 with Ribbon Cable
+
+The 40-way female-to-female ribbon jumper cable connects the ESP8266 NodeMCU to the motor shield's GPIO headers. This provides all the control signals needed for motor control, buttons, and I2C communication.
+
+**Connection orientation**:
+- Plug one end of the ribbon cable into the motor shield's GPIO header (the longer row of pins).
+- Plug the other end into the ESP8266 NodeMCU's GPIO header.
+- Ensure the red stripe on the ribbon cable aligns with Pin 1 (GND) on both boards.
+
+**Pin mapping** (ribbon cable carries these signals from motor shield to ESP8266):
+
+| Motor Shield Header | ESP8266 Pin | Function |
+|---------------------|-------------|----------|
+| D1 | D1 (GPIO5) | Motor A Enable (Azimuth) |
+| D2 | D2 (GPIO4) | Motor B Enable (Elevation) |
+| D3 | D3 (GPIO0) | Motor A Direction (Azimuth CW/CCW) |
+| D4 | D4 (GPIO2) | Motor B Direction (Elevation Up/Down) |
+| D5 | D5 (GPIO14) | Button 2 (active LOW) |
+| D6 | D6 (GPIO12) | I2C SDA |
+| D7 | D7 (GPIO13) | I2C SCL |
+| D8 | D8 (GPIO15) | Button 1 (active HIGH) |
+
+**Important**: The ribbon cable is a straight-through connection — pin 1 to pin 1, pin 2 to pin 2, etc. No special wiring or cutting is required. Just ensure correct orientation (red stripe to GND on both ends).
+
+### 7.6 Wiring the Buttons
 
 **Btn1 (D8 / GPIO15)**:
 - Connect one terminal to D8 on the motor shield.
@@ -580,7 +604,7 @@ Skip
 
 **Why the difference?** GPIO15 must be LOW at reset for the ESP8266 to boot normally. The motor shield comes with a fixed pull-down resistor on this pin. If you wired Btn1 to GND instead of 3.3V, pressing it would hold GPIO15 LOW and prevent booting. GPIO14 has a programmable pull-up resistor used in firmware.
 
-### 7.6 Wiring the I2C Bus
+### 7.7 Wiring the I2C Bus
 
 **OLED Display** (pins from left to right when viewing from front):
 - Pin 1 (GND) → Any GND rail pin
@@ -596,7 +620,7 @@ Skip
 
 Solder the connections to the ADS1115 module for mechanical security rather than using jumper blocks.
 
-### 7.7 Wiring the Yaesu DIN-8 Connector
+### 7.8 Wiring the Yaesu DIN-8 Connector
 
 Map out the wires within the 8-core screened cable connected to the DIN plug. Connect as follows:
 
