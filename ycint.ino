@@ -2454,12 +2454,14 @@ void processGs232Command(const char* cmd, int len) {
       break;
     }
     case 'U': {
-      startMove("UP");
+      // In ELF mode: satellite UP = physical DOWN (Real El = 180 - Sat El)
+      elfMode ? startMove("DOWN") : startMove("UP");
       protocolSend("OK");
       break;
     }
     case 'D': {
-      startMove("DOWN");
+      // In ELF mode: satellite DOWN = physical UP
+      elfMode ? startMove("UP") : startMove("DOWN");
       protocolSend("OK");
       break;
     }
