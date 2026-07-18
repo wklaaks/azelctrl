@@ -4607,6 +4607,7 @@ void showElfElevPrompt() {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
 
+    display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 56);
     display.println("1.Nav  1|Sel  2.Back");
 
