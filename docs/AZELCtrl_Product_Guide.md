@@ -700,8 +700,9 @@ Skip
 ### 7.4 Mounting the OLED
 
 1. Insert the OLED display from inside the enclosure so the screen faces outward through the cutout.
-2. Secure internally using insulation tape and/or black duct tape.
-3. Ensure the display is firmly held and the screen is flush with the enclosure face.
+2. **Critical orientation**: The OLED must be mounted with the pin headers on the top edge. If you mount it upside down (pins on bottom), the text will display upside down on the screen.
+3. Secure internally using insulation tape and/or black duct tape.
+4. Ensure the display is firmly held and the screen is flush with the enclosure face.
 
 ### 7.5 Using the Ribbon Jumper Cable
 
