@@ -80,11 +80,9 @@ AZELCtrl sits between your satellite tracking software and your Yaesu rotator co
 │                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
 │                     │                    │ │ (128×64)     │ │ │                  │ │                 │
 │                     │                    │ └──────────────┘ │ └──────────────────┘ │                 │
-│                     │                    └──────────────────┘                      └─────────────────┘
-│                     │
-└─────────────────────┘
-         ▲
-         │ USB cable (power + data)
+└─────────────────────┘                    └──────────────────┘                      └─────────────────┘
+                                              ▲
+                                              │ USB cable (power + data)
 ```
 
 **Option 2: WiFi/TCP Connection (Remote, Flexible)**
@@ -101,12 +99,9 @@ AZELCtrl sits between your satellite tracking software and your Yaesu rotator co
 │                     │                    │ ┌──────▼───────┐ │ ┌────────▼─────────┐ │                 │
 │                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
 │                     │                    │ │ (128×64)     │ │ │                  │ │                 │
-│                     │                    │ └──────────────┘ │ └──────────────────┘ │                 │
-│                     │                    └──────────────────┘                      └─────────────────┘
-│                     │
-└─────────────────────┘
-         ▲
-         │ USB cable (power only, or none if using external 5V supply)
+└─────────────────────┘                    └──────────────────┘                      └─────────────────┘
+                                              ▲
+                                              │ USB cable (power only, or none if using external 5V supply)
 ```
 
 **Which option should you use?**
