@@ -63,23 +63,22 @@ This product is designed for amateur radio operators who:
 
 ### 3.1 System Architecture
 
-AZELCtrl sits between your satellite tracking software and your Yaesu rotator controller:
+AZELCtrl sits between your satellite tracking software and your Yaesu rotator controller. All connections between AZELCtrl and the Yaesu controller go through a single 8-wire cable terminating on a DIN-8 connector:
 
 **Option 1: USB Serial Connection (Simpler, Direct)**
 ```
 ┌─────────────────────┐      USB Serial    ┌──────────────────┐      Yaesu DIN-8     ┌─────────────────┐
 │ Satellite Tracking  │ ◄────────────────► │   AZELCtrl       │ ◄──────────────────► │ Yaesu Rotator   │
-│ Software            │  (virtual COM port)│                  │                      │ Controller      │
-│ (Gpredict, Rotor)   │                    │ ┌──────────────┐ │ ┌──────────────────┐ │ (G-5600B etc.)  │
-│                     │                    │ │ ESP8266      │ │ │ Motor Shield     │ │                 │
-│                     │                    │ │ (NodeMCU)    │─┼─►│ (L293DD)         │─┼─► Motor relays  │
-│                     │                    │ │              │ │ │                  │ │                 │
+│ Software            │  (virtual COM port)│                  │   (single 8-wire      │ Controller      │
+│ (Gpredict, Rotor)   │                    │ ┌──────────────┐ │    cable, DIN-8 plug) │ (G-5600B etc.)  │
+│                     │                    │ │ ESP8266      │ │ ┌──────────────────┐ │                 │
+│                     │                    │ │ (NodeMCU)    │─┼─►│ Motor Shield     │ │                 │
+│                     │                    │ │              │ │ │ (L293DD)         │ │                 │
 │                     │                    │ └──────┬───────┘ │ └────────┬─────────┘ │                 │
 │                     │                    │        │         │          │           │                 │
 │                     │                    │ ┌──────▼───────┐ │ ┌────────▼─────────┐ │                 │
-│                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
+│                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │ │                 │
 │                     │                    │ │ (128×64)     │ │ │                  │ │                 │
-│                     │                    │ └──────────────┘ │ └──────────────────┘ │                 │
 └─────────────────────┘                    └──────────────────┘                      └─────────────────┘
                                               ▲
                                               │ USB cable (power + data)
@@ -89,20 +88,35 @@ AZELCtrl sits between your satellite tracking software and your Yaesu rotator co
 ```
 ┌─────────────────────┐      TCP/IP       ┌──────────────────┐      Yaesu DIN-8     ┌─────────────────┐
 │ Satellite Tracking  │ ◄────────────────► │   AZELCtrl       │ ◄──────────────────► │ Yaesu Rotator   │
-│ Software            │  (port 4533)       │                  │                      │ Controller      │
-│ (Gpredict, Rotor)   │                    │ ┌──────────────┐ │ ┌──────────────────┐ │ (G-5600B etc.)  │
-│                     │                    │ │ ESP8266      │ │ │ Motor Shield     │ │                 │
-│                     │                    │ │ (NodeMCU)    │─┼─►│ (L293DD)         │─┼─► Motor relays  │
-│                     │                    │ │              │ │ │                  │ │                 │
+│ Software            │  (port 4533)       │                  │   (single 8-wire      │ Controller      │
+│ (Gpredict, Rotor)   │                    │ ┌──────────────┐ │    cable, DIN-8 plug) │ (G-5600B etc.)  │
+│                     │                    │ │ ESP8266      │ │ ┌──────────────────┐ │                 │
+│                     │                    │ │ (NodeMCU)    │─┼─►│ Motor Shield     │ │                 │
+│                     │                    │ │              │ │ │ (L293DD)         │ │                 │
 │                     │                    │ └──────┬───────┘ │ └────────┬─────────┘ │                 │
 │                     │                    │        │         │          │           │                 │
 │                     │                    │ ┌──────▼───────┐ │ ┌────────▼─────────┐ │                 │
-│                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
+│                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │ │                 │
 │                     │                    │ │ (128×64)     │ │ │                  │ │                 │
 └─────────────────────┘                    └──────────────────┘                      └─────────────────┘
                                               ▲
                                               │ USB cable (power only, or none if using external 5V supply)
 ```
+
+**The single Yaesu DIN-8 cable carries all signals:**
+
+| DIN Pin | Signal | Connection in AZELCtrl |
+|---------|--------|------------------------|
+| Pin 1 | Elevation feedback voltage | ADS1115 A1 |
+| Pin 2 | Azimuth CW motor control | Motor Shield A+ |
+| Pin 3 | Elevation Down motor control | Motor Shield B+ |
+| Pin 4 | Azimuth CCW motor control | Motor Shield A- |
+| Pin 5 | Elevation Up motor control | Motor Shield B- |
+| Pin 6 | Azimuth feedback voltage | ADS1115 A0 |
+| Pin 7 | +12V power (from Yaesu) | Motor Shield VM |
+| Pin 8 | Ground | Motor Shield GND |
+
+There are no separate cables for motor control or position sensing — everything goes through this one DIN-8 connector.
 
 **Which option should you use?**
 
