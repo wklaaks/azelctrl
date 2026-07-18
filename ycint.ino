@@ -4591,20 +4591,21 @@ void showElfElevPrompt() {
 
       display.setCursor(2, y);
       display.print(options[i]);
+      
+      // Countdown [x] next to first item — disappears on any button press
+      if (i == 0 && !userInteracted) {
+        int remaining = max(0, (int)((PROMPT_TIMEOUT_MS - (millis() - promptStart)) / 1000));
+        display.print(" [");
+        display.print(remaining);
+        display.print("]");
+      }
+      
       y += 11;
     }
 
     for (int x = 0; x < 128; x += 3) {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
-
-    // Countdown indicator: [x] where x counts down from 5 to 0
-    int remaining = max(0, (int)((PROMPT_TIMEOUT_MS - (millis() - promptStart)) / 1000));
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(95, 56);
-    display.print("[");
-    display.print(remaining);
-    display.println("]");
 
     display.setCursor(0, 56);
     display.println("1.Nav  1|Sel  2.Back");
