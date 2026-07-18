@@ -218,7 +218,7 @@ AZELCtrl supports two communication interfaces:
 
 When AZELCtrl is connected to a computer via USB, it appears as a **virtual COM port** (e.g., COM3 on Windows, /dev/cu.usbserial-* on macOS, /dev/ttyUSB* on Linux). The ESP8266's built-in USB-to-serial converter (CP2102) handles the conversion transparently.
 
-- **Protocol**: The configured serial protocol is used (GS-232A, GS-232B, or Easycom — selected in the Rotator Settings menu).
+- **Protocol**: The configured serial protocol is used (GS-232A, GS-232B, or Easycom — selected in the PC Interface submenu under SETUP).
 - **Baud rate**: 115200 baud (default).
 - **Power**: The USB connection provides 5V power to AZELCtrl, so no separate power supply is needed.
 
@@ -840,7 +840,7 @@ Gpredict supports both USB serial and TCP/IP connections.
 2. Set type to "Hamlib rotctld".
 3. Set host to AZELCtrl's IP address.
 4. Set port to 4533.
-5. **Critical**: Ensure AZELCtrl's **Hamlib Server** setting is **Yes** (under Rotator Settings in the OLED menu). Without this, AZELCtrl will speak GS-232/Easycom over TCP instead of the rotctl protocol that Gpredict expects, and the connection will fail.
+5. **Critical**: Ensure AZELCtrl's **Hamlib Server** setting is **Yes** (under Network in the SETUP menu). Without this, AZELCtrl will speak GS-232/Easycom over TCP instead of the rotctl protocol that Gpredict expects, and the connection will fail.
 6. Enable tracking for the desired satellite.
 
 **Via USB Serial**:
