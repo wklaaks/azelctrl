@@ -845,8 +845,10 @@ When AZELCtrl has no WiFi credentials saved (fresh flash or after wiping all set
 4. On your phone or laptop, open WiFi settings and connect to the **AZELCTRL** network (no password required).
 5. Open a web browser and navigate to any address (e.g., 192.168.4.1). You'll see the AZELCTRL Setup page.
 6. Enter your home WiFi SSID (network name) and password.
-7. Tap "Save & Connect". AZELCtrl saves the credentials to EEPROM and reboots.
-8. After reboot, AZELCtrl will attempt to connect to your home WiFi network.
+7. Tap "Save & Connect". AZELCtrl saves the credentials to EEPROM and stops the captive portal.
+8. Disconnect your phone/laptop from the AZELCTRL network.
+9. On the AZELCtrl OLED, press Btn1 to return to the Network menu, then select "Connect WiFi" and press Btn2 to start connecting to your home network.
+10. Wait for the connection to complete. If successful, the IP address will be displayed.
 
 This same process can be used at any time to change WiFi credentials — simply go back to SETUP → Network → Set WiFi Creds.
 
