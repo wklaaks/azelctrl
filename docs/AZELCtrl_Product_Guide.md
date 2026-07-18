@@ -566,29 +566,30 @@ Skip
 2. Secure internally using insulation tape and/or black duct tape.
 3. Ensure the display is firmly held and the screen is flush with the enclosure face.
 
-### 7.5 Connecting the Motor Shield and ESP8266 with Ribbon Cable
+### 7.5 Using the Ribbon Jumper Cable
 
-The 40-way female-to-female ribbon jumper cable connects the ESP8266 NodeMCU to the motor shield's GPIO headers. This provides all the control signals needed for motor control, buttons, and I2C communication.
+The 40-way female-to-female ribbon jumper cable is purchased as a convenient source of coloured jumper wires — **it is not used as a single ribbon cable**. You will strip it apart and use the individual wires for various connections throughout the build.
 
-**Connection orientation**:
-- Plug one end of the ribbon cable into the motor shield's GPIO header (the longer row of pins).
-- Plug the other end into the ESP8266 NodeMCU's GPIO header.
-- Ensure the red stripe on the ribbon cable aligns with Pin 1 (GND) on both boards.
+**How to use the ribbon jumper cable**:
 
-**Pin mapping** (ribbon cable carries these signals from motor shield to ESP8266):
+1. **Separate individual wires**: Pull apart the ribbon cable to get individual female-to-female jumper wires. Each wire has a female header connector on both ends and is a different colour, making identification easy.
 
-| Motor Shield Header | ESP8266 Pin | Function |
-|---------------------|-------------|----------|
-| D1 | D1 (GPIO5) | Motor A Enable (Azimuth) |
-| D2 | D2 (GPIO4) | Motor B Enable (Elevation) |
-| D3 | D3 (GPIO0) | Motor A Direction (Azimuth CW/CCW) |
-| D4 | D4 (GPIO2) | Motor B Direction (Elevation Up/Down) |
-| D5 | D5 (GPIO14) | Button 2 (active LOW) |
-| D6 | D6 (GPIO12) | I2C SDA |
-| D7 | D7 (GPIO13) | I2C SCL |
-| D8 | D8 (GPIO15) | Button 1 (active HIGH) |
+2. **Keep wires bundled where possible**: When connecting multiple wires to the same destination (e.g., several wires going to the motor shield's GPIO headers), keep them bundled together as a small group of 2–4 wires. This makes the wiring neater and easier to trace.
 
-**Important**: The ribbon cable is a straight-through connection — pin 1 to pin 1, pin 2 to pin 2, etc. No special wiring or cutting is required. Just ensure correct orientation (red stripe to GND on both ends).
+3. **Solder where practical**: For connections to the ADS1115 ADC board, **cut off the female header connector on one end and solder the bare wire directly to the board's pads**. The ADS1115 module typically does not come with pin headers pre-soldered — this is intentional and convenient. Direct soldering is much more reliable than using jumper connectors, which can wobble loose over time due to vibration from the rotator motors.
+
+4. **I2C splitter cables**: The I2C bus requires a "Y-splitter" to connect both the OLED display and the ADS1115 to the same SDA and SCL lines. Make these splitter cables from the ribbon jumper wires:
+   - Take one jumper wire, cut it in the middle
+   - Strip the insulation from both cut ends
+   - Twist each cut end around a third jumper wire (the "branch")
+   - Solder each joint and insulate with heat shrink or insulation tape
+   - Repeat for both SDA and SCL lines
+
+5. **Motor shield connections**: For wires going to the motor shield's GPIO pin headers (D1–D8), use the female header connector on one end of the jumper wire plugged into the shield. On the other end:
+   - If connecting to a button: cut off the female connector and solder the bare wire to the button terminal
+   - If connecting to the ADS1115: cut off the female connector and solder the bare wire to the board's pads
+
+**Summary**: Think of the ribbon jumper cable as a convenient source of pre-coloured, pre-tinned jumper wires with connectors already crimped on one end. You'll use the connector end where it plugs into a header (like the motor shield's GPIO pins), and cut and solder the other end wherever a more permanent, reliable connection is needed.
 
 ### 7.6 Wiring the Buttons
 
