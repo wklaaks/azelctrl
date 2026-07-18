@@ -174,6 +174,15 @@ bool protocolShowCommands = true;
 char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
 char protocolLastResponse[PROTOCOL_BUF_SIZE];  // Last sent response for display
 
+// Suppress RX/TX overlay on OLED for 5s after any button press
+// This prevents continuous client polling from hiding the menu
+unsigned long oledCmdSuppressUntil = 0;
+const unsigned long OLED_CMD_SUPPRESS_MS = 5000;
+
+void resetOledCmdSuppress() {
+  oledCmdSuppressUntil = millis() + OLED_CMD_SUPPRESS_MS;
+}
+
 // TCP input buffer (Default Protocol over TCP)
 char tcpProtocolBuf[PROTOCOL_BUF_SIZE];
 int tcpProtocolBufIdx = 0;
@@ -1775,6 +1784,7 @@ void setupRotatorModel() {
 
     // Btn1: short-press = cycle, long-press = select
     if (btn1 && !btn1WasPressed) {
+      resetOledCmdSuppress();
       unsigned long pressStart = now;
       while (digitalRead(BTN1) && (millis() - pressStart < 800)) {
         delay(20);
@@ -1795,6 +1805,7 @@ void setupRotatorModel() {
 
     // Btn2: edge-detect press = back (short or long)
     if (btn2 && !btn2WasPressed) {
+      resetOledCmdSuppress();
       // Debounce delay
       delay(BTN_DEBOUNCE_MS);
       Serial.println("ROT: Back from rotator setup");
@@ -2094,11 +2105,11 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         if (targetEl < 0) targetEl = 0;
         if (targetEl > 180) targetEl = 180;
         
-        // Calculate desired direction BEFORE transforming (direction in satellite space)
-        // ELF is self-inverse, so we transform currentAz to satellite coords for comparison
-        float curAzForDir = elfAz(currentAz);
-        float curElForDir = elfEl(currentEl);
-        float diffAz = targetAz - curAzForDir;
+        // Calculate direction in satellite space BEFORE transforming to physical
+        // Transform current physical position to satellite space for comparison
+        float satCurAz = elfAz(currentAz);
+        float satCurEl = elfEl(currentEl);
+        float diffAz = targetAz - satCurAz;
         if (diffAz > 180) diffAz -= 360;
         if (diffAz < -180) diffAz += 360;
         
@@ -2107,20 +2118,20 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
           wantAzDir = (diffAz > 0) ? "RIGHT" : "LEFT";
         }
         
-        float diffEl = targetEl - curElForDir;
+        float diffEl = targetEl - satCurEl;
         String wantElDir = "STOP";
         if (abs(diffEl) > 1.0) {
           wantElDir = (diffEl > 0) ? "UP" : "DOWN";
         }
         
         // Now transform satellite coords to physical rotator coords for actual movement
-        targetAz = elfAz(targetAz);
-        targetEl = elfEl(targetEl);
+        float physTargetAz = elfAz(targetAz);
+        float physTargetEl = elfEl(targetEl);
         
         // Always update protocol targets for auto-stop (physical coords)
-        protocolTargetAz = targetAz;
+        protocolTargetAz = physTargetAz;
         protocolTargetAzSet = true;
-        protocolTargetEl = targetEl;
+        protocolTargetEl = physTargetEl;
         protocolTargetElSet = true;
         
         // Only change motors if direction actually changed — don't restart same-direction movement
@@ -4375,6 +4386,7 @@ void showStationSettings() {
 
       // Btn1: short-press = navigate, long-press = select
       if (btn1 && !btn1WasPressed) {
+        resetOledCmdSuppress();
         btn1PressStart = now;
         btn1LongPressTriggered = false;
       }
@@ -4481,6 +4493,7 @@ void showStationSettings() {
 
       // Btn2 - back
       if (btn2 && !btn2WasPressed) {
+        resetOledCmdSuppress();
         Serial.println("WIFI: Back from Station Settings");
         while (!digitalRead(BTN2)) delay(50);
         return;
@@ -4615,7 +4628,18 @@ void updateRotatorDisplay() {
       // Movement indicator — draw arrow near right edge
       int ex = 114;  // Near right edge (128px - 9px arrow - 2px margin)
       int ey = 20;
-      if (elDirection == DIR_UP || (currentMove.compareTo("EL POT") == 0 && calDirection > 0)) {
+      // When ELF is on, swap arrow direction (physical UP = effective DOWN)
+      bool elPhysMovingUp = (elDirection == DIR_UP || (currentMove.compareTo("EL POT") == 0 && calDirection > 0));
+      bool elPhysMovingDown = (elDirection == DIR_DOWN || (currentMove.compareTo("EL POT") == 0 && calDirection < 0));
+      bool elMovingUp = elPhysMovingUp;
+      bool elMovingDown = elPhysMovingDown;
+      if (elfMode) {
+        // Swap: physical UP shows as effective DOWN and vice versa
+        elMovingUp = elPhysMovingDown;
+        elMovingDown = elPhysMovingUp;
+      }
+      
+      if (elMovingUp) {
         // Up arrow: ↑ (9 wide, 12 tall)
         // Arrowhead y=0..4 (triangular), shaft y=5..8
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
@@ -4631,7 +4655,7 @@ void updateRotatorDisplay() {
         display.drawPixel(ex+4, ey+6, SSD1306_WHITE);
         display.drawPixel(ex+4, ey+7, SSD1306_WHITE);
         display.drawPixel(ex+4, ey+8, SSD1306_WHITE);
-      } else if (elDirection == DIR_DOWN || (currentMove.compareTo("EL POT") == 0 && calDirection < 0)) {
+      } else if (elMovingDown) {
         // Down arrow: ↓ (9 wide, 12 tall)
         // Shaft y=0..4, arrowhead y=5..8 (triangular)
         display.drawPixel(ex+4, ey+0, SSD1306_WHITE);
@@ -4654,7 +4678,9 @@ void updateRotatorDisplay() {
     }
     
     // Check if we have a recent command to display (RX/TX mode)
-    bool showCmd = (protocolShowCommands && strlen(protocolLastCommand) > 0);
+    // Suppress overlay for 5s after any button press so menu stays visible
+    bool suppressed = (oledCmdSuppressUntil > 0 && millis() < oledCmdSuppressUntil);
+    bool showCmd = (protocolShowCommands && strlen(protocolLastCommand) > 0 && !suppressed);
     
     if (showCmd) {
       // Switch to small font for RX/TX lines
@@ -4673,7 +4699,13 @@ void updateRotatorDisplay() {
       display.setTextSize(1);
       display.setCursor(0, 40);
       display.print("Moving: ");
-      display.println(currentMove);
+      // When ELF is on, show effective direction (swap UP/DOWN)
+      String moveDir = currentMove;
+      if (elfMode) {
+        if (moveDir == "UP") moveDir = "DOWN";
+        else if (moveDir == "DOWN") moveDir = "UP";
+      }
+      display.println(moveDir);
       for (int x = 0; x < 128; x += 3) {
         display.drawPixel(x, 53, SSD1306_WHITE);
       }
@@ -4749,6 +4781,7 @@ void handleButtons() {
     } else {
     // Btn1: short-press = navigate, long-press = select
     if (btn1 && !btn1WasPressed) {
+      resetOledCmdSuppress();
       btn1PressStart = now;
       btn1LongPressTriggered = false;
     }
@@ -4773,6 +4806,7 @@ void handleButtons() {
     
     // Btn2: back to parent menu
     if (btn2 && !btn2WasPressed) {
+      resetOledCmdSuppress();
       if (now - btn2PressStart > BTN_DEBOUNCE_MS || btn2PressStart == 0) {
         btn2PressStart = now;
         skipBtnProcessing = true;  // Skip next cycle so held Btn2 doesn't trigger again
@@ -4862,6 +4896,7 @@ void handleButtons() {
     
     // Btn2: stop movement, exit in terminal states
     if (btn2 && !btn2WasPressed) {
+      resetOledCmdSuppress();
       btn2PressStart = now;
       btn2LongPressTriggered = false;
       
@@ -4905,6 +4940,7 @@ void handleButtons() {
   // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
   // ALSO: restart sequence - when IDLE selected, hold Btn2 + long-press Btn1
   if (btn1 && !btn1WasPressed) {
+    resetOledCmdSuppress();
     // Any button press clears protocol command display (user is back in control)
     if (strlen(protocolLastCommand) > 0) {
       protocolLastCommand[0] = '\0';
@@ -4942,6 +4978,7 @@ void handleButtons() {
   // Btn2: press = start, release = stop (momentary)
   // Long-press Btn2 (1s+) = go to Setup menu
   if (btn2 && !btn2WasPressed) {
+    resetOledCmdSuppress();
     btn2PressStart = now;
     btn2LongPressTriggered = false;
     // Button just pressed - start movement
