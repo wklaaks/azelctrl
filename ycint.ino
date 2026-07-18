@@ -1859,15 +1859,29 @@ void exitCalibrationMode() {
 void executeProtocolAzMove(float targetAz) {
   if (targetAz < 0.0) targetAz = 0.0;
   if (targetAz > 360.0) targetAz = 360.0;
-  protocolTargetAz = targetAz;
+  
+  // When ELF is on, incoming targets are in satellite space — transform to physical
+  float physTarget = elfAz(targetAz);
+  
+  protocolTargetAz = physTarget;
   protocolTargetAzSet = true;
 #if DEBUG_ENABLED
   Serial.print("DBG:PROT_AZ:RECEIVED:target="); Serial.print(targetAz);
   Serial.print(" curRaw="); Serial.print(currentAz);
   Serial.print(" curDisp="); Serial.println(displayAzimuth(currentAz));
 #endif
-  float currentAzDisplay = displayAzimuth(currentAz);
-  float diff = targetAz - currentAzDisplay;
+  // Direction calculation: compare in the same coordinate space
+  // When ELF is on, both in satellite space; when off, use displayAzimuth for model-offset
+  float curForDiff;
+  float tgtForDiff;
+  if (elfMode) {
+    curForDiff = elfAz(currentAz);
+    tgtForDiff = targetAz;
+  } else {
+    curForDiff = displayAzimuth(currentAz);
+    tgtForDiff = targetAz;
+  }
+  float diff = tgtForDiff - curForDiff;
   float rawDiff = diff;
   if (diff > 180.0) diff -= 360.0;
   if (diff < -180.0) diff += 360.0;
@@ -1887,20 +1901,23 @@ void executeProtocolAzMove(float targetAz) {
 #endif
   bool mustRotateCW = false;
   bool mustRotateCCW = false;
-  if (currentAzDisplay >= physicalStop && targetAz < physicalStop) {
-    mustRotateCW = true;
-#if DEBUG_ENABLED
-    Serial.printf("DBG:PROT_AZ:MUST_CW:curDisp=%.1f>=stop=%.1f AND tgt=%.1f<stop=%.1f\n", currentAzDisplay, physicalStop, targetAz, physicalStop);
-#endif
-  } else if (currentAzDisplay < physicalStop && targetAz >= physicalStop) {
-    mustRotateCCW = true;
-#if DEBUG_ENABLED
-    Serial.printf("DBG:PROT_AZ:MUST_CCW:curDisp=%.1f<stop=%.1f AND tgt=%.1f>=stop=%.1f\n", currentAzDisplay, physicalStop, targetAz, physicalStop);
-#endif
+  if (elfMode) {
+    float satStop = elfAz(physicalStop);
+    if (curForDiff >= satStop && tgtForDiff < satStop) {
+      mustRotateCW = true;
+    } else if (curForDiff < satStop && tgtForDiff >= satStop) {
+      mustRotateCCW = true;
+    }
+  } else {
+    if (curForDiff >= physicalStop && tgtForDiff < physicalStop) {
+      mustRotateCW = true;
+    } else if (curForDiff < physicalStop && tgtForDiff >= physicalStop) {
+      mustRotateCCW = true;
+    }
   }
   if (rotModel == ROT_N450 || rotModel == ROT_S450) {
     float centerHeading = (rotModel == ROT_N450) ? 0.0 : 180.0;
-    float targetOffset = targetAz - centerHeading;
+    float targetOffset = physTarget - centerHeading;
     if (targetOffset > 180.0) targetOffset -= 360.0;
     if (targetOffset < -180.0) targetOffset += 360.0;
     float cwDist = targetOffset - mechanicalAzOffset;
@@ -1976,9 +1993,16 @@ void executeProtocolAzMove(float targetAz) {
 void executeProtocolElMove(float targetEl) {
   if (targetEl < 0.0) targetEl = 0.0;
   if (targetEl > 180.0) targetEl = 180.0;
-  protocolTargetEl = targetEl;
+  
+  // When ELF is on, incoming targets are in satellite space — transform to physical
+  float physTarget = elfEl(targetEl);
+  
+  protocolTargetEl = physTarget;
   protocolTargetElSet = true;
-  float diff = targetEl - currentEl;
+  
+  // Direction calculation: compare in the same coordinate space
+  float curForDiff = elfEl(currentEl);
+  float diff = targetEl - curForDiff;
   if (diff > 1.0) {
     if (elDirection == DIR_DOWN) {
       stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
