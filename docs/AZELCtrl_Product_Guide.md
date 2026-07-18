@@ -745,6 +745,8 @@ The 40-way female-to-female ribbon jumper cable is purchased as a convenient sou
 
 ### 7.7 Wiring the I2C Bus
 
+**How I2C works (brief explanation)**: I2C is a communication method that uses just two wires — SDA (data) and SCL (clock). Multiple devices can share these same two wires simultaneously. Each device has a unique address, so when the ESP8266 wants to talk to one specific device, it sends that device's address first. The other devices on the bus simply ignore the message. This is why it's perfectly fine to connect both the OLED and the ADS1115 "in parallel" on the same two wires — they won't interfere with each other because they have different addresses (OLED = 0x3C, ADS1115 = 0x48).
+
 **OLED Display** (pins from left to right when viewing from front):
 - Pin 1 (GND) → Any GND rail pin
 - Pin 2 (VCC) → Any 3.3V rail pin
