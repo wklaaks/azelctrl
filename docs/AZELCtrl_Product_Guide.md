@@ -759,6 +759,8 @@ The 40-way female-to-female ribbon jumper cable is purchased as a convenient sou
 
 Solder the connections to the ADS1115 module for mechanical security rather than using jumper blocks.
 
+**Heat-shrink recommendation**: When making the I2C splitter cables, slide a small piece of heat-shrink tubing onto each wire before soldering. After soldering the bare wire ends to the OLED's header pins, slide the heat-shrink over the joint and shrink it in place with a heat gun or lighter. This prevents accidental shorts between adjacent solder joints. When cutting and stripping the jumper wires for the splitters, leave enough extra length so you have room to fit the heat-shrink tubing over the solder joints.
+
 ### 7.8 Wiring the Yaesu DIN-8 Connector
 
 Map out the wires within the 8-core screened cable connected to the DIN plug. Connect as follows:
