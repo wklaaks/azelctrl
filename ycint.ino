@@ -202,6 +202,30 @@ unsigned long protocolElReverseStart = 0;
 String protocolAzPendingDir = "";
 String protocolElPendingDir = "";
 
+// ELF (Elevation Flip / Over-the-top) mode
+// When enabled, transforms satellite coordinates to physical rotator coordinates
+// Real Az = (Sat Az + 180) % 360, Real El = 180 - Sat El
+bool elfMode = false;
+#define ELF_EEPROM_BYTE 90
+
+// ELF transformation functions (self-inverse)
+float elfTransformAz(float satAz) {
+  float realAz = fmod(satAz + 180.0f, 360.0f);
+  if (realAz < 0) realAz += 360.0f;
+  return realAz;
+}
+float elfTransformEl(float satEl) {
+  return 180.0f - satEl;
+}
+
+// Conditional wrappers - only transform when elfMode is ON
+float elfAz(float az) {
+  return elfMode ? elfTransformAz(az) : az;
+}
+float elfEl(float el) {
+  return elfMode ? elfTransformEl(el) : el;
+}
+
 // Motor engagement delay — suppress stale position readings while motors ramp up
 // Must be short enough that Gpredict sees progress before giving up (~1.5s timeout)
 // 200ms allows ADC sliding window (4x100ms) to stabilize without triggering Gpredict abort
@@ -1623,6 +1647,18 @@ void loadRotatorModel() {
   Serial.println(rotModel);
 }
 
+// ELF mode persistence
+void loadElfMode() {
+  elfMode = (EEPROM.read(ELF_EEPROM_BYTE) == 1);
+  Serial.print("ELF: Mode = ");
+  Serial.println(elfMode ? "ON" : "OFF");
+}
+
+void saveElfMode() {
+  EEPROM.write(ELF_EEPROM_BYTE, elfMode ? 1 : 0);
+  EEPROM.commit();
+}
+
 void saveRotatorModel(bool clearCal = false) {
   EEPROM.write(ROT_EEPROM_MODEL, (uint8_t)rotModel);
   EEPROM.write(ROT_EEPROM_MAGIC, ROT_EEPROM_MAGIC_VAL);
@@ -2030,6 +2066,10 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         el = elPositionAtEngage;
       }
       
+      // When ELF mode is on, report effective satellite coords
+      az = elfAz(az);
+      el = elfEl(el);
+      
       #if DEBUG_ENABLED
       Serial.print("DBG:DP_P:az="); Serial.print(az, 2);
       Serial.print(" el="); Serial.print(el, 2);
@@ -2053,6 +2093,10 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         if (targetAz >= 360) targetAz -= 360;
         if (targetEl < 0) targetEl = 0;
         if (targetEl > 180) targetEl = 180;
+        
+        // When ELF mode is on, translate satellite coords to physical rotator coords
+        targetAz = elfAz(targetAz);
+        targetEl = elfEl(targetEl);
         
         // Always update protocol targets for auto-stop
         protocolTargetAz = targetAz;
@@ -2206,6 +2250,8 @@ void processGs232Command(const char* cmd, int len) {
       if (len == 1) {
         // H = query heading — protocol-specific format
         float az = displayAzimuth(currentAz);
+        // When ELF mode is on, report effective satellite coords
+        az = elfAz(az);
         int azDeg = (int)round(az);
         if (azDeg < 0) azDeg += 360;
         if (azDeg >= 360) azDeg -= 360;
@@ -2319,6 +2365,9 @@ void processGs232Command(const char* cmd, int len) {
       // C3 = Current position with full status
       float az = displayAzimuth(currentAz);
       float el = currentEl;
+      // When ELF mode is on, report effective satellite coords
+      az = elfAz(az);
+      el = elfEl(el);
       int azDeg = (int)round(az);
       int elDeg = (int)round(el);
       if (azDeg < 0) azDeg += 360;
@@ -4442,7 +4491,7 @@ void showStationSettings() {
 
 // ====================== ROTATOR CONTROL DISPLAY ======================
 int rotatorMenuSelection = 0;
-const char* directions[5] = {"SETUP", "LEFT", "RIGHT", "UP", "DOWN"};
+const char* directions[6] = {"SETUP", "LEFT", "RIGHT", "UP", "DOWN", "ELF"};
 
 void updateRotatorDisplay() {
   display.clearDisplay();
@@ -4488,8 +4537,13 @@ void updateRotatorDisplay() {
     // Compute both values first
     String azVal, elVal;
     if (adsPresent) {
-      azVal = String(displayAzimuth(currentAz), 1);
-      elVal = String(currentEl, 1);
+      float azRaw = displayAzimuth(currentAz);
+      float elRaw = currentEl;
+      // When ELF mode is on, show effective satellite coords
+      azRaw = elfAz(azRaw);
+      elRaw = elfEl(elRaw);
+      azVal = String(azRaw, 1);
+      elVal = String(elRaw, 1);
       // Left-pad to 6 chars so decimal points align (max "-180.0")
       while (azVal.length() < 6) azVal = " " + azVal;
       while (elVal.length() < 6) elVal = " " + elVal;
@@ -4623,8 +4677,17 @@ void updateRotatorDisplay() {
     } else {
       display.setTextSize(1);
       display.setCursor(0, 40);
-      display.print("Selected: ");
-      display.println(directions[rotatorMenuSelection]);
+      display.print("Sel: ");
+      display.print(directions[rotatorMenuSelection]);
+      
+      // Show ELF indicator right-aligned when enabled
+      if (elfMode) {
+        // One space gap before "ELF" to avoid TCP dot at x=125
+        int elfWidth = 18; // "ELF" in size 1 = 3 * 6 = 18px
+        display.setCursor(128 - elfWidth - 1, 40);
+        display.print("ELF");
+      }
+      display.println();
       for (int x = 0; x < 128; x += 3) {
         display.drawPixel(x, 53, SSD1306_WHITE);
       }
@@ -4635,6 +4698,13 @@ void updateRotatorDisplay() {
       display.setCursor(0, 56);
       if (rotatorMenuSelection == 0) {
         display.println("1.Cycle 2!Go 1+2!|RST");
+      } else if (rotatorMenuSelection == 5) {
+        // ELF mode toggle
+        if (elfMode) {
+          display.println("1.Cycle 2!Off");
+        } else {
+          display.println("1.Cycle 2!On");
+        }
       } else {
         display.println("1.Cycle 2!Go");
       }
@@ -4858,7 +4928,7 @@ void handleButtons() {
   // Short press Btn1 = cycle directions (only if not long-pressed)
   if (!btn1 && btn1WasPressed && !btn1LongPressTriggered && (now - btn1PressStart < BTN_LONG_MS)) {
     if (now - btn1LastPress > BTN_DEBOUNCE_MS) {
-      rotatorMenuSelection = (rotatorMenuSelection + 1) % 5;
+      rotatorMenuSelection = (rotatorMenuSelection + 1) % 6;
       btn1LastPress = now;
       Serial.print("Menu: ");
       Serial.println(directions[rotatorMenuSelection]);
@@ -4880,6 +4950,24 @@ void handleButtons() {
     }
   }
   
+  // Long-press Btn2 on ELF = toggle ELF mode
+  if (btn2 && rotatorMenuSelection == 5 && (now - btn2PressStart >= 800) && !btn2LongPressTriggered) {
+    btn2LongPressTriggered = true;
+    elfMode = !elfMode;
+    saveElfMode();
+    Serial.print("ELF: Mode toggled to ");
+    Serial.println(elfMode ? "ON" : "OFF");
+  }
+
+  // Long-press Btn2 on ELF = toggle ELF mode
+  if (btn2 && rotatorMenuSelection == 5 && (now - btn2PressStart >= 800) && !btn2LongPressTriggered) {
+    btn2LongPressTriggered = true;
+    elfMode = !elfMode;
+    saveElfMode();
+    Serial.print("ELF: Mode toggled to ");
+    Serial.println(elfMode ? "ON" : "OFF");
+  }
+
   // Long-press Btn2 on SETUP = go to Setup menu or reboot
   // For direction selections, Btn2 is momentary (press=start, release=stop) - no long-press action
   if (btn2 && rotatorMenuSelection == 0 && (now - btn2PressStart >= 1000) && !btn2LongPressTriggered) {
@@ -5030,6 +5118,7 @@ void setup() {
   // Load saved WiFi credentials
   loadWifiCredentials();
   loadRotatorModel();
+  loadElfMode();
   loadCalibration();
   Serial.print("Saved SSID: ");
   Serial.println(savedSsid.length() > 0 ? savedSsid : "(none)");
