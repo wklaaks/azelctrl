@@ -5450,7 +5450,9 @@ void loop() {
           protocolTargetElSet = false;
         }
       }
-      updateRotatorDisplay();
+      if (!elfElevPromptActive) {
+        updateRotatorDisplay();
+      }
       lastUpdate = millis();
     }
     // Draw ELF elevation prompt overlay when active (overrides normal display)
