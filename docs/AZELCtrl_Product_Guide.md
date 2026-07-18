@@ -932,21 +932,27 @@ Gpredict supports both USB serial and TCP/IP connections.
 5. **Critical**: Ensure AZELCtrl's **Hamlib Server** setting is **Yes** (under Network in the SETUP menu). Without this, AZELCtrl will speak GS-232/Easycom over TCP instead of the rotctl protocol that Gpredict expects, and the connection will fail.
 6. Enable tracking for the desired satellite.
 
-**Via USB Serial**:
+**Via USB Serial (using rotctld as bridge)**:
+Gpredict does not connect directly to serial ports. It requires the Hamlib rotctld daemon as an intermediary.
+
 1. Connect AZELCtrl to your computer via USB.
-2. Open Gpredict preferences → Satellite → Control → Rotator control.
-3. Set type to "GS-232B" (or your configured protocol).
-4. Set connection to "Serial".
-5. Select the virtual COM port for AZELCtrl.
-6. Set baud rate to 115200.
-7. Ensure AZELCtrl's **Hamlib Server** setting is **No**.
-8. Enable tracking.
+2. Ensure AZELCtrl's **Hamlib Server** setting is **No** (so it speaks GS-232/Easycom over serial).
+3. Start rotctld, pointing it at AZELCtrl's virtual COM port with the matching protocol (e.g., GS-232B at 115200 baud).
+4. In Gpredict preferences → Satellite → Control → Rotator control:
+   - Set type to "Hamlib rotctld"
+   - Set host to localhost (or wherever rotctld is running)
+   - Set port to the port rotctld is listening on (typically 4532)
+5. Enable tracking.
+
+The connection path is: Gpredict → rotctld → AZELCtrl (USB serial).
 
 **Note on ELF (over-the-top) mode**: Gpredict implements the elevation-flip technique natively. When a satellite pass crosses the rotator's wrap-around boundary, Gpredict automatically transforms the coordinates and sends the appropriate physical targets. **Do not enable ELF mode on AZELCtrl when using Gpredict** — doing so would apply the transformation twice, resulting in incorrect antenna pointing.
 
 #### Rotor
 
 Rotor supports both USB serial and TCP/IP connections.
+
+**macOS users**: Rotor works well with AZELCtrl via USB serial. However, Rotor's TCP/IP interface currently does not support elevation control, making it unsuitable for satellite tracking with an azimuth-elevation rotator. Use USB serial or Gpredict for full Az/El control.
 
 **Via TCP/IP**:
 1. Configure a new rotator connection.
