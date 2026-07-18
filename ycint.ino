@@ -4966,7 +4966,9 @@ void handleButtons() {
   if (btn1 && !btn1WasPressed) {
     resetOledCmdSuppress();
     // Any button press clears protocol command display (user is back in control)
-    if (strlen(protocolLastCommand) > 0) {
+    // Only clear if the overlay would actually be shown (not suppressed by timer)
+    bool suppressed = (oledCmdSuppressUntil > 0 && now < oledCmdSuppressUntil);
+    if (strlen(protocolLastCommand) > 0 && !suppressed) {
       protocolLastCommand[0] = '\0';
       protocolLastResponse[0] = '\0';
       // Reset movement state if motors have stopped
