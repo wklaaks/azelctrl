@@ -528,13 +528,14 @@ Skip
 | 5 | XS82 Straight Inline DIN Plug (Male) • 8 way • Mini | 1 | R27 | Communica SKU: XS82 |
 | 6 | PB11C02 RED Miniature Push Button Switch • Momentary • Form: SPST-0-(1) • 0.3A-50VDC • Solder-Lug • Red-Button • Round Actuator • PTM | 2 | R20 | Communica SKU: PB11C02 RED |
 | 7 | BT2B NO RIBS [Enclosure ABS 130×70×44 "S20" Black No Ribs] | 1 | R49 | Communica SKU: BT2B NO RIBS |
+| 8 | BMT Ribbon Jumper 40W F/F 15cm [Jumper Female/Female 15cm in 40Way Colour Cable] | 1 | R23 | Communica SKU: BMT RIBBON JUMPER 40W F/F 15CM |
 | | | | | |
-| | **Subtotal (required parts)** | | **R376** | |
+| | **Subtotal (required parts)** | | **R399** | |
 | | | | | |
-| 8 | PDC-5 Spacer Snap Fit Top Flat Base HT=5mm *(optional, for mounting)* | 9 | R1.27 each | Communica SKU: PDC-5 |
-| 9 | CAB04PR,22MSCR Mylar Screened Cable 4 pair • 0.22mm² *(optional, for Yaesu DIN connection)* | 1 m | R13.80/m | Communica SKU: CAB04PR,22MSCR |
+| 9 | PDC-5 Spacer Snap Fit Top Flat Base HT=5mm *(optional, for mounting)* | 9 | R1.27 each | Communica SKU: PDC-5 |
+| 10 | CAB04PR,22MSCR Mylar Screened Cable 4 pair • 0.22mm² *(optional, for Yaesu DIN connection)* | 1 m | R13.80/m | Communica SKU: CAB04PR,22MSCR |
 | | | | | |
-| | **Estimated total (with optional items)** | | **~R400** | |
+| | **Estimated total (with optional items)** | | **~R425** | |
 
 **Notes on optional items**:
 
