@@ -833,7 +833,7 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 7. Upload the firmware.
 8. Power up the unit and verify the OLED displays the startup sequence.
 
-**Note**: WiFi credentials are configured via the captive portal setup process (see section 8.6), not in the source code.
+**Note**: WiFi credentials are configured via the captive portal setup process (see section 7.12), not in the source code.
 
 ### 7.12 Configuring WiFi via Captive Portal
 
