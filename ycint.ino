@@ -1857,8 +1857,10 @@ void exitCalibrationMode() {
 
 // Protocol movement helpers — used by both GS-232 and Easycom handlers
 void executeProtocolAzMove(float targetAz) {
-  if (targetAz < 0.0) targetAz = 0.0;
-  if (targetAz > 360.0) targetAz = 360.0;
+  // Convert -180..+180 to 0..360 for internal logic
+  // This lets all existing direction-finding, mechanical-stop, and ELF logic work unchanged
+  if (targetAz < 0.0) targetAz += 360.0;
+  if (targetAz > 360.0) targetAz -= 360.0;
   
   // When ELF is on, incoming targets are in satellite space — transform to physical
   float physTarget = elfAz(targetAz);
@@ -2117,15 +2119,19 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
       az = elfAz(az);
       el = elfEl(el);
       
+      // Convert to -180..+180 range for Gpredict compatibility
+      // Gpredict's AzType=1 config expects negative azimuths
+      if (az > 180.0) az -= 360.0;
+      
       #if DEBUG_ENABLED
       Serial.print("DBG:DP_P:az="); Serial.print(az, 2);
       Serial.print(" el="); Serial.print(el, 2);
       Serial.print(" rawAz="); Serial.print(currentAz, 2);
       Serial.print(" rawEl="); Serial.println(currentEl, 2);
       #endif
-      dpSend(String(az, 2));
-      dpSend(String(el, 2));
-      dpRprt(0);
+      // Send all 3 lines in ONE TCP packet - Gpredict does a single recv()
+      // and expects azimuth\nelevation\nRPRT N\n all at once
+      dpSend(String(az, 2) + "\n" + String(el, 2) + "\nRPRT 0");
       break;
     }
     
