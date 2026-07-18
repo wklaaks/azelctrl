@@ -2001,18 +2001,30 @@ void executeProtocolElMove(float targetEl) {
   protocolTargetElSet = true;
   
   // Direction calculation: compare in the same coordinate space
+  // When ELF is on, both in satellite space; when off, use raw physical coords
   float curForDiff = elfEl(currentEl);
   float diff = targetEl - curForDiff;
+  
+  // Convert satellite-space direction to physical direction
+  // In ELF mode: satellite UP = physical DOWN (Real El = 180 - Sat El)
+  String moveDir;
   if (diff > 1.0) {
+    moveDir = elfMode ? "DOWN" : "UP";
+  } else if (diff < -1.0) {
+    moveDir = elfMode ? "UP" : "DOWN";
+  } else {
+    stopElevation(); protocolTargetElSet = false;
+    return;
+  }
+  
+  if (moveDir == "UP") {
     if (elDirection == DIR_DOWN) {
       stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
     } else { executeElevationMove("UP"); }
-  } else if (diff < -1.0) {
+  } else {
     if (elDirection == DIR_UP) {
       stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
     } else { executeElevationMove("DOWN"); }
-  } else {
-    stopElevation(); protocolTargetElSet = false;
   }
 }
 
