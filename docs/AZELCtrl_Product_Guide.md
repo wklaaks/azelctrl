@@ -50,9 +50,9 @@ This product is designed for amateur radio operators who:
 
 ### 2.2 Benefits Over Traditional Controllers
 
-- **No direct serial tether required** — operates independently on the network
-- **Remote monitoring** — check antenna position from anywhere via web browser
-- **Multiple control methods** — physical buttons, web interface, or tracking software
+- **Flexible connectivity** — control via USB serial (simple, direct) or TCP/IP network (remote, flexible)
+- **Remote monitoring** — check antenna position from anywhere via web browser when using WiFi mode
+- **Multiple control methods** — physical buttons, web interface, USB serial, or TCP/IP network
 - **Intelligent tracking** — ELF mode automatically handles passes that would otherwise cause the rotator to perform a damaging full rotation
 - **Safety mechanisms** — voltage monitoring protects sensitive electronics; direction-reverse pause prevents motor damage
 - **Compact and self-contained** — all components fit in a small enclosure
@@ -65,6 +65,29 @@ This product is designed for amateur radio operators who:
 
 AZELCtrl sits between your satellite tracking software and your Yaesu rotator controller:
 
+**Option 1: USB Serial Connection (Simpler, Direct)**
+```
+┌─────────────────────┐      USB Serial    ┌──────────────────┐      Yaesu DIN-8     ┌─────────────────┐
+│ Satellite Tracking  │ ◄────────────────► │   AZELCtrl       │ ◄──────────────────► │ Yaesu Rotator   │
+│ Software            │  (virtual COM port)│                  │                      │ Controller      │
+│ (Gpredict, Rotor)   │                    │ ┌──────────────┐ │ ┌──────────────────┐ │ (G-5600B etc.)  │
+│                     │                    │ │ ESP8266      │ │ │ Motor Shield     │ │                 │
+│                     │                    │ │ (NodeMCU)    │─┼─►│ (L293DD)         │─┼─► Motor relays  │
+│                     │                    │ │              │ │ │                  │ │                 │
+│                     │                    │ └──────┬───────┘ │ └────────┬─────────┘ │                 │
+│                     │                    │        │         │          │           │                 │
+│                     │                    │ ┌──────▼───────┐ │ ┌────────▼─────────┐ │                 │
+│                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
+│                     │                    │ │ (128×64)     │ │ │                  │ │                 │
+│                     │                    │ └──────────────┘ │ └──────────────────┘ │                 │
+│                     │                    └──────────────────┘                      └─────────────────┘
+│                     │
+└─────────────────────┘
+         ▲
+         │ USB cable (power + data)
+```
+
+**Option 2: WiFi/TCP Connection (Remote, Flexible)**
 ```
 ┌─────────────────────┐      TCP/IP       ┌──────────────────┐      Yaesu DIN-8     ┌─────────────────┐
 │ Satellite Tracking  │ ◄────────────────► │   AZELCtrl       │ ◄──────────────────► │ Yaesu Rotator   │
@@ -79,16 +102,36 @@ AZELCtrl sits between your satellite tracking software and your Yaesu rotator co
 │                     │                    │ │ OLED Display │ │ │ ADS1115 ADC      │◄┤ Position pots   │
 │                     │                    │ │ (128×64)     │ │ │                  │ │                 │
 │                     │                    │ └──────────────┘ │ └──────────────────┘ │                 │
-└─────────────────────┘                    └──────────────────┘                      └─────────────────┘
+│                     │                    └──────────────────┘                      └─────────────────┘
+│                     │
+└─────────────────────┘
+         ▲
+         │ USB cable (power only, or none if using external 5V supply)
 ```
+
+**Which option should you use?**
+
+- **USB Serial** is simpler: one cable provides both power and data. No WiFi configuration needed. Connect AZELCtrl to your computer via USB, select the virtual COM port in your tracking software, and you're ready. This is ideal if your computer is close to the rotator setup.
+
+- **WiFi/TCP** is more flexible: your tracking software can run on any device on the same network — a laptop across the room, a tablet in your shack, or even a phone. AZELCtrl can be powered by a standalone USB power supply (no computer needed). This is ideal for remote operation or when your computer isn't near the rotator.
 
 ### 3.2 Data Flow
 
-1. **Command Path**: Satellite tracking software sends position commands (azimuth/elevation) over TCP to AZELCtrl on port 4533. The ESP8266 interprets the command according to the configured protocol (GS-232, Easycom, or rotctl), calculates the required motor movements, and sends control signals to the motor shield.
+AZELCtrl supports two communication interfaces:
 
-2. **Motor Control Path**: The motor shield (L293DD) receives direction and enable signals from the ESP8266 and switches the Yaesu controller's relay inputs to ground, activating the appropriate rotator motors.
+**USB Serial Interface**:
+1. **Command Path**: Satellite tracking software sends position commands (azimuth/elevation) over USB serial to AZELCtrl's virtual COM port. The ESP8266 interprets the command according to the configured protocol (GS-232A, GS-232B, or Easycom), calculates the required motor movements, and sends control signals to the motor shield.
+2. **Position Feedback**: AZELCtrl reports current position back over USB serial when polled.
 
-3. **Position Feedback Path**: The Yaesu controller outputs analog voltages proportional to the current azimuth and elevation positions. These voltages are read by the ADS1115 ADC module, converted to digital values by the ESP8266, and displayed on the OLED screen. Position data is also reported back to the tracking software when polled.
+**TCP/IP Network Interface**:
+1. **Command Path**: Satellite tracking software sends position commands over TCP to AZELCtrl on port 4533. The protocol spoken is determined by the Hamlib Server setting (Yes = rotctl text protocol, No = configured GS-232/Easycom protocol).
+2. **Position Feedback**: AZELCtrl reports current position back over TCP when polled.
+
+**Motor Control Path** (same for both interfaces):
+The motor shield (L293DD) receives direction and enable signals from the ESP8266 and switches the Yaesu controller's relay inputs to ground, activating the appropriate rotator motors.
+
+**Position Feedback Path** (same for both interfaces):
+The Yaesu controller outputs analog voltages proportional to the current azimuth and elevation positions. These voltages are read by the ADS1115 ADC module, converted to digital values by the ESP8266, and displayed on the OLED screen. Position data is also reported back to the tracking software when polled, via whichever interface is in use.
 
 ### 3.3 Power Flow
 
@@ -172,7 +215,25 @@ Both the OLED display and ADS1115 share the I2C bus:
 
 The ADS1115 operates at 16-bit resolution with a programmable gain amplifier. For our application, the ±4.096V range is used to safely accommodate the Yaesu controller's output voltages (which must be trimmed to ≤3.3V).
 
-### 4.5 Protocol Stack
+### 4.5 Communication Interfaces and Protocol Stack
+
+AZELCtrl supports two communication interfaces:
+
+#### USB Serial Interface
+
+When AZELCtrl is connected to a computer via USB, it appears as a **virtual COM port** (e.g., COM3 on Windows, /dev/cu.usbserial-* on macOS, /dev/ttyUSB* on Linux). The ESP8266's built-in USB-to-serial converter (CP2102) handles the conversion transparently.
+
+- **Protocol**: The configured serial protocol is used (GS-232A, GS-232B, or Easycom — selected in the Rotator Settings menu).
+- **Baud rate**: 115200 baud (default).
+- **Power**: The USB connection provides 5V power to AZELCtrl, so no separate power supply is needed.
+
+This interface is ideal when:
+- Your computer is physically close to the rotator setup.
+- Your tracking software only supports serial connections (some older or simpler programs).
+- You want the simplest possible setup with no WiFi configuration.
+- Your tracking software has issues with TCP/IP but works reliably over serial.
+
+#### TCP/IP Network Interface
 
 AZELCtrl runs a TCP server on **port 4533** that accepts connections from satellite tracking software. The protocol spoken over TCP is determined by the **Hamlib Server** setting in the rotator menu:
 
@@ -182,6 +243,13 @@ AZELCtrl runs a TCP server on **port 4533** that accepts connections from satell
 | **No** | Configured serial protocol (GS-232A, GS-232B, or Easycom) |
 
 The server always listens on port 4533 regardless of the Hamlib Server setting — the setting only determines which protocol dialect is used for communication.
+
+This interface is ideal when:
+- Your tracking software runs on a different device (laptop, tablet) on the same network.
+- You want remote operation without a physical cable to the rotator.
+- AZELCtrl is powered by a standalone USB power supply (no computer connection needed).
+
+**Important**: Both interfaces can be used simultaneously. AZELCtrl processes commands from whichever interface they arrive on. However, having two programs sending commands at the same time (one over USB, one over TCP) will cause conflicts — only use one control source at a time.
 
 #### GS-232 Command Reference
 
@@ -710,8 +778,40 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 
 ### 8.4 Connecting Tracking Software
 
+AZELCtrl can be controlled via USB serial or TCP/IP. Choose whichever interface suits your setup.
+
+#### USB Serial Connection
+
+1. Connect AZELCtrl to your computer via USB cable.
+2. Your operating system will recognize it as a virtual COM port:
+   - **Windows**: Check Device Manager → Ports (COM & LPT) — typically COM3 or higher
+   - **macOS**: /dev/cu.usbserial-* (check System Information → USB)
+   - **Linux**: /dev/ttyUSB0 or /dev/ttyUSB1
+3. Ensure AZELCtrl's **Hamlib Server** setting is **No** (so it speaks GS-232/Easycom over serial).
+4. In your tracking software, configure a new rotator connection:
+   - Type: GS-232B (or your configured protocol)
+   - Connection: Serial / COM port
+   - Port: Your virtual COM port (e.g., COM3)
+   - Baud rate: 115200
+5. Test the connection.
+
+#### TCP/IP Network Connection
+
+1. Ensure AZELCtrl is connected to your WiFi network (check OLED for IP address).
+2. In your tracking software, configure a new rotator connection:
+   - Type: Depends on Hamlib Server setting (see below)
+   - Connection: TCP/IP
+   - Host: AZELCtrl's IP address (shown on OLED)
+   - Port: 4533
+3. Match the Hamlib Server setting to your software:
+   - **Hamlib Server = Yes**: Software expects rotctl text protocol (Gpredict)
+   - **Hamlib Server = No**: Software expects GS-232/Easycom (Rotor, others)
+
 #### Gpredict
 
+Gpredict supports both USB serial and TCP/IP connections.
+
+**Via TCP/IP (recommended)**:
 1. Open Gpredict preferences → Satellite → Control → Rotator control.
 2. Set type to "Hamlib rotctld".
 3. Set host to AZELCtrl's IP address.
@@ -719,10 +819,23 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 5. **Critical**: Ensure AZELCtrl's **Hamlib Server** setting is **Yes** (under Rotator Settings in the OLED menu). Without this, AZELCtrl will speak GS-232/Easycom over TCP instead of the rotctl protocol that Gpredict expects, and the connection will fail.
 6. Enable tracking for the desired satellite.
 
+**Via USB Serial**:
+1. Connect AZELCtrl to your computer via USB.
+2. Open Gpredict preferences → Satellite → Control → Rotator control.
+3. Set type to "GS-232B" (or your configured protocol).
+4. Set connection to "Serial".
+5. Select the virtual COM port for AZELCtrl.
+6. Set baud rate to 115200.
+7. Ensure AZELCtrl's **Hamlib Server** setting is **No**.
+8. Enable tracking.
+
 **Note on ELF (over-the-top) mode**: Gpredict implements the elevation-flip technique natively. When a satellite pass crosses the rotator's wrap-around boundary, Gpredict automatically transforms the coordinates and sends the appropriate physical targets. **Do not enable ELF mode on AZELCtrl when using Gpredict** — doing so would apply the transformation twice, resulting in incorrect antenna pointing.
 
 #### Rotor
 
+Rotor supports both USB serial and TCP/IP connections.
+
+**Via TCP/IP**:
 1. Configure a new rotator connection.
 2. Set type to GS-232B (or your configured protocol).
 3. Set connection to TCP/IP.
@@ -730,6 +843,20 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 5. Set port to 4533.
 6. Ensure AZELCtrl's Hamlib Server setting is **No**.
 7. Test the connection.
+
+**Via USB Serial**:
+1. Connect AZELCtrl to your computer via USB.
+2. Configure a new rotator connection.
+3. Set type to GS-232B (or your configured protocol).
+4. Set connection to Serial.
+5. Select the virtual COM port for AZELCtrl.
+6. Set baud rate to 115200.
+7. Ensure AZELCtrl's Hamlib Server setting is **No**.
+8. Test the connection.
+
+#### Other Tracking Software
+
+Many satellite tracking programs support serial connections but not TCP/IP. AZELCtrl's USB serial interface works with any software that supports GS-232A, GS-232B, or Easycom protocols. Simply connect via USB and configure the virtual COM port as you would for any serial rotator controller.
 
 ### 8.5 Configuring via OLED Menus
 
