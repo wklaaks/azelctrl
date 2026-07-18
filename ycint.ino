@@ -4557,28 +4557,29 @@ void showElfElevPrompt() {
   unsigned long promptStart = millis();
   const unsigned long PROMPT_TIMEOUT_MS = 5000;
   bool doSelect = false;
-  
+  bool userInteracted = false;
+
   while (true) {
     checkModeCommand();
-    
+
     bool btn1 = digitalRead(BTN1);
     bool btn2 = !digitalRead(BTN2);
-    
-    // Auto-select default after timeout
-    if (millis() - promptStart >= PROMPT_TIMEOUT_MS && choice == 0) {
+
+    // Auto-select default ONLY if user hasn't interacted and timeout expired
+    if (!userInteracted && millis() - promptStart >= PROMPT_TIMEOUT_MS) {
       doSelect = true;
     }
-    
+
     display.clearDisplay();
     display.setTextSize(1);
-    
+
     display.fillRect(0, 0, 128, 8, SSD1306_BLACK);
     display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     display.setCursor(0, 0);
     display.print("Elevate To?                ");
-    
+
     display.drawLine(0, 8, 127, 8, SSD1306_WHITE);
-    
+
     int y = 12;
     for (int i = 0; i < 4; i++) {
       if (i == choice) {
@@ -4587,22 +4588,29 @@ void showElfElevPrompt() {
       } else {
         display.setTextColor(SSD1306_WHITE);
       }
-      
+
       display.setCursor(2, y);
       display.print(options[i]);
       y += 11;
     }
-    
+
     for (int x = 0; x < 128; x += 3) {
       display.drawPixel(x, 53, SSD1306_WHITE);
     }
-    
+
+    // Countdown indicator: [x] where x counts down from 5 to 0
+    int remaining = max(0, (int)((PROMPT_TIMEOUT_MS - (millis() - promptStart)) / 1000));
     display.setTextColor(SSD1306_WHITE);
+    display.setCursor(95, 56);
+    display.print("[");
+    display.print(remaining);
+    display.println("]");
+
     display.setCursor(0, 56);
     display.println("1.Nav  1|Sel  2.Back");
-    
+
     display.display();
-    
+
     if (firstDraw) {
       firstDraw = false;
       while (digitalRead(BTN1) || !digitalRead(BTN2)) delay(50);
@@ -4611,9 +4619,9 @@ void showElfElevPrompt() {
       btn2WasPressed = false;
       continue;
     }
-    
+
     unsigned long now = millis();
-    
+
     // Btn1: short-press = cycle, long-press = select
     if (btn1 && !btn1WasPressed) {
       resetOledCmdSuppress();
@@ -4625,9 +4633,11 @@ void showElfElevPrompt() {
         doSelect = true;
       } else {
         choice = (choice + 1) % 4;
+        userInteracted = true;
+        promptStart = now;
       }
     }
-    
+
     // Execute selection
     if (doSelect) {
       Serial.print("ELF: Elevate to choice "); Serial.println(choice);
@@ -4640,7 +4650,7 @@ void showElfElevPrompt() {
       }
       return;
     }
-    
+
     // Btn2: edge-detect press = back (skip)
     if (btn2 && !btn2WasPressed) {
       resetOledCmdSuppress();
@@ -4650,13 +4660,15 @@ void showElfElevPrompt() {
       delay(50);
       return;
     }
-    
+
     btn1WasPressed = btn1;
     btn2WasPressed = btn2;
-    
+
     delay(50);
   }
 }
+
+
 
 void updateRotatorDisplay() {
   display.clearDisplay();
