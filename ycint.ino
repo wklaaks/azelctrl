@@ -2094,18 +2094,11 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         if (targetEl < 0) targetEl = 0;
         if (targetEl > 180) targetEl = 180;
         
-        // When ELF mode is on, translate satellite coords to physical rotator coords
-        targetAz = elfAz(targetAz);
-        targetEl = elfEl(targetEl);
-        
-        // Always update protocol targets for auto-stop
-        protocolTargetAz = targetAz;
-        protocolTargetAzSet = true;
-        protocolTargetEl = targetEl;
-        protocolTargetElSet = true;
-        
-        // Calculate desired direction
-        float diffAz = targetAz - currentAz;
+        // Calculate desired direction BEFORE transforming (direction in satellite space)
+        // ELF is self-inverse, so we transform currentAz to satellite coords for comparison
+        float curAzForDir = elfAz(currentAz);
+        float curElForDir = elfEl(currentEl);
+        float diffAz = targetAz - curAzForDir;
         if (diffAz > 180) diffAz -= 360;
         if (diffAz < -180) diffAz += 360;
         
@@ -2114,11 +2107,21 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
           wantAzDir = (diffAz > 0) ? "RIGHT" : "LEFT";
         }
         
-        float diffEl = targetEl - currentEl;
+        float diffEl = targetEl - curElForDir;
         String wantElDir = "STOP";
         if (abs(diffEl) > 1.0) {
           wantElDir = (diffEl > 0) ? "UP" : "DOWN";
         }
+        
+        // Now transform satellite coords to physical rotator coords for actual movement
+        targetAz = elfAz(targetAz);
+        targetEl = elfEl(targetEl);
+        
+        // Always update protocol targets for auto-stop (physical coords)
+        protocolTargetAz = targetAz;
+        protocolTargetAzSet = true;
+        protocolTargetEl = targetEl;
+        protocolTargetElSet = true;
         
         // Only change motors if direction actually changed — don't restart same-direction movement
         if (wantAzDir == "STOP") {
@@ -4945,8 +4948,14 @@ void handleButtons() {
     if (!isPausing) {
       if (rotatorMenuSelection == 1) startMove("LEFT");
       else if (rotatorMenuSelection == 2) startMove("RIGHT");
-      else if (rotatorMenuSelection == 3) startMove("UP");
-      else if (rotatorMenuSelection == 4) startMove("DOWN");
+      // When ELF is on, UP/DOWN are swapped because Real El = 180 - Sat El
+      // Physical UP decreases satellite El, and vice versa
+      else if (rotatorMenuSelection == 3) {
+        elfMode ? startMove("DOWN") : startMove("UP");
+      }
+      else if (rotatorMenuSelection == 4) {
+        elfMode ? startMove("UP") : startMove("DOWN");
+      }
     }
   }
   
