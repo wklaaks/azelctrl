@@ -217,6 +217,12 @@ String protocolElPendingDir = "";
 bool elfMode = false;
 #define ELF_EEPROM_BYTE 90
 
+// ELF elevation prompt overlay (appears when ELF mode is toggled)
+bool elfElevPromptActive = false;
+int elfElevPromptIndex = 0;  // 0=Horizon(0), 1=45, 2=90, 3=Skip
+unsigned long elfElevPromptStart = 0;
+const unsigned long ELF_ELEV_PROMPT_TIMEOUT_MS = 5000;
+
 // ELF transformation functions (self-inverse)
 float elfTransformAz(float satAz) {
   float realAz = fmod(satAz + 180.0f, 360.0f);
@@ -4547,6 +4553,47 @@ void showStationSettings() {
 int rotatorMenuSelection = 0;
 const char* directions[6] = {"SETUP", "LEFT", "RIGHT", "UP", "DOWN", "ELF"};
 
+// ====================== ELF ELEVATION PROMPT OVERLAY ======================
+void drawElfElevPrompt() {
+  display.clearDisplay();
+  
+  // Title bar (white on black)
+  display.setTextColor(WHITE);
+  display.fillRect(0, 0, 128, 16, WHITE);
+  display.setTextColor(BLACK);
+  display.setCursor(0, 0);
+  display.println("  Elevate To?");
+  // Separator line
+  display.setTextColor(WHITE);
+  for (int x = 0; x < 128; x++) display.drawPixel(x, 16, SSD1306_WHITE);
+  
+  // Options
+  const char* options[] = {"Horizon (0)", "45", "90", "Skip"};
+  display.setTextColor(WHITE);
+  for (int i = 0; i < 4; i++) {
+    if (i == elfElevPromptIndex) {
+      display.fillRect(0, 20 + i * 12, 128, 12, SSD1306_WHITE);
+      display.setTextColor(BLACK);
+    } else {
+      display.setTextColor(WHITE);
+    }
+    display.setCursor(4, 20 + i * 12);
+    display.println(options[i]);
+  }
+  display.setTextColor(WHITE);
+  
+  // Timer bar at bottom
+  float elapsed = (float)(millis() - elfElevPromptStart) / ELF_ELEV_PROMPT_TIMEOUT_MS;
+  int barWidth = max(0, (int)(128 * (1.0 - elapsed)));
+  for (int x = 0; x < barWidth; x++) display.drawPixel(x, 67, SSD1306_WHITE);
+  
+  // Footer
+  display.setCursor(0, 56);
+  display.println("1.Cycle 2!Sel");
+  
+  display.display();
+}
+
 void updateRotatorDisplay() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -4975,6 +5022,45 @@ void handleButtons() {
   // ROTATOR CONTROL MODE BUTTON HANDLING
   // ============================================
   
+  // ====================== ELF ELEVATION PROMPT BUTTON HANDLING ======================
+  if (elfElevPromptActive) {
+    unsigned long promptNow = millis();
+    
+    // Auto-select default after timeout
+    if (promptNow - elfElevPromptStart >= ELF_ELEV_PROMPT_TIMEOUT_MS) {
+      elfElevPromptIndex = 0;  // Default to Horizon(0)
+      int targetEl = 0;
+      Serial.print("ELF: Setting effective elevation to "); Serial.println(targetEl);
+      executeProtocolElMove((float)targetEl);
+      elfElevPromptActive = false;
+    }
+    
+    // Btn1 short press = cycle options
+    static unsigned long btn1LastPressElf = 0;
+    if (btn1 && !btn1WasPressed && (promptNow - btn1LastPressElf > BTN_DEBOUNCE_MS)) {
+      elfElevPromptIndex = (elfElevPromptIndex + 1) % 4;
+      elfElevPromptStart = promptNow;  // Reset timeout on interaction
+      btn1LastPressElf = promptNow;
+    }
+    
+    // Btn2 = select current option
+    if (btn2 && !btn2WasPressed && (promptNow - elfElevPromptStart > BTN_DEBOUNCE_MS)) {
+      if (elfElevPromptIndex == 3) {
+        // Skip - leave elevation unchanged
+        Serial.println("ELF: Elevation change skipped");
+      } else {
+        int targetEl = (elfElevPromptIndex == 0) ? 0 : (elfElevPromptIndex == 1) ? 45 : 90;
+        Serial.print("ELF: Setting effective elevation to "); Serial.println(targetEl);
+        executeProtocolElMove((float)targetEl);
+      }
+      elfElevPromptActive = false;
+    }
+    
+    btn1WasPressed = btn1;
+    btn2WasPressed = btn2;
+    return;  // Skip normal button handling while prompt is active
+  }
+  
   // Btn1: cycle through directions (0-4: IDLE, LEFT, RIGHT, UP, DOWN)
   // ALSO: restart sequence - when IDLE selected, hold Btn2 + long-press Btn1
   if (btn1 && !btn1WasPressed) {
@@ -5036,22 +5122,17 @@ void handleButtons() {
     }
   }
   
-  // Long-press Btn2 on ELF = toggle ELF mode
+  // Long-press Btn2 on ELF = toggle ELF mode and show elevation prompt
   if (btn2 && rotatorMenuSelection == 5 && (now - btn2PressStart >= 800) && !btn2LongPressTriggered) {
     btn2LongPressTriggered = true;
     elfMode = !elfMode;
     saveElfMode();
     Serial.print("ELF: Mode toggled to ");
     Serial.println(elfMode ? "ON" : "OFF");
-  }
-
-  // Long-press Btn2 on ELF = toggle ELF mode
-  if (btn2 && rotatorMenuSelection == 5 && (now - btn2PressStart >= 800) && !btn2LongPressTriggered) {
-    btn2LongPressTriggered = true;
-    elfMode = !elfMode;
-    saveElfMode();
-    Serial.print("ELF: Mode toggled to ");
-    Serial.println(elfMode ? "ON" : "OFF");
+    // Show elevation prompt overlay
+    elfElevPromptActive = true;
+    elfElevPromptIndex = 0;
+    elfElevPromptStart = now;
   }
 
   // Long-press Btn2 on SETUP = go to Setup menu or reboot
@@ -5371,6 +5452,10 @@ void loop() {
       }
       updateRotatorDisplay();
       lastUpdate = millis();
+    }
+    // Draw ELF elevation prompt overlay when active (overrides normal display)
+    if (elfElevPromptActive) {
+      drawElfElevPrompt();
     }
   }
   // Auto-stop protocol targets when reached (always run, even in menu mode)
