@@ -804,8 +804,14 @@ Map out the wires within the 8-core screened cable connected to the DIN plug. Co
 
 **IMPORTANT**: The Yaesu controller outputs ~4.5V by default. The ADS1115 can only handle up to 3.3V safely. You MUST adjust the trim pots on the Yaesu controller before connecting position feedback voltages to the ADS1115.
 
-1. Locate the two trim pots on the Yaesu controller (adjacent to the meter calibration pots).
-2. Rotate the azimuth rotator clockwise to the limit (maximum meter deflection).
+**Prerequisite**: The Yaesu controller must already be wired to the external azimuth/elevation rotator. The trim pot calibration is done with the actual rotator cable installed, because cable length affects voltage drop.
+
+**CRITICAL WARNING**: If you change the length of the cable between the Yaesu controller and the rotator, you MUST redo this trim pot calibration. Shortening the cable reduces voltage drop, which means the voltage at the Yaesu controller's feedback pins will be higher than what you calibrated. If this voltage exceeds 3.3V, it will destroy the ADS1115 module and it will have to be replaced. **Always recalibrate after any cable length change.**
+
+Steps:
+
+1. Rotate the azimuth rotator clockwise to the limit (maximum meter deflection).
+2. Locate the two trim pots on the Yaesu controller (adjacent to the meter calibration pots).
 3. Measure the voltage between Pin 6 and Ground at the DIN connector.
 4. Adjust the **Azimuth** trim pot until you read exactly 3.3V.
 5. Rotate the azimuth rotator counter-clockwise to the limit. Verify the voltage approaches 0V.
