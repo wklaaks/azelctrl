@@ -828,11 +828,27 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 2. Install the ESP8266 board package.
 3. Install required libraries: SSD1306 OLED driver, ADS1115 driver, EEPROM library.
 4. Open the AZELCtrl firmware sketch.
-5. Configure the default WiFi SSID and password in the source code.
-6. Select board: "NodeMCU 1.0 (ESP-12E Module)" or equivalent.
-7. Select port: Your ESP8266's serial port.
-8. Upload the firmware.
-9. Power up the unit and verify the OLED displays the startup sequence.
+5. Select board: "NodeMCU 1.0 (ESP-12E Module)" or equivalent.
+6. Select port: Your ESP8266's serial port.
+7. Upload the firmware.
+8. Power up the unit and verify the OLED displays the startup sequence.
+
+**Note**: WiFi credentials are configured via the captive portal setup process (see section 8.6), not in the source code.
+
+### 7.12 Configuring WiFi via Captive Portal
+
+When AZELCtrl has no WiFi credentials saved (fresh flash or after wiping all settings), you can configure WiFi using the captive portal:
+
+1. From the SETUP menu, select "Network" → "Set WiFi Creds" (or "Wifi(None)").
+2. AZELCtrl starts an open WiFi access point named **AZELCTRL**.
+3. The OLED shows: "Connect phone to: AZELCTRL" and "IP: 192.168.4.1".
+4. On your phone or laptop, open WiFi settings and connect to the **AZELCTRL** network (no password required).
+5. Open a web browser and navigate to any address (e.g., 192.168.4.1). You'll see the AZELCTRL Setup page.
+6. Enter your home WiFi SSID (network name) and password.
+7. Tap "Save & Connect". AZELCtrl saves the credentials to EEPROM and reboots.
+8. After reboot, AZELCtrl will attempt to connect to your home WiFi network.
+
+This same process can be used at any time to change WiFi credentials — simply go back to SETUP → Network → Set WiFi Creds.
 
 ---
 
