@@ -16,8 +16,8 @@ AZELCtrl is a WiFi-enabled, dual-axis rotator controller designed for amateur sa
 
 Yaesu rotator controllers (e.g., G-5600B) provide excellent mechanical performance but lack modern connectivity options. Traditional control requires direct serial connection to a computer, limiting flexibility and remote operation. AZELCtrl bridges this gap by:
 
-- Providing WiFi-based remote control via web browser and TCP/IP protocols
-- Enabling seamless integration with satellite tracking software running on any device on the network
+- Providing both USB serial and WiFi-based remote control via web browser and TCP/IP protocols
+- Enabling seamless integration with satellite tracking software running locally via USB or remotely on the network
 - Adding intelligent features such as over-the-top tracking mode for problematic satellite passes
 - Offering real-time position monitoring via an integrated OLED display
 
@@ -27,7 +27,7 @@ This product is designed for amateur radio operators who:
 
 - Own a Yaesu azimuth-elevation rotator system (G-550, G-550X, G-5600, G-5600B, or compatible)
 - Track low Earth orbit (LEO) satellites and require automated antenna pointing
-- Want network-based control without replacing their existing rotator hardware
+- Want flexible control options (USB serial for simple setups, WiFi for remote operation) without replacing existing rotator hardware
 - Are comfortable with basic electronics assembly and wiring
 
 ---
@@ -399,6 +399,24 @@ The over-the-top transformation should **not** be applied when:
 
 **Note on GPIO15**: This pin must be LOW at reset for the ESP8266 to boot normally. The motor shield comes with a fixed pull-down resistor. If you power up the unit while Btn1 is pressed, it will not boot properly.
 
+**Button actions in rotator control mode**:
+
+| Action | Effect |
+|--------|--------|
+| Btn1 short-press | Cycle through: SETUP → LEFT → RIGHT → UP → DOWN → ELF |
+| Btn2 press (hold) | Start movement in selected direction (LEFT/RIGHT/UP/DOWN). Release to stop. |
+| Btn2 press (when SETUP selected) | Enter SETUP menu |
+| Btn2 press (when ELF selected) | Toggle ELF mode On/Off, shows "Elevate To?" prompt |
+| Btn1+Btn2 long-press (when SETUP selected) | Reboot device |
+
+**Button actions in menus**:
+
+| Action | Effect |
+|--------|--------|
+| Btn1 short-press | Move cursor down one item (wraps to top) |
+| Btn1 long-press | Select current item |
+| Btn2 | Go back to parent menu |
+
 ### 6.2 Startup Screens
 
 #### WiFi Connecting
@@ -542,38 +560,65 @@ Protocol: GS-232B
 
 ELF (over-the-top tracking) mode is toggled from the main Az/El control screen, not from a settings menu.
 
-1. Press Btn1 repeatedly to cycle through directions until "ELF" is selected.
-2. Long-press Btn2 to toggle ELF mode On/Off.
+1. Press Btn1 repeatedly to cycle through options until "ELF" is selected.
+2. Press Btn2 to toggle ELF mode On/Off.
 3. The "Elevate To?" prompt appears, allowing you to immediately set the effective elevation or skip.
 
-When ELF mode is enabled, "ELF" is displayed on the OLED screen next to the selected direction indicator.
+When ELF mode is enabled, "ELF" is displayed on the right side of the OLED screen next to the selected direction indicator.
 
 ### 6.6 Calibration Screens
 
-Accessed by cycling to "Calibration" on the main screen and long-pressing Btn2.
+Accessed from SETUP by selecting "Rot Calibrate". Opens the calibration menu with options for Azimuth, Elevation, or Skip.
 
-#### Heading Calibration
+#### Calibration Menu
 
 ```
-CAL: HEADING
--------------
-Az: 0.8V  EL: 0.3V
+Voltage Calibration
+-------------------
+Azimuth
+Elevation
+Skip (Az=El=3.2V)
 
-Btn2:Start
-Btn2+:Reverse
+1.Nav  1|Sel  2.Back
 ```
 
-| State | Display |
-|-------|---------|
-| Ready | "Btn2:Start" / "Btn2+:Reverse" |
-| Scanning | "Dir: RIGHT" / "Scan: 5s left" / both voltages |
-| Voltage High | "VOLTAGE HIGH!" / "Turn AZ pot CCW" |
-| Voltage Low | "VOLTAGE LOW" / "Turn AZ pot CW" |
-| Complete | "CAL COMPLETE" / "V: OK" / "Btn2:Continue" / "Btn1:Exit" |
+#### Azimuth/Elevation Calibration Screen
 
-#### Elevation Interval Calibration
+When calibration is running:
 
-Similar to heading calibration but for the elevation axis.
+```
+Cal-AZ: Sweep CCW
+Moving CCW...
+· · · · · · · · · · · ·
+ AZ:  -180.0 ( 123mV)
+ EL:    45.2 (2400mV)
+· · · · · · · · · · · ·
+1.Exit 2.Back
+```
+
+**Title bar**: Shows axis being calibrated (AZ or EL) and current state:
+- `Sweep CCW` / `Sweep DOWN` — Moving to find minimum voltage
+- `Sweep CW` / `Sweep UP` — Moving to find maximum voltage
+- `Return CCW` / `Return DOWN` — Returning while pausing at cardinal headings
+- `Adjust Max` — Waiting for operator to position rotator exactly at 180°
+- `CALIBRATED` — Calibration complete
+
+**Status area**: Context-sensitive messages:
+- During sweep: `Moving CCW...` or `Moving DOWN...`
+- During return: Shows next heading to pause at (e.g., `Next: EAST`) or countdown when paused (e.g., `Stopped at: SOUTH [3]`)
+- During adjust: `Adjust Az to exactly 180 deg`
+
+**Readings area**: Always shows both Az and El positions with voltages in millivolts. During calibration of one axis, the other axis shows its normal reading.
+
+**Footer**:
+- `1.Exit 2.Back` — During calibration: Btn1 exits calibration, Btn2 goes back
+- `1.Done 2.Back` — When complete: Btn1 saves and exits, Btn2 goes back
+- `1.Retry 2.Back` — On error: Btn1 restarts calibration, Btn2 goes back
+- `1.Continue 2.Cancel` — During adjust max: Btn1 continues, Btn2 cancels
+
+#### Skip Calibration
+
+Selecting "Skip (Az=El=3.2V)" sets both axes to use fixed voltage ranges (min=0V, max=3.2V) without performing the automatic calibration sweep. Useful when the Yaesu controller's trim pots have already been adjusted to output exactly 3.2V at full scale.
 
 ### 6.7 ELF Elevation Prompt
 
@@ -730,7 +775,7 @@ Map out the wires within the 8-core screened cable connected to the DIN plug. Co
 
 Tighten all terminal screws securely.
 
-### 7.8 Power Connections
+### 7.9 Power Connections
 
 **VIN (Logic Power)**:
 - Powered via USB (5V) from a computer, USB charger, or external 5V supply.
@@ -746,7 +791,7 @@ Tighten all terminal screws securely.
 - VIN runs at 5V (from USB), VM runs at 12V (from Yaesu controller).
 - Shorting them would feed 12V into the USB socket and destroy the ESP8266 module.
 
-### 7.9 Potentiometer Calibration (Before First Power-Up)
+### 7.10 Potentiometer Calibration (Before First Power-Up)
 
 **IMPORTANT**: The Yaesu controller outputs ~4.5V by default. The ADS1115 can only handle up to 3.3V safely. You MUST adjust the trim pots on the Yaesu controller before connecting position feedback voltages to the ADS1115.
 
@@ -762,7 +807,7 @@ Tighten all terminal screws securely.
 
 Only after both pots are calibrated should you connect the feedback voltages to the ADS1115 and power up AZELCtrl.
 
-### 7.10 Firmware Installation
+### 7.11 Firmware Installation
 
 1. Install the Arduino IDE or arduino-cli on your computer.
 2. Install the ESP8266 board package.
@@ -781,16 +826,27 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 ### 8.1 Power-Up Sequence
 
 1. Connect power via USB (or VIN terminal).
-2. OLED displays "WiFi Connecting" with SSID and elapsed time.
-3. On success: "WiFi Connected!" with IP address. Press any button or wait 30 seconds.
-4. On failure: "WiFi FAILED!" with status code. Press any button or wait 30 seconds.
-5. OLED switches to the Az/El control screen.
+2. OLED displays the splash screen for 3 seconds:
+   - Product name, firmware version, date, author
+3. If mandatory settings are incomplete (rotator variant, calibration, WiFi mode), a "Missing Settings!" notice appears for 3 seconds, then the device goes directly to the SETUP menu.
+4. Otherwise, the Boot menu appears:
+   - "Rotator Ctrl" with a 3-second countdown (auto-selects if no button pressed)
+   - "Setup" option
+5. If "Rotator Ctrl" is selected and WiFi is configured:
+   - WiFi connecting screen appears with SSID and elapsed time
+   - On success: Connected screen with IP address, signal strength, 5-second countdown (press any button to skip)
+   - On failure: "WiFi Failed!" screen for 2 seconds
+6. OLED switches to the Az/El control screen.
 
 ### 8.2 Manual Control via Buttons
 
-1. Press **Btn1** repeatedly to cycle through the menu: Idle → Left → Right → Up → Down → AZ POT → EL POT → Rotator → WiFi → Calibration → Idle.
-2. Press and **hold Btn2** to move in the selected direction. Release to stop.
-3. For menu options (Rotator, WiFi, Calibration), **long-press Btn2** to enter the submenu.
+From the main Az/El control screen:
+
+1. Press **Btn1** to cycle through options: SETUP → LEFT → RIGHT → UP → DOWN → ELF
+2. Press and **hold Btn2** to move in the selected direction (LEFT/RIGHT/UP/DOWN). Release to stop.
+3. Selecting SETUP and pressing Btn2 opens the SETUP menu.
+4. Selecting ELF and pressing Btn2 toggles ELF (over-the-top) mode and shows the "Elevate To?" prompt.
+5. When SETUP is selected, holding both Btn1+Btn2 together reboots the device.
 
 ### 8.3 Remote Control via Web Interface
 
@@ -884,10 +940,10 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 
 ### 8.5 Configuring via OLED Menus
 
-- **Protocol**: Cycle to "SETUP" → long-press Btn2 → select "PC Interface" → select "Protocol" → choose GS-232A/GS-232B/Easycom.
+- **Protocol**: From main screen, cycle to "SETUP" → press Btn2 → select "PC Interface" → select "Protocol" → choose GS-232A/GS-232B/Easycom.
 - **Hamlib Server**: SETUP → "Network" → select "Hamlib Server" → toggle Yes/No.
 - **Rotator Variant**: SETUP → select "Rot Variant" → choose N360/S360/N450/S450.
-- **ELF Mode**: From main screen, cycle to "ELF" → long-press Btn2 → toggle On/Off → respond to "Elevate To?" prompt.
+- **ELF Mode**: From main screen, cycle to "ELF" → press Btn2 → toggle On/Off → respond to "Elevate To?" prompt.
 
 ## 9. Troubleshooting
 
