@@ -778,7 +778,11 @@ Map out the wires within the 8-core screened cable connected to the DIN plug. Co
 | Pin 7 | +12V from Yaesu controller | VM |
 | Pin 8 | Common ground | GND |
 
-Tighten all terminal screws securely.
+**Practical tips**:
+
+- **Do this wiring before installing the motor shield in the enclosure**. With the shield sitting on your workbench, it's much easier to position the wire ends into the screw-down terminals. If your enclosure is tight-fitting, trying to manoeuvre wires into terminal positions from inside the box can be very difficult.
+- **Keep the DIN plug disconnected from the Yaesu controller** while making these connections. Once all wires are connected and terminals tightened, use a multimeter to verify each wire goes to the correct DIN pin before plugging anything in.
+- Tighten all terminal screws securely.
 
 ### 7.9 Power Connections
 
