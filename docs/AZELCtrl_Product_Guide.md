@@ -472,52 +472,81 @@ Sel: LEFT
 
 **RX/TX Overlay**: When protocol commands are received from tracking software, they are briefly displayed on the screen. During menu interaction, a 5-second suppression timer prevents the overlay from overwriting the menu. The timer resets on any button press.
 
-### 6.4 Rotator Settings Screen
+### 6.4 SETUP Menu
 
-Accessed by cycling to "Rotator" on the main screen and long-pressing Btn2.
+Accessed from the Boot screen by selecting "Setup", or from the main Az/El control screen by cycling to "SETUP" and long-pressing Btn2.
 
 ```
-Rotator Settings
-----------------
-Protocol: GS-232B
+SETUP
+-----
+Rot Variant (N360)
+Rot Calibrate (Y)
+Network
+PC Interface
+Wipe all settings
+
+1.Nav  1|Sel  2.Back
+```
+
+| Option | Function |
+|--------|----------|
+| **Rot Variant** | Opens submenu to select N360, S360, N450, or S450 |
+| **Rot Calibrate** | Opens calibration menu for azimuth and elevation potentiometers |
+| **Network** | Opens Network submenu (see below) |
+| **PC Interface** | Opens PC Interface submenu (see below) |
+| **Wipe all settings** | Resets all configuration to factory defaults |
+
+**Button behavior**: Btn1 short-press cycles through options. Btn1 long-press selects the current option. Btn2 goes back to the previous screen.
+
+#### Network Submenu
+
+Accessed from SETUP by selecting "Network".
+
+```
+Network
+-------
+Wifi(None)
 Hamlib Server: No
-Show Commands: Yes
-Rotator Variant: N360
-ELF: Off
 
 1.Nav  1|Sel  2.Back
 ```
 
 | Option | Function |
 |--------|----------|
-| **Protocol** | Cycle through GS-232A, GS-232B, Easycom |
+| **Wifi(None)** | Opens WiFi configuration menu (Set via HTTP, Connect, etc.) |
 | **Hamlib Server** | Toggle Yes/No — determines TCP protocol (Yes=rotctl, No=configured protocol) |
-| **Show Commands** | Toggle Yes/No — show/hide RX/TX overlay on OLED |
-| **Rotator Variant** | Select N360, S360, N450, or S450 — opens blocking selection screen |
-| **ELF** | Toggle On/Off — enables/disables over-the-top tracking mode. Opens "Elevate To?" prompt on toggle. |
 
-**Button behavior**: Btn1 short-press cycles through options. Btn1 long-press or Btn2 short-press selects the current option. Btn2 long-press goes back.
+#### PC Interface Submenu
 
-### 6.5 WiFi Settings Screen
-
-Accessed by cycling to "WiFi" on the main screen and long-pressing Btn2.
+Accessed from SETUP by selecting "PC Interface".
 
 ```
-WiFi Station Settings
----------------------
-Set via HTTP
-Connect
-
-SSID: RaslouwTP
-IP: 192.168.x.x
+PC Interface
+------------
+Baud Rate: 115200
+Show Commands: Yes
+Reverse Delay: 1s
+Protocol: GS-232B
 
 1.Nav  1|Sel  2.Back
 ```
 
 | Option | Function |
 |--------|----------|
-| **Set via HTTP** | Opens captive portal for WiFi configuration via web browser |
-| **Connect/Disconnect** | Toggle WiFi connection to saved SSID |
+| **Baud Rate** | Opens submenu to select USB serial baud rate (9600–115200) |
+| **Show Commands** | Toggle Yes/No — show/hide RX/TX overlay on OLED when protocol commands are received |
+| **Reverse Delay** | Cycle through 0–3 seconds — delay before reversing motor direction to allow momentum to settle |
+| **Protocol** | Opens submenu to select GS-232A, GS-232B, or Easycom |
+
+### 6.5 ELF Mode Toggle
+
+ELF (over-the-top tracking) mode is toggled from the main Az/El control screen, not from a settings menu.
+
+1. Press Btn1 repeatedly to cycle through directions until "ELF" is selected.
+2. Long-press Btn2 to toggle ELF mode On/Off.
+3. The "Elevate To?" prompt appears, allowing you to immediately set the effective elevation or skip.
+
+When ELF mode is enabled, "ELF" is displayed on the OLED screen next to the selected direction indicator.
 
 ### 6.6 Calibration Screens
 
@@ -855,12 +884,10 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 
 ### 8.5 Configuring via OLED Menus
 
-- **Protocol**: Cycle to "Rotator" → long-press Btn2 → select "Protocol" → cycle through GS-232A/GS-232B/Easycom → confirm.
-- **Hamlib Server**: Same path → select "Hamlib Server" → toggle Yes/No.
-- **Rotator Variant**: Same path → select "Rotator Variant" → choose N360/S360/N450/S450.
-- **ELF Mode**: Same path → select "ELF" → toggle On/Off → respond to "Elevate To?" prompt.
-
----
+- **Protocol**: Cycle to "SETUP" → long-press Btn2 → select "PC Interface" → select "Protocol" → choose GS-232A/GS-232B/Easycom.
+- **Hamlib Server**: SETUP → "Network" → select "Hamlib Server" → toggle Yes/No.
+- **Rotator Variant**: SETUP → select "Rot Variant" → choose N360/S360/N450/S450.
+- **ELF Mode**: From main screen, cycle to "ELF" → long-press Btn2 → toggle On/Off → respond to "Elevate To?" prompt.
 
 ## 9. Troubleshooting
 
