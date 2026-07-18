@@ -5511,9 +5511,9 @@ void loop() {
     #endif
   }
   if (protocolTargetAzSet || protocolTargetElSet) {
-    // Rate-limit auto-stop checks to match position update rate (200ms)
+    // Rate-limit auto-stop checks to match position update rate (100ms)
     static unsigned long lastAutoStopCheck = 0;
-    if (millis() - lastAutoStopCheck >= 200) {
+    if (millis() - lastAutoStopCheck >= 100) {
       lastAutoStopCheck = millis();
       
       if (protocolTargetAzSet && !protocolAzReversing) {
@@ -5558,7 +5558,9 @@ void loop() {
         float normDiff = diff;
         if (normDiff > 180.0) normDiff -= 360.0;
         if (normDiff < -180.0) normDiff += 360.0;
-        if (abs(normDiff) <= 1.0) crossed = true;
+        // Tolerance accounts for mechanical overshoot: motor keeps moving after power cut.
+        // 3.0° stops early enough to avoid ±3-5° oscillation observed in tracking.
+        if (abs(normDiff) <= 3.0) crossed = true;
         
         if (crossed) {
           #if DEBUG_ENABLED
@@ -5580,7 +5582,8 @@ void loop() {
         bool crossed = false;
         if (elDirection == DIR_UP && diff < 0.0) crossed = true;
         if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
-        if (crossed || abs(diff) <= 1.0) {
+        // Same tolerance logic as azimuth - account for mechanical overshoot
+        if (crossed || abs(diff) <= 3.0) {
           #if DEBUG_ENABLED
           Serial.println("DBG:AUTO_EL:STOP!");
           #endif
