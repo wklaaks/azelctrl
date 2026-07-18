@@ -813,11 +813,11 @@ Steps:
 1. Rotate the azimuth rotator clockwise to the limit (maximum meter deflection).
 2. Locate the two trim pots on the Yaesu controller (adjacent to the meter calibration pots).
 3. Measure the voltage between Pin 6 and Ground at the DIN connector.
-4. Adjust the **Azimuth** trim pot until you read exactly 3.3V.
+4. Adjust the **Azimuth** trim pot until you read exactly 3.2V.
 5. Rotate the azimuth rotator counter-clockwise to the limit. Verify the voltage approaches 0V.
 6. Rotate the elevation rotator UP to the limit (maximum meter deflection).
 7. Measure the voltage between Pin 1 and Ground at the DIN connector.
-8. Adjust the **Elevation** trim pot until you read exactly 3.3V.
+8. Adjust the **Elevation** trim pot until you read exactly 3.2V.
 9. Rotate the elevation rotator DOWN to the limit. Verify the voltage approaches 0V.
 
 Only after both pots are calibrated should you connect the feedback voltages to the ADS1115 and power up AZELCtrl.
