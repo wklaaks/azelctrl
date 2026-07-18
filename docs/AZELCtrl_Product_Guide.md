@@ -519,20 +519,27 @@ Skip
 
 ### 7.1 Parts List
 
-| Item | Quantity | Notes |
-|------|----------|-------|
-| ESP8266 NodeMCU v2 (or compatible) | 1 | Must have D1–D8 GPIO pins accessible |
-| ESP-12E Motor Shield | 1 | L293DD-based, overlap-plug design |
-| SSD1306 OLED Display (128×64) | 1 | I2C interface, 3.3V |
-| ADS1115 ADC Module | 1 | 16-bit, I2C interface |
-| Push buttons (momentary, NO) | 2 | Any standard tactile switch |
-| Plastic project enclosure | 1 | Must fit motor shield + ESP8266 + OLED |
-| 8-core screened cable | 1 | For Yaesu DIN-8 connection |
-| 8-pin DIN plug | 1 | Male, for Yaesu controller |
-| Jumper wires | Assorted | Male-to-female and male-to-male |
-| 3-leg wire splitters | 2 | For I2C bus branching |
-| Insulation tape / duct tape | — | For securing OLED internally |
-| Micro-USB cable | 1 | For power and programming |
+| # | Item | Qty | Price (ZAR) | Supplier/SKU |
+|---|------|-----|-------------|--------------|
+| 1 | BMT ESP8266 NodeMCU WiFi Board [V2-ESP8266 Module ESP-12E NodeMCU Lua (V2) CP2102 USB Interface] | 1 | R100 | Communica SKU: BMT ESP8266 NODEMCU WIFI BOARD |
+| 2 | HKD ESP8266 NodeMCU Driver Board [WiFi NodeMcu Lua L293D Driver Board for ESP8266 ESP-12E] | 1 | R69 | Communica SKU: HKD ESP8266 NODEMCU DRIVER BOARD |
+| 3 | BDD I2C 0.96" OLED 128×64-Blue [0.96IN I2C IIC OLED 128×64 Blue. 3.3-5V 160°] | 1 | R62 | Communica SKU: BDD I2C 0.96IN OLED 128X64-BLUE |
+| 4 | BMT 16-bit A/D (ADC) Dev Board [New ADS1115 16 Bit A/D Module with Internal PGA-I2C. 2-5.5V VCC] | 1 | R49 | Communica SKU: BMT 16 BIT A/D (ADC) DEV BOARD |
+| 5 | XS82 Straight Inline DIN Plug (Male) • 8 way • Mini | 1 | R27 | Communica SKU: XS82 |
+| 6 | PB11C02 RED Miniature Push Button Switch • Momentary • Form: SPST-0-(1) • 0.3A-50VDC • Solder-Lug • Red-Button • Round Actuator • PTM | 2 | R20 | Communica SKU: PB11C02 RED |
+| 7 | BT2B NO RIBS [Enclosure ABS 130×70×44 "S20" Black No Ribs] | 1 | R49 | Communica SKU: BT2B NO RIBS |
+| | | | | |
+| | **Subtotal (required parts)** | | **R376** | |
+| | | | | |
+| 8 | PDC-5 Spacer Snap Fit Top Flat Base HT=5mm *(optional, for mounting)* | 9 | R1.27 each | Communica SKU: PDC-5 |
+| 9 | CAB04PR,22MSCR Mylar Screened Cable 4 pair • 0.22mm² *(optional, for Yaesu DIN connection)* | 1 m | R13.80/m | Communica SKU: CAB04PR,22MSCR |
+| | | | | |
+| | **Estimated total (with optional items)** | | **~R400** | |
+
+**Notes on optional items**:
+
+- **PDC-5 spacers**: These plastic spacers are used to mount the NodeMCU Driver Board and the ADS1115 board inside the enclosure. The plastic posts need to be trimmed slightly to fit through the small mounting holes. They snap through the board on the trimmed side, and the flat base can be glued directly into the enclosure or onto another spacer. This approach lets you lift the internal boards out of the box for servicing without permanently fixing them. Alternative mounting methods (double-sided tape, hot glue, etc.) work equally well.
+- **CAB04PR,22MSCR cable**: This 4-pair screened cable is suitable for the 8-core Yaesu DIN-8 connection. Any quality 8-core screened cable with appropriate gauge will work.
 
 ### 7.2 Tools Required
 
