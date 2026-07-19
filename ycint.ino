@@ -1173,10 +1173,10 @@ body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:cente
 h1{color:#00d4ff}
 .info{background:#16213e;padding:15px;border-radius:8px;margin:10px auto;max-width:300px}
 .info div{margin:5px 0;font-size:18px}
-.controls{margin:20px auto;max-width:300px}
-button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:8px;padding:15px 25px;font-size:16px;cursor:pointer;margin:5px;min-width:70px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 4px 0 #0a2445}
-button:active{background:#00b8d4;color:#fff;padding:17px 25px 13px 25px;box-shadow:0 1px 0 #0a2445}
-.grid{display:grid;grid-template-columns:70px 70px 70px;grid-template-rows:70px 70px;gap:5px;justify-content:center}
+.controls{margin:20px auto;max-width:320px}
+button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:8px;padding:15px 10px;font-size:14px;cursor:pointer;margin:5px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 4px 0 #0a2445}
+button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shadow:0 1px 0 #0a2445}
+.grid{display:grid;grid-template-columns:90px 90px 90px;grid-template-rows:70px 70px;gap:5px;justify-content:center}
 .stop{background:#e94560;color:white;border-color:#e94560}
 .stop:active{background:#ff6b6b}
 </style></head><body>
@@ -1190,29 +1190,31 @@ button:active{background:#00b8d4;color:#fff;padding:17px 25px 13px 25px;box-shad
 <div class='controls'>
 <div class='grid'>
 <div></div>
-<button class='dir-btn' onmousedown='sendCmd("UP")' onmouseup='sendCmd("STOP")' ontouchstart='sendCmd("UP")' ontouchend='sendCmd("STOP")'>UP</button>
+<button class='dir-btn' onmousedown='sendCmd("UP");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("UP");return false;' ontouchend='sendCmd("STOP");return false;'>UP</button>
 <div></div>
-<button class='dir-btn' onmousedown='sendCmd("LEFT")' onmouseup='sendCmd("STOP")' ontouchstart='sendCmd("LEFT")' ontouchend='sendCmd("STOP")'>LEFT</button>
-<button class='stop' onmousedown='sendCmd("STOP")' onmouseup='sendCmd("STOP")' ontouchstart='sendCmd("STOP")' ontouchend='sendCmd("STOP")'>STOP</button>
-<button class='dir-btn' onmousedown='sendCmd("RIGHT")' onmouseup='sendCmd("STOP")' ontouchstart='sendCmd("RIGHT")' ontouchend='sendCmd("STOP")'>RIGHT</button>
+<button class='dir-btn' onmousedown='sendCmd("LEFT");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("LEFT");return false;' ontouchend='sendCmd("STOP");return false;'>LEFT</button>
+<button class='stop' onmousedown='sendCmd("STOP");return false;' onmouseup='sendCmd("STOP");return false;' ontouchstart='sendCmd("STOP");return false;' ontouchend='sendCmd("STOP");return false;'>STOP</button>
+<button class='dir-btn' onmousedown='sendCmd("RIGHT");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("RIGHT");return false;' ontouchend='sendCmd("STOP");return false;'>RIGHT</button>
 <div></div>
-<button class='dir-btn' onmousedown='sendCmd("DOWN")' onmouseup='sendCmd("STOP")' ontouchstart='sendCmd("DOWN")' ontouchend='sendCmd("STOP")'>DOWN</button>
+<button class='dir-btn' onmousedown='sendCmd("DOWN");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("DOWN");return false;' ontouchend='sendCmd("STOP");return false;'>DOWN</button>
 <div></div>
 </div></div>
 <script>
-function sendCmd(c){fetch('/cmd?dir='+c)}
+function sendCmd(c){fetch('/cmd?dir='+c).catch(function(){});return false;}
 setInterval(function(){
-fetch('/status').then(r=>r.json()).then(d=>{
+fetch('/status').then(function(r){return r.json();}).then(function(d){
 document.getElementById('az').textContent=d.az;
 document.getElementById('el').textContent=d.el;
 document.getElementById('move').textContent=d.move;
-document.getElementById('status').textContent=d.pause?'PAUSE':'OK';});
-fetch('/btn').then(r=>r.json()).then(d=>{
+document.getElementById('status').textContent=d.pause?'PAUSE':'OK';
+}).catch(function(){});
+fetch('/btn').then(function(r){return r.json();}).then(function(d){
 var btns=document.querySelectorAll('.dir-btn');
 var active=null;
 if(d.btn2&&d.move!=='IDLE'){if(d.move==='LEFT')active='LEFT';else if(d.move==='RIGHT')active='RIGHT';else if(d.move==='UP')active='UP';else if(d.move==='DOWN')active='DOWN';}
 else if(d.webMove!=='IDLE'&&d.webMove!='')active=d.webMove;
 for(var i=0;i<btns.length;i++){if(btns[i].classList.contains('dir-btn')){if(btns[i].textContent===active)btns[i].style.background='#00b8d4';else btns[i].style.background='#0f3460';}}
+}).catch(function(){});
 },300);</script>
 </body></html>
 )RAWHTML";
