@@ -1173,6 +1173,7 @@ body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:cente
 h1{color:#00d4ff}
 .info{background:#16213e;padding:15px;border-radius:8px;margin:10px auto;max-width:300px}
 .info div{margin:5px 0;font-size:18px}
+.val{font-family:'Courier New',monospace;display:inline-block;text-align:right;min-width:6ch}
 .controls{margin:20px auto;max-width:320px}
 button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:8px;padding:15px 10px;font-size:14px;cursor:pointer;margin:5px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 4px 0 #0a2445}
 button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shadow:0 1px 0 #0a2445}
@@ -1182,8 +1183,8 @@ button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shad
 </style></head><body>
 <h1>Rotator Control</h1>
 <div class='info'>
-<div>Az: <span id='az'>--</span>&deg;</div>
-<div>El: <span id='el'>--</span>&deg;</div>
+<div>Az: <span class='val' id='az'>--</span>&deg;</div>
+<div>El: <span class='val' id='el'>--</span>&deg;</div>
 <div>Move: <span id='move'>IDLE</span></div>
 <div>Status: <span id='status'>OK</span></div>
 </div>
@@ -1200,11 +1201,12 @@ button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shad
 <div></div>
 </div></div>
 <script>
+function padNum(v){var s=parseFloat(v).toFixed(1);while(s.length<6)s=' '+s;return s;}
 function sendCmd(c){fetch('/cmd?dir='+c).catch(function(){});return false;}
 setInterval(function(){
 fetch('/status').then(function(r){return r.json();}).then(function(d){
-document.getElementById('az').textContent=d.az;
-document.getElementById('el').textContent=d.el;
+document.getElementById('az').textContent=padNum(d.az);
+document.getElementById('el').textContent=padNum(d.el);
 document.getElementById('move').textContent=d.move;
 document.getElementById('status').textContent=d.pause?'PAUSE':'OK';
 }).catch(function(){});
