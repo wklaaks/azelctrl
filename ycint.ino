@@ -133,8 +133,13 @@ const unsigned long BTN2_LONG_MS = 500;      // Btn2 long press for calibration 
 
 // ==================== WiFi AP SETTINGS ====================
 const char* AP_SSID = "AZELCTRL";
-const char* AP_PASS = "yaesu";
 const char* AP_IP   = "192.168.4.1";
+char apPassword[6];  // 5-digit password + null terminator
+
+// AP Password EEPROM storage (bytes 91-95: 5 digits + magic)
+#define AP_PASS_EEPROM_START 91
+#define AP_PASS_EEPROM_MAGIC 96
+#define AP_PASS_EEPROM_MAGIC_VAL 0x41  // 'A'
 
 // ==================== OBJECTS ====================
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
@@ -830,7 +835,7 @@ void startApMode() {
   wifiState = WIFI_AP_MODE;
   
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASS);
+  WiFi.softAP(AP_SSID, apPassword);
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
@@ -1636,6 +1641,32 @@ void saveWifiMode() {
   EEPROM.write(WIFI_MODE_MAGIC, WIFI_MODE_MAGIC_VAL);
   EEPROM.commit();
   Serial.println("WIFI: WiFi mode saved to EEPROM");
+}
+
+void loadApPassword() {
+  uint8_t magic = EEPROM.read(AP_PASS_EEPROM_MAGIC);
+  if (magic == AP_PASS_EEPROM_MAGIC_VAL) {
+    for (int i = 0; i < 5; i++) {
+      apPassword[i] = EEPROM.read(AP_PASS_EEPROM_START + i);
+    }
+    apPassword[5] = '\0';
+    Serial.print("AP: Loaded password = ");
+    Serial.println(apPassword);
+  } else {
+    // Default password
+    strcpy(apPassword, "yaesu");
+    Serial.println("AP: Using default password");
+  }
+}
+
+void saveApPassword() {
+  for (int i = 0; i < 5; i++) {
+    EEPROM.write(AP_PASS_EEPROM_START + i, apPassword[i]);
+  }
+  EEPROM.write(AP_PASS_EEPROM_MAGIC, AP_PASS_EEPROM_MAGIC_VAL);
+  EEPROM.commit();
+  Serial.print("AP: Password saved = ");
+  Serial.println(apPassword);
 }
 
 bool hasRotatorModel() {
@@ -3292,6 +3323,7 @@ void actionCalibrateEl();
 void actionBackToMain();
 void actionRetryWifi();
 void actionApStatus();
+void actionRegenApPassword();
 void actionRotatorModel();
 void actionBootSkip();
 void actionBootSetup();
@@ -3609,8 +3641,7 @@ MenuItem wifiConnectItems[] = {
 MenuItem apModeItems[] = {
   {"Rotator Control", actionRotatorControl, 5, true, nullptr, nullptr},
   {"AP Status", actionApStatus, 0, true, nullptr, nullptr},
-  {"Retry Home WiFi", actionRetryWifi, 0, true, nullptr, nullptr},
-  {"Calibrate Pots", actionCalibratePots, 0, true, nullptr, nullptr}
+  {"Regen AP Password", actionRegenApPassword, 0, true, nullptr, nullptr}
 };
 
 // Voltage Calibration Menu
@@ -3625,7 +3656,7 @@ Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &bootMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
-Menu apModeMenu("AP Mode", apModeItems, 4, nullptr);
+Menu apModeMenu("AP Mode", apModeItems, 3, nullptr);
 Menu calPotsMenu("Voltage Calibration", calPotsItems, 3, &setupMenu);
 
 // Current active menu (nullptr = rotator control mode)
@@ -3819,7 +3850,7 @@ void actionConnectWifi() {
     String countLine = "Continuing in 5s...";
     String ssidLine = "SSID: " + savedSsid;
     String apSsidLine = "SSID: " + String(AP_SSID);
-    String apPassLine = "Pass: " + String(AP_PASS);
+    String apPassLine = "Pass: " + String(apPassword);
     const char* lines[] = {
       ssidLine.c_str(),
       "",
@@ -3956,7 +3987,7 @@ void actionApStatus() {
   
   // Keep String objects alive to avoid dangling pointers
   String ssidLine = "SSID: " + String(AP_SSID);
-  String passLine = "Pass: " + String(AP_PASS);
+  String passLine = "Pass: " + String(apPassword);
   String ipLine = "IP: " + String(AP_IP);
   const char* lines[] = {
     "AP Mode Active",
@@ -3985,6 +4016,91 @@ void actionApStatus() {
       return;
     }
     if (!digitalRead(BTN2)) {
+      delay(300);
+      currentMenu = &apModeMenu;
+      currentMenu->init();
+      return;
+    }
+    delay(50);
+  }
+}
+
+void actionRegenApPassword() {
+  Serial.println("Action: Regen AP Password");
+  
+  // Wait for button to fully release after long press
+  delay(500);
+  while (digitalRead(BTN1) || !digitalRead(BTN2)) {
+    delay(50);
+  }
+  
+  // Show "Generating..." screen
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 12);
+  display.println("Generating");
+  display.setTextSize(1);
+  display.setCursor(0, 30);
+  display.println("new password...");
+  display.display();
+  
+  // Collect entropy by measuring button press timing
+  // First, wait for button press
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 12);
+  display.println("Press");
+  display.setCursor(0, 28);
+  display.println("Btn1");
+  display.display();
+  
+  unsigned long pressTime = 0;
+  while (!digitalRead(BTN1)) {
+    delay(10);
+  }
+  delay(200);
+  pressTime = millis();
+  
+  // Generate random 5-digit number using button press time as seed
+  randomSeed(pressTime + micros());
+  int newPassword = random(10000, 100000);
+  
+  // Convert to string and save
+  char buf[6];
+  sprintf(buf, "%05d", newPassword);
+  strcpy(apPassword, buf);
+  saveApPassword();
+  
+  // Show the new password
+  String passStr = String(apPassword);
+  String line1 = "New AP";
+  String line2 = "Password:";
+  String line3 = passStr;
+  
+  // Keep strings alive
+  const char* lines[] = {
+    line1.c_str(),
+    line2.c_str(),
+    "",
+    line3.c_str(),
+    ""
+  };
+  
+  Menu::drawNotice("AP Password", lines, 5, "1.OK", true);
+  
+  // Wait for button to fully release
+  delay(500);
+  while (digitalRead(BTN1) || !digitalRead(BTN2)) {
+    delay(50);
+  }
+  delay(100);
+  
+  // Wait indefinitely for Btn1 press to acknowledge
+  while (true) {
+    if (checkModeCommand()) return;
+    if (digitalRead(BTN1)) {
       delay(300);
       currentMenu = &apModeMenu;
       currentMenu->init();
@@ -5356,6 +5472,7 @@ void setup() {
   
   // Load saved WiFi mode
   loadWifiMode();
+  loadApPassword();
 
   // If mandatory settings missing, show "Missing Settings" then go straight to setup
   if (!allSetupComplete()) {

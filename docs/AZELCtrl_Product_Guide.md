@@ -868,8 +868,7 @@ AP Mode
 -------
 Rotator Control
 AP Status
-Retry Home WiFi
-Calibrate Pots
+Regen AP Password
 
 · · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
@@ -878,14 +877,35 @@ Calibrate Pots
 | Option | Function |
 |--------|----------|
 | **Rotator Control** | Enter the main rotator control screen while running as an Access Point (auto-selects after 5 seconds) |
-| **AP Status** | Show AP information (SSID, IP, connected clients) |
-| **Retry Home WiFi** | Attempt to connect to the saved Station SSID |
-| **Calibrate Pots** | Open the Voltage Calibration menu directly |
+| **AP Status** | Show AP information (SSID, password, IP) |
+| **Regen AP Password** | Generate a new random 5-digit password for AP access |
 
 **Controls**:
 - Btn1 short-press: Cycle through options
 - Btn1 long-press: Select current option
 - Btn2: Go back to SETUP menu
+
+**AP Password**: By default, the AP password is "yaesu". You can generate a new random 5-digit password by selecting "Regen AP Password". The process:
+1. Screen shows "Generating new password..."
+2. Press Btn1 to provide timing entropy for randomness
+3. New 5-digit password is displayed — note it down!
+4. Press Btn1 to acknowledge and return to AP Mode menu
+
+**AP Status screen** shows:
+```
+AP Status
+---------
+AP Mode Active
+
+SSID: AZELCTRL
+Pass: yaesu
+IP: 192.168.4.1
+
+· · · · · · · · · · · · · · · ·
+1.OK 2.Back
+```
+
+Press Btn1 to return to AP Mode menu.
 
 #### PC Interface Submenu
 
