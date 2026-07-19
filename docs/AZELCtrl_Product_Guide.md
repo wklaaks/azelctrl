@@ -883,7 +883,7 @@ Regen AP Password
 - Btn1 long-press: Select current option
 - Btn2: Go back to WiFi Mode menu
 
-**AP Password**: By default, the AP password is "yaesu123". You can generate a new random 8-character password by selecting "Regen AP Password". The process:
+**AP Mode**: When enabled, the device creates a WiFi access point with SSID "AZELCTRL_XXXX" where XXXX is the last 4 hex digits of the device MAC address. This allows distinguishing multiple devices. By default, the AP password is "yaesu123". You can generate a new random 8-character password by selecting "Regen AP Password". The process:
 1. Screen shows "Generating new password..."
 2. Press Btn1 to provide timing entropy for randomness
 3. New 8-character password is displayed — note it down!
@@ -899,6 +899,8 @@ AP Mode Active
 SSID: AZELCTRL
 Pass: yaesu123
 IP: 192.168.4.1
+
+The SSID shown is the actual SSID the device is broadcasting (e.g., AZELCTRL_4D49A1). Connect to this network using the password shown.
 
 · · · · · · · · · · · · · · · ·
 1.OK 2.Back

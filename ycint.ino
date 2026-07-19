@@ -132,7 +132,7 @@ const unsigned long BTN_LONG_MS = 800;       // Long press threshold for menu se
 const unsigned long BTN2_LONG_MS = 500;      // Btn2 long press for calibration reverse
 
 // ==================== WiFi AP SETTINGS ====================
-const char* AP_SSID = "AZELCTRL";
+char apSsid[17];  // "AZELCTRL_" (9) + 4 hex digits + null = 14 max
 const char* AP_IP   = "192.168.4.1";
 char apPassword[9] = "yaesu123";  // 8 chars minimum for WPA2 + null terminator
 
@@ -140,6 +140,13 @@ char apPassword[9] = "yaesu123";  // 8 chars minimum for WPA2 + null terminator
 #define AP_PASS_EEPROM_START 91
 #define AP_PASS_EEPROM_MAGIC 99
 #define AP_PASS_EEPROM_MAGIC_VAL 0x41  // 'A'
+
+void initApSsid() {
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  snprintf(apSsid, sizeof(apSsid), "AZELCTRL_%04X", (uint16_t)((mac[4] << 8) | mac[5]));
+  Serial.println("AP SSID: " + String(apSsid));
+}
 
 // ==================== OBJECTS ====================
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
@@ -845,11 +852,11 @@ void startApMode() {
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
-  bool ok = WiFi.softAP(AP_SSID, apPassword);
+  bool ok = WiFi.softAP(apSsid, apPassword);
   if (!ok) {
     Serial.println("AP: softAP failed, retrying...");
     delay(200);
-    ok = WiFi.softAP(AP_SSID, apPassword);
+    ok = WiFi.softAP(apSsid, apPassword);
   }
   if (!ok) {
     Serial.println("AP: softAP STILL failed!");
@@ -858,7 +865,7 @@ void startApMode() {
   setupWebServer();
   startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
   
-  Serial.println("AP Mode: " + String(AP_SSID));
+  Serial.println("AP Mode: " + String(apSsid));
   Serial.println("IP: " + String(AP_IP));
 }
 
@@ -973,7 +980,7 @@ void startCaptivePortal() {
   deviceWifiMode = MODE_AP;
   
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID);  // Open for captive portal setup
+  WiFi.softAP(apSsid);  // Open for captive portal setup
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
@@ -984,7 +991,7 @@ void startCaptivePortal() {
   server.onNotFound(handlePortal);
   server.begin();
   
-  Serial.println("Captive portal started on " + String(AP_SSID));
+  Serial.println("Captive portal started on " + String(apSsid));
 }
 
 void stopCaptivePortal() {
@@ -3687,7 +3694,7 @@ void actionSetWifi() {
   
   const char* lines[] = {
     "Connect phone to:",
-    AP_SSID,
+    apSsid,
     "",
     "IP: 192.168.4.1",
     ""
@@ -3863,7 +3870,7 @@ void actionConnectWifi() {
     // Show notice screen with countdown
     String countLine = "Continuing in 5s...";
     String ssidLine = "SSID: " + savedSsid;
-    String apSsidLine = "SSID: " + String(AP_SSID);
+    String apSsidLine = "SSID: " + String(apSsid);
     String apPassLine = "Pass: " + String(apPassword);
     const char* lines[] = {
       ssidLine.c_str(),
@@ -4587,7 +4594,7 @@ void showStationSettings() {
 
           const char* lines[] = {
             "Connect phone to:",
-            AP_SSID,
+            apSsid,
             "",
             "IP: 192.168.4.1",
             ""
@@ -5495,6 +5502,7 @@ void setup() {
   // Load saved WiFi mode
   loadWifiMode();
   loadApPassword();
+  initApSsid();
 
   // If mandatory settings missing, show "Missing Settings" then go straight to setup
   if (!allSetupComplete()) {
