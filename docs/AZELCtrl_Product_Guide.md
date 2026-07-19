@@ -499,15 +499,15 @@ Every menu screen displays a footer line that tells you which button action to u
 | Symbol | Meaning |
 |--------|---------|
 | `1.` | Short-press Btn1 (tap and release quickly) |
-| `1|` | Long-press Btn1 (press and hold for ~1 second) |
+| `1\|` | Long-press Btn1 (press and hold for ~1 second) |
 | `1!` | Hold Btn1 (press and continue holding until action completes) |
 | `2.` | Short-press Btn2 |
-| `2|` | Long-press Btn2 |
+| `2\|` | Long-press Btn2 |
 | `2!` | Hold Btn2 |
 
-The separator between actions is a space and a period (` . `) or a pipe (` | `). For example:
+The separator between actions is a space and a period (` . `) or a pipe (` \| `). For example:
 
-- `1.Nav 1|Sel 2.Back` means: short-press Btn1 to navigate, long-press Btn1 to select, short-press Btn2 to go back
+- `1.Nav 1\|Sel 2.Back` means: short-press Btn1 to navigate, long-press Btn1 to select, short-press Btn2 to go back
 - `1.OK 2.Back` means: short-press Btn1 to confirm, short-press Btn2 to go back
 - `1.Done 2.Cancel` means: short-press Btn1 to finish, short-press Btn2 to cancel
 
