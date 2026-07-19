@@ -3653,7 +3653,7 @@ MenuItem calPotsItems[] = {
 // Menu instances
 Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
-Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &bootMenu);
+Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &networkMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
 Menu apModeMenu("AP Mode", apModeItems, 2, &wifiModeMenu);
 Menu calPotsMenu("Voltage Calibration", calPotsItems, 3, &setupMenu);
