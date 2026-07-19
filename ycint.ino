@@ -862,6 +862,9 @@ void startApMode() {
     Serial.println("AP: softAP STILL failed!");
   }
   
+  // Start DNS server for captive portal effect (opens browser automatically)
+  dnsServer.start(53, "*", apIP);
+  
   setupWebServer();
   startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
   
@@ -870,6 +873,7 @@ void startApMode() {
 }
 
 void stopApMode() {
+  dnsServer.stop();
   WiFi.mode(WIFI_OFF);
   wifiState = WIFI_IDLE;
 }
@@ -5551,6 +5555,11 @@ void loop() {
     server.handleClient();
   } else {
     tickCaptivePortal();
+  }
+  
+  // Process DNS for captive portal effect (both captive portal and AP mode)
+  if (captivePortalActive || wifiState == WIFI_AP_MODE) {
+    dnsServer.processNextRequest();
   }
   
   // Tick WiFi connection
