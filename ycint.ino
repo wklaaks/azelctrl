@@ -985,7 +985,6 @@ void stopCaptivePortal() {
   captivePortalActive = false;
   dnsServer.stop();
   server.stop();
-  WiFi.mode(WIFI_OFF);
 }
 
 // ==================== ROTCTL TCP SERVER ====================
