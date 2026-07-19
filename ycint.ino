@@ -831,9 +831,13 @@ void connectWifiSta() {
 }
 
 void startApMode() {
+  // Stop captive portal if running (it uses open AP)
+  stopCaptivePortal();
+  
   deviceWifiMode = MODE_AP;
   wifiState = WIFI_AP_MODE;
   
+  WiFi.disconnect();
   WiFi.mode(WIFI_AP);
   delay(100);  // Allow WiFi mode to settle
   bool ok = WiFi.softAP(AP_SSID, apPassword);
@@ -3993,6 +3997,9 @@ void actionApStatus() {
   // Get actual SSID and IP from WiFi (in case softAP used fallback)
   String actualSsid = WiFi.softAPSSID();
   IPAddress apIp = WiFi.softAPIP();
+  if (apIp == IPAddress(0,0,0,0)) {
+    apIp = IPAddress(192, 168, 4, 1);  // Fallback to configured IP
+  }
   
   // Keep String objects alive to avoid dangling pointers
   String ssidLine = "SSID: " + actualSsid;

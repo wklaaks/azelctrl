@@ -784,7 +784,7 @@ Selecting "Network" opens the network settings menu:
 ```
 Network
 -------
-Wifi(Station)
+WiFi Mode(Station)
 Hamlib Server (Y)
 
 · · · · · · · · · · · · · · · ·
@@ -793,7 +793,7 @@ Hamlib Server (Y)
 
 | Option | Function |
 |--------|----------|
-| **Wifi(label)** | Opens WiFi Mode submenu to select Station, Access Point, or Disable. Label reflects current mode: `Wifi(None)` (not set), `Wifi(Station)`, `Wifi(AP)`, or `Wifi(Disabled)` |
+| **Wifi(label)** | Opens WiFi Mode submenu to select Station, Access Point, or Disable. Label reflects current mode: `WiFi Mode(None)` (not set), `WiFi Mode(Station)`, `WiFi Mode(AP)`, or `WiFi Mode(Disabled)` |
 | **Hamlib Server** | Toggle Yes/No — determines TCP protocol: Yes = rotctl text protocol, No = configured serial protocol (GS-232A, GS-232B, or Easycom). Footer shows current toggle action (e.g., `1.Nav 1|Yes 2.Back`) |
 
 **Controls**:
@@ -903,7 +903,7 @@ IP: 192.168.4.1
 1.OK 2.Back
 ```
 
-Press Btn1 to return to AP Mode menu.
+The SSID shown is the actual SSID the device is broadcasting. Connect to this network using the password shown. Press Btn1 to return to AP Mode menu.
 
 #### PC Interface Submenu
 
@@ -1276,7 +1276,7 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 
 When AZELCtrl has no WiFi credentials saved (fresh flash or after wiping all settings), you can configure WiFi using the captive portal:
 
-1. From the SETUP menu, select "Network" → "Set WiFi Creds" (or "Wifi(None)").
+1. From the SETUP menu, select "Network" → "WiFi Mode(None)".
 2. AZELCtrl starts an open WiFi access point named **AZELCTRL**.
 3. The OLED shows: "Connect phone to: AZELCTRL" and "IP: 192.168.4.1".
 4. On your phone or laptop, open WiFi settings and connect to the **AZELCTRL** network (no password required).
