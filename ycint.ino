@@ -5374,6 +5374,12 @@ void setupWebServer() {
     sendProgmemHTML(html_rotator);
   });
   
+  server.onNotFound([]() {
+    // Redirect all unknown requests to main page (captive portal detection)
+    Serial.println("Web: notFound -> redirecting to main page");
+    sendProgmemHTML(html_rotator);
+  });
+  
   server.on("/cmd", []() {
     String dir = server.arg("dir");
     Serial.print("Web command: ");
