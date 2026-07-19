@@ -4007,7 +4007,6 @@ void actionApStatus() {
   String ipLine = "IP: " + apIp.toString();
   const char* lines[] = {
     "AP Mode Active",
-    "",
     ssidLine.c_str(),
     passLine.c_str(),
     ipLine.c_str()

@@ -894,7 +894,6 @@ Regen AP Password
 AP Status
 ---------
 AP Mode Active
-
 SSID: AZELCTRL
 Pass: yaesu
 IP: 192.168.4.1
