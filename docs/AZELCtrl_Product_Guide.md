@@ -563,8 +563,7 @@ Setup
 When "Rotator Ctrl" is selected and WiFi mode is set to Station, the WiFi connecting screen appears:
 
 ```
-WiFi
-Connect
+WiFi Connect
 
 SSID: YourWifiSSID
 Waiting: 3s
@@ -604,32 +603,84 @@ Shows the SSID that failed and the WiFi status code. Displays for 2 seconds, the
 
 ### 6.3 Main Az/El Control Screen
 
-```
-Azimuth/Elevation
------------------
-Az: 125.3d
-El: 45.2d
-Move: RIGHT
+This is the primary screen shown when the rotator controller is running. It has no title bar — the full display is used for position values.
 
-Sel: LEFT
-1.Nav  1|Sel  2.Back
+**Normal idle state** (no movement, no protocol commands):
+
+```
+Az:  125.3d →
+El:   45.2d ↑
+
+Sel: LEFT    ELF
+
+· · · · · · · · · · · · · · · ·
+1.Cycle 2!Go
 ```
 
 | Line | Content |
 |------|---------|
-| 1 | Screen title: "Azimuth/Elevation" |
-| 2 | Separator line |
-| 3 | Azimuth position (degrees) — from ADC |
-| 4 | Elevation position (degrees) — from ADC |
-| 5 | Current movement direction (UP/DOWN/LEFT/RIGHT/IDLE) |
-| 6 | Currently selected menu option |
-| 7 | Button instructions: `1` = Btn1 short-press, `1|` = Btn1 long-press, `2` = Btn2 short-press |
+| 1 | Azimuth position (large font) with optional movement arrow (→ for CW, ← for CCW) on the right |
+| 2 | Elevation position (large font) with optional movement arrow (↑ for UP, ↓ for DOWN) on the right |
+| 3 | When idle: `Sel:` followed by the currently selected direction (SETUP/LEFT/RIGHT/UP/DOWN). When ELF mode is enabled, `ELF` appears right-aligned on this line. |
+| 4 | Dotted separator line above the footer |
+| 5 | Button instructions footer |
 
-**UP/DOWN Arrows**: When elevation is moving, an arrow appears next to the EL value indicating direction. In ELF mode, arrows reflect **effective** satellite direction, not physical motor direction. Arrows hide completely when idle.
+**When moving** (but no protocol commands showing):
 
-**ELF Indicator**: When ELF mode is enabled, "ELF" is displayed right-aligned next to "Sel" on the rotator settings screen.
+```
+Az:  125.3d
+El:   45.2d
 
-**RX/TX Overlay**: When protocol commands are received from tracking software, they are briefly displayed on the screen. During menu interaction, a 5-second suppression timer prevents the overlay from overwriting the menu. The timer resets on any button press.
+Moving: RIGHT
+
+· · · · · · · · · · · · · · · ·
+1.Cycle 2!Go
+```
+
+Line 3 shows `Moving: direction` instead of `Sel:` while motors are active.
+
+**When receiving protocol commands** (if Show Commands is enabled):
+
+```
+Az:  125.3d
+El:   45.2d
+
+· · · · · · · · · · · · · · · ·
+RX: C
+TX: AZ=125 EL=045
+```
+
+Lines 3-4 show the last received command (RX) and response (TX). This overlay is suppressed for 5 seconds after any button press so the menu stays visible during interaction.
+
+**SAFETY PAUSE screen** (shown when reversing direction):
+
+```
+SAFETY PAUSE
+------------
+AZ axis
+125.3d El: 45.2d
+
+· · · · · · · · · · · · · · · ·
+1.Cycle 2!Go
+```
+
+Title bar shows "SAFETY PAUSE" with which axis is pausing. Press Btn2 to skip the pause and continue immediately.
+
+**TCP Connection Indicator**: When a tracking software is connected via TCP, a small white dot appears in the top-right corner of the screen.
+
+**Footer varies by selection**:
+- SETUP selected: `1.Cycle 2!Go 1+2!|RST` (1+2 long-press reboots)
+- ELF selected (on): `1.Cycle 2!Off`
+- ELF selected (off): `1.Cycle 2!On`
+- Direction selected: `1.Cycle 2!Go`
+
+**Movement arrows**: Arrows on the Az/El lines indicate which axis is currently moving:
+- Azimuth: → (right arrow) for CW, ← (left arrow) for CCW
+- Elevation: ↑ (up arrow) for UP, ↓ (down arrow) for DOWN
+- In ELF mode, elevation arrows reflect **effective** satellite direction (swapped from physical motor direction)
+- Arrows disappear when the axis is idle
+
+**ELF Indicator**: When ELF mode is enabled, "ELF" is displayed right-aligned on the `Sel:` line.
 
 ### 6.4 SETUP Menu
 
