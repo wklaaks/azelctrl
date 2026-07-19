@@ -1169,15 +1169,15 @@ const char html_rotator[] PROGMEM = R"RAWHTML(
 <title>Rotator Control</title>
 <meta name='viewport' content='width=device-width,initial-scale=1.0'>
 <style>
-body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:center;margin:0;padding:20px}
-h1{color:#00d4ff}
-.info{background:#16213e;padding:15px;border-radius:8px;margin:10px auto;max-width:300px}
-.info div{margin:5px 0;font-size:18px}
+body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:center;margin:0;padding:15px}
+h1{color:#00d4ff;font-size:28px;margin:10px 0}
+.info{background:#16213e;padding:20px;border-radius:10px;margin:15px auto;max-width:340px}
+.info div{margin:8px 0;font-size:24px}
 .val{font-family:'Courier New',monospace;display:inline-block;text-align:right;min-width:6ch}
-.controls{margin:20px auto;max-width:320px}
-button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:8px;padding:15px 10px;font-size:14px;cursor:pointer;margin:5px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 4px 0 #0a2445}
-button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shadow:0 1px 0 #0a2445}
-.grid{display:grid;grid-template-columns:90px 90px 90px;grid-template-rows:70px 70px;gap:5px;justify-content:center}
+.controls{margin:25px auto;max-width:340px}
+button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:10px;padding:18px 12px;font-size:18px;cursor:pointer;margin:6px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 5px 0 #0a2445}
+button:active{background:#00b8d4;color:#fff;padding:20px 12px 16px 12px;box-shadow:0 2px 0 #0a2445}
+.grid{display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:80px 80px;gap:6px;justify-content:center}
 .stop{background:#e94560;color:white;border-color:#e94560}
 .stop:active{background:#ff6b6b}
 </style></head><body>
