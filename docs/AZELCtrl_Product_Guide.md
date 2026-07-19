@@ -793,7 +793,7 @@ Hamlib Server (Y)
 
 | Option | Function |
 |--------|----------|
-| **Wifi(label)** | Opens WiFi Mode submenu to select Station, Access Point, or Disable. Label reflects current mode: `WiFi Mode(None)` (not set), `WiFi Mode(Station)`, `WiFi Mode(AP)`, or `WiFi Mode(Disabled)` |
+| **WiFi Mode(label)** | Opens WiFi Mode submenu to select Station, Access Point, or Disable. Label reflects current mode: `WiFi Mode(None)` (not set), `WiFi Mode(Station)`, `WiFi Mode(AP)`, or `WiFi Mode(Disabled)` |
 | **Hamlib Server** | Toggle Yes/No — determines TCP protocol: Yes = rotctl text protocol, No = configured serial protocol (GS-232A, GS-232B, or Easycom). Footer shows current toggle action (e.g., `1.Nav 1|Yes 2.Back`) |
 
 **Controls**:
@@ -803,7 +803,7 @@ Hamlib Server (Y)
 
 ##### WiFi Mode Submenu
 
-Selecting the Wifi line opens the WiFi Mode submenu:
+Selecting the WiFi Mode line opens the WiFi Mode submenu:
 
 ```
 WiFi Mode
@@ -846,7 +846,7 @@ Passwd: a*..*z
 
 | Option | Function |
 |--------|----------|
-| **Set via HTTP** | Starts a captive portal (SSID: AZELCTRL, IP: 192.168.4.1). Connect your phone/laptop to the AZELCTRL network and open a browser to configure your home WiFi credentials |
+| **Set via HTTP** | Starts a captive portal (SSID: AZELCTRL_XXXX, IP: 192.168.4.1). Connect your phone/laptop to the device network and open a browser to configure your home WiFi credentials |
 | **Connect** | Connects to the saved SSID. Label changes to "Disconnect" when connected |
 
 **Information displayed**:
@@ -876,7 +876,7 @@ Regen AP Password
 | Option | Function |
 |--------|----------|
 | **AP Status** | Show AP information (SSID, password, IP) |
-| **Regen AP Password** | Generate a new random 5-digit password for AP access |
+| **Regen AP Password** | Generate a new random 8-character alphanumeric password for AP access |
 
 **Controls**:
 - Btn1 short-press: Cycle through options
@@ -896,17 +896,15 @@ Regen AP Password
 AP Status
 ---------
 AP Mode Active
-SSID: AZELCTRL
+SSID: AZELCTRL_4D49A1
 Pass: yaesu123
 IP: 192.168.4.1
-
-The SSID shown is the actual SSID the device is broadcasting (e.g., AZELCTRL_4D49A1). Connect to this network using the password shown.
 
 · · · · · · · · · · · · · · · ·
 1.OK 2.Back
 ```
 
-The SSID shown is the actual SSID the device is broadcasting. Connect to this network using the password shown. Press Btn1 to return to AP Mode menu.
+The SSID shown is the actual SSID the device is broadcasting (e.g., AZELCTRL_4D49A1). Connect to this network using the password shown. When connected, the browser automatically opens to the Rotator Control web interface. Press Btn1 to return to AP Mode menu.
 
 #### PC Interface Submenu
 
@@ -1280,13 +1278,13 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 When AZELCtrl has no WiFi credentials saved (fresh flash or after wiping all settings), you can configure WiFi using the captive portal:
 
 1. From the SETUP menu, select "Network" → "WiFi Mode(None)".
-2. AZELCtrl starts an open WiFi access point named **AZELCTRL**.
-3. The OLED shows: "Connect phone to: AZELCTRL" and "IP: 192.168.4.1".
-4. On your phone or laptop, open WiFi settings and connect to the **AZELCTRL** network (no password required).
+2. AZELCtrl starts an open WiFi access point named **AZELCTRL_XXXX** (where XXXX is the last 4 digits of the device MAC address).
+3. The OLED shows: "Connect phone to: AZELCTRL_XXXX" and "IP: 192.168.4.1".
+4. On your phone or laptop, open WiFi settings and connect to the **AZELCTRL_XXXX** network (no password required).
 5. Open a web browser and navigate to any address (e.g., 192.168.4.1). You'll see the AZELCTRL Setup page.
 6. Enter your home WiFi SSID (network name) and password.
 7. Tap "Save & Connect". AZELCtrl saves the credentials to EEPROM and stops the captive portal.
-8. Disconnect your phone/laptop from the AZELCTRL network.
+8. Disconnect your phone/laptop from the AZELCTRL_XXXX network.
 9. On the AZELCtrl OLED, press Btn1 to return to the Network menu, then select "Connect WiFi" and press Btn2 to start connecting to your home network.
 10. Wait for the connection to complete. If successful, the IP address will be displayed.
 
@@ -1323,11 +1321,20 @@ From the main Az/El control screen:
 
 ### 8.3 Remote Control via Web Interface
 
-1. Connect a device to the same WiFi network as AZELCtrl.
-2. Open a web browser and navigate to the IP address shown on the OLED.
-3. Use the directional buttons (UP/LEFT/RIGHT/DOWN) — press and hold to move.
-4. Press STOP to halt all movement.
-5. Positions and status update automatically every 300ms.
+The web interface provides a touch-friendly control panel for operating the rotator from a phone, tablet, or computer.
+
+**Accessing the web interface:**
+
+- **AP Mode**: Connect to the AZELCTRL_XXXX network (password: yaesu123 or your custom password). The browser automatically opens to the Rotator Control page.
+- **Station Mode**: Connect to the same WiFi network as AZELCtrl, then open a browser and navigate to the IP address shown on the OLED.
+
+**Web interface features:**
+
+- **Azimuth and Elevation** — Current position displayed with aligned decimal points
+- **Moving status** — Shows current direction (IDLE, LEFT, RIGHT, UP, DOWN)
+- **Directional buttons** — UP, LEFT, RIGHT, DOWN, and STOP arranged in a grid layout
+- **Press and hold** — Tap and hold a direction button to move; release to stop
+- **Real-time updates** — Position and status refresh every 300ms
 
 ### 8.4 Connecting Tracking Software
 
