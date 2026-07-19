@@ -649,35 +649,184 @@ Wipe all settings
 
 | Option | Function |
 |--------|----------|
-| **Rot Variant** | Opens submenu to select N360, S360, N450, or S450 |
-| **Rot Calibrate** | Opens calibration menu for azimuth and elevation potentiometers |
+| **Rot Variant** | Opens rotator model selection screen to choose N360, S360, N450, or S450 |
+| **Rot Calibrate** | Opens the Voltage Calibration menu for azimuth and elevation potentiometers |
 | **Network** | Opens Network submenu (see below) |
 | **PC Interface** | Opens PC Interface submenu (see below) |
-| **Wipe all settings** | Resets all configuration to factory defaults |
+| **Wipe all settings** | Resets all configuration to factory defaults (with confirmation) |
+
+**Labels update dynamically**:
+- **Rot Variant**: Shows current model in parentheses when configured (e.g., "Rot Variant (N360)"), or just "Rot Variant" if not yet set.
+- **Rot Calibrate**: Shows "(Y)" if both axes are calibrated, "(N)" if either axis is uncalibrated.
+- **Back button**: Hidden until all mandatory settings are configured (rotator model selected, both axes calibrated, WiFi mode set).
 
 **Button behavior**: Btn1 short-press cycles through options. Btn1 long-press selects the current option. Btn2 goes back to the previous screen.
 
-#### Network Submenu
+#### Rotator Variant Selection Screen
 
-Accessed from SETUP by selecting "Network".
+Selecting "Rot Variant" opens a dedicated model selection screen:
 
 ```
-Network
--------
-Wifi(None)
-Hamlib Server: No
+Rotator Variant?
+----------------
+N360 (-180 to 180)
+S360 (0 to 360)
+N450 (-180 to 270)
+S450 (0 to 450)
+
+1.Nav  1|Sel  2.Back
+```
+
+| Model | Range | Wrap Boundary | Typical Use |
+|-------|-------|---------------|-------------|
+| **N360** | -180° to +180° | 0°/360° (North) | Northern Hemisphere |
+| **S360** | 0° to 360° | 180° (South) | Southern Hemisphere |
+| **N450** | -180° to +270° | 0°/360° (North) | Northern Hemisphere, extended range |
+| **S450** | 0° to 450° | 180° (South) | Southern Hemisphere, extended range |
+
+**Controls**:
+- Btn1 short-press: Cycle through models (resets any auto-select timer)
+- Btn1 long-press: Select and save the highlighted model
+- Btn2: Go back without changing
+
+**Important**: Changing the rotator model clears the existing calibration values. You must recalibrate after selecting a new model.
+
+#### Voltage Calibration Menu
+
+Selecting "Rot Calibrate" opens the calibration menu:
+
+```
+Voltage Calibration
+-------------------
+Azimuth
+Elevation
+Skip (Az=El=3.2V)
 
 1.Nav  1|Sel  2.Back
 ```
 
 | Option | Function |
 |--------|----------|
-| **Wifi(None)** | Opens WiFi configuration menu (Set via HTTP, Connect, etc.) |
-| **Hamlib Server** | Toggle Yes/No — determines TCP protocol (Yes=rotctl, No=configured protocol) |
+| **Azimuth** | Start azimuth potentiometer calibration (sweep and return sequence) |
+| **Elevation** | Start elevation potentiometer calibration (sweep and return sequence) |
+| **Skip (Az=El=3.2V)** | Set both axes to fixed voltage ranges (min=0V, max=3.2V) without automatic calibration |
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option
+- Btn2: Go back to SETUP menu
+
+See section 6.6 for details on the calibration screens.
+
+#### Network Submenu
+
+Selecting "Network" opens the network settings menu:
+
+```
+Network
+-------
+Wifi(Station)
+Hamlib Server (Y)
+
+1.Nav  1|Sel  2.Back
+```
+
+| Option | Function |
+|--------|----------|
+| **Wifi(label)** | Opens WiFi Mode submenu to select Station, Access Point, or Disable. Label reflects current mode: `Wifi(None)` (not set), `Wifi(Station)`, `Wifi(AP)`, or `Wifi(Disabled)` |
+| **Hamlib Server** | Toggle Yes/No — determines TCP protocol: Yes = rotctl text protocol, No = configured serial protocol (GS-232A, GS-232B, or Easycom). Footer shows current toggle action (e.g., `1.Nav 1|Yes 2.Back`) |
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option (or toggle Hamlib Server when on that line)
+- Btn2: Go back to SETUP menu
+
+##### WiFi Mode Submenu
+
+Selecting the Wifi line opens the WiFi Mode submenu:
+
+```
+WiFi Mode
+---------
+Station
+Access Point
+Disable
+
+1.Nav  1|Sel  2.Back
+```
+
+| Option | Function |
+|--------|----------|
+| **Station** | Sets WiFi mode to Station and opens the Station Settings screen |
+| **Access Point** | Sets WiFi mode to Access Point and opens the AP Mode menu |
+| **Disable** | Disconnects from any network, turns off WiFi, clears saved credentials, and returns to SETUP |
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option
+- Btn2: Go back to Network menu
+
+##### Station Settings Screen
+
+Selecting "Station" opens the Station Settings screen:
+
+```
+Wifi Station Settings
+---------------------
+Set via HTTP
+Connect
+
+SSID: YourNetworkName
+Passwd: a*..*z
+
+1.Nav  1|Sel  2.Back
+```
+
+| Option | Function |
+|--------|----------|
+| **Set via HTTP** | Starts a captive portal (SSID: AZELCTRL, IP: 192.168.4.1). Connect your phone/laptop to the AZELCTRL network and open a browser to configure your home WiFi credentials |
+| **Connect** | Connects to the saved SSID. Label changes to "Disconnect" when connected |
+
+**Information displayed**:
+- **SSID**: Shows the saved SSID, or "None" if no credentials are saved
+- **IP**: Shows the assigned IP address when connected
+- **Passwd**: Shows a masked password (first and last character visible) when credentials are saved but not connected
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option
+- Btn2: Go back to SETUP menu
+
+##### AP Mode Menu
+
+Selecting "Access Point" opens the AP Mode menu:
+
+```
+AP Mode
+-------
+Rotator Control
+AP Status
+Retry Home WiFi
+Calibrate Pots
+
+1.Nav  1|Sel  2.Back
+```
+
+| Option | Function |
+|--------|----------|
+| **Rotator Control** | Enter the main rotator control screen while running as an Access Point (auto-selects after 5 seconds) |
+| **AP Status** | Show AP information (SSID, IP, connected clients) |
+| **Retry Home WiFi** | Attempt to connect to the saved Station SSID |
+| **Calibrate Pots** | Open the Voltage Calibration menu directly |
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option
+- Btn2: Go back to SETUP menu
 
 #### PC Interface Submenu
 
-Accessed from SETUP by selecting "PC Interface".
+Selecting "PC Interface" opens the PC interface settings menu:
 
 ```
 PC Interface
@@ -685,17 +834,78 @@ PC Interface
 Baud Rate: 115200
 Show Commands: Yes
 Reverse Delay: 1s
-Protocol: GS-232B
+Protocol (GS-232B)
 
 1.Nav  1|Sel  2.Back
 ```
 
 | Option | Function |
 |--------|----------|
-| **Baud Rate** | Opens submenu to select USB serial baud rate (9600–115200) |
-| **Show Commands** | Toggle Yes/No — show/hide RX/TX overlay on OLED when protocol commands are received |
+| **Baud Rate** | Opens submenu to select USB serial baud rate: 115200, 57600, 38400, 19200, 9600 |
+| **Show Commands** | Toggle Yes/No — show/hide RX/TX overlay on OLED when protocol commands are received. Footer shows current toggle action (e.g., `1.Nav 1|Yes 2.Back`) |
 | **Reverse Delay** | Cycle through 0–3 seconds — delay before reversing motor direction to allow momentum to settle |
 | **Protocol** | Opens submenu to select GS-232A, GS-232B, or Easycom |
+
+**Controls**:
+- Btn1 short-press: Cycle through options
+- Btn1 long-press: Select current option (or toggle when on Show Commands line)
+- Btn2: Go back to SETUP menu
+
+##### Baud Rate Selection
+
+Selecting "Baud Rate" opens:
+
+```
+Select Baud Rate
+----------------
+115200
+57600
+38400
+19200
+9600
+
+1.Nav  1|Sel  2.Back
+```
+
+Selecting a baud rate applies it immediately and returns to the PC Interface menu.
+
+##### Protocol Selection
+
+Selecting "Protocol" opens:
+
+```
+Protocol
+--------
+GS-232A (Yaesu)
+GS-232B (Hamlib)
+Easycom
+
+1.Nav  1|Sel  2.Back
+```
+
+Selecting a protocol applies it immediately and returns to the PC Interface menu.
+
+#### Wipe All Settings
+
+Selecting "Wipe all settings" shows a confirmation screen:
+
+```
+Wipe all settings
+-----------------
+This will erase ALL
+saved settings.
+
+Continue?
+
+1.Wipe  2.Back
+```
+
+| Button | Action |
+|--------|--------|
+| **Btn1** | Erases all EEPROM settings, resets in-memory state, shows "Settings Wiped!" confirmation for 2 seconds, then reboots the device |
+| **Btn2** | Cancel and return to SETUP menu |
+
+**What is erased**: WiFi credentials, WiFi mode, calibration values, rotator model, Hamlib Server setting, PC Interface settings (baud rate, protocol, etc.). After reboot, the device enters the SETUP menu with all settings at factory defaults.
 
 ### 6.5 ELF Mode Toggle
 
