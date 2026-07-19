@@ -1173,7 +1173,8 @@ body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:cente
 h1{color:#00d4ff;font-size:28px;margin:10px 0}
 .info{background:#16213e;padding:20px;border-radius:10px;margin:15px auto;max-width:340px}
 .info div{margin:8px 0;font-size:24px}
-.val{font-family:'Courier New',monospace;display:inline-block;text-align:right;min-width:6ch}
+.info div:last-child{margin-top:16px}
+.val{font-family:'Courier New',monospace;display:inline-block;text-align:right;min-width:6ch;font-weight:bold}
 .controls{margin:25px auto;max-width:340px}
 button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:10px;padding:18px 12px;font-size:18px;cursor:pointer;margin:6px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 5px 0 #0a2445}
 button:active{background:#00b8d4;color:#fff;padding:20px 12px 16px 12px;box-shadow:0 2px 0 #0a2445}
