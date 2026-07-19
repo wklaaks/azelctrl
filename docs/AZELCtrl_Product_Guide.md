@@ -350,10 +350,10 @@ AZELCtrl supports four rotator model configurations:
 
 | Model | Range | Wrap Boundary | Typical Use |
 |-------|-------|---------------|-------------|
-| **N360** | 0°–360° (North-centered) | 0°/360° (North) | Northern Hemisphere |
-| **S360** | 0°–360° (South-centered) | 180° (South) | Southern Hemisphere |
-| **N450** | 0°–450° (North-centered) | 0°/360° (North) | Northern Hemisphere, extended range |
-| **S450** | 0°–450° (South-centered) | 180° (South) | Southern Hemisphere, extended range |
+| **N360** | 0°–360° (North-centered) | 0°/360° (North) | Southern Hemisphere |
+| **S360** | 0°–360° (South-centered) | 180° (South) | Northern Hemisphere |
+| **N450** | 0°–450° (North-centered) | 0°/360° (North) | Southern Hemisphere, extended range |
+| **S450** | 0°–450° (South-centered) | 180° (South) | Northern Hemisphere, extended range |
 
 The selected model affects how the firmware interprets raw ADC readings and calculates shortest-path movement directions.
 
@@ -722,18 +722,22 @@ Rotator Variant?
 ----------------
 N360 (-180 to 180)
 S360 (0 to 360)
-N450 (-180 to 270)
-S450 (0 to 450)
+N450 (-225 to 225)
+S450 (-45 to 405)
 
 1.Nav  1|Sel  2.Back
 ```
 
+**Understanding the model names:**
+- The first letter indicates the direction the rotator points when the azimuth is at the center of its range: **N** = North, **S** = South.
+- The number indicates the total azimuth span the rotator is designed to handle: **360** = 360° of travel, **450** = 450° of travel (extended range with an additional 90° beyond standard).
+
 | Model | Range | Wrap Boundary | Typical Use |
 |-------|-------|---------------|-------------|
-| **N360** | -180° to +180° | 0°/360° (North) | Northern Hemisphere |
-| **S360** | 0° to 360° | 180° (South) | Southern Hemisphere |
-| **N450** | -180° to +270° | 0°/360° (North) | Northern Hemisphere, extended range |
-| **S450** | 0° to 450° | 180° (South) | Southern Hemisphere, extended range |
+| **N360** | -180° to +180° | 0°/360° | Southern Hemisphere |
+| **S360** | 0° to 360° | 180° (South) | Northern Hemisphere |
+| **N450** | -225° to +225° | 0°/360° | Southern Hemisphere, extended range |
+| **S450** | -45° to +405° | 180° (South) | Northern Hemisphere, extended range |
 
 **Controls**:
 - Btn1 short-press: Cycle through models (resets any auto-select timer)

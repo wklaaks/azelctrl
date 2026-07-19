@@ -1723,7 +1723,7 @@ float displayAzimuth(float az) {
 void setupRotatorModel() {
   Serial.println("ROT: Starting rotator model setup");
 
-  const char* modelLabels[4] = {"N360 (-180 to 180)", "S360 (0 to 360)", "N450 (-180 to 270)", "S450 (0 to 450)"};
+  const char* modelLabels[4] = {"N360 (-180 to 180)", "S360 (0 to 360)", "N450 (-225 to 225)", "S450 (-45 to 405)"};
   int choice = rotModel;  // Default to current
   bool firstDraw = true;
   bool btn1WasPressed = false;
