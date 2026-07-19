@@ -134,11 +134,11 @@ const unsigned long BTN2_LONG_MS = 500;      // Btn2 long press for calibration 
 // ==================== WiFi AP SETTINGS ====================
 const char* AP_SSID = "AZELCTRL";
 const char* AP_IP   = "192.168.4.1";
-char apPassword[6];  // 5-digit password + null terminator
+char apPassword[9] = "yaesu123";  // 8 chars minimum for WPA2 + null terminator
 
-// AP Password EEPROM storage (bytes 91-95: 5 digits + magic)
+// AP Password EEPROM storage (bytes 91-99: 8 chars + magic)
 #define AP_PASS_EEPROM_START 91
-#define AP_PASS_EEPROM_MAGIC 96
+#define AP_PASS_EEPROM_MAGIC 99
 #define AP_PASS_EEPROM_MAGIC_VAL 0x41  // 'A'
 
 // ==================== OBJECTS ====================
@@ -838,16 +838,22 @@ void startApMode() {
   wifiState = WIFI_AP_MODE;
   
   WiFi.disconnect();
+  delay(100);
   WiFi.mode(WIFI_AP);
   delay(100);  // Allow WiFi mode to settle
+  
+  IPAddress apIP(192, 168, 4, 1);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  
   bool ok = WiFi.softAP(AP_SSID, apPassword);
   if (!ok) {
     Serial.println("AP: softAP failed, retrying...");
     delay(200);
-    WiFi.softAP(AP_SSID, apPassword);
+    ok = WiFi.softAP(AP_SSID, apPassword);
   }
-  IPAddress apIP(192, 168, 4, 1);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  if (!ok) {
+    Serial.println("AP: softAP STILL failed!");
+  }
   
   setupWebServer();
   startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
@@ -1655,21 +1661,21 @@ void saveWifiMode() {
 void loadApPassword() {
   uint8_t magic = EEPROM.read(AP_PASS_EEPROM_MAGIC);
   if (magic == AP_PASS_EEPROM_MAGIC_VAL) {
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 8; i++) {
       apPassword[i] = EEPROM.read(AP_PASS_EEPROM_START + i);
     }
-    apPassword[5] = '\0';
+    apPassword[8] = '\0';
     Serial.print("AP: Loaded password = ");
     Serial.println(apPassword);
   } else {
     // Default password
-    strcpy(apPassword, "yaesu");
+    strcpy(apPassword, "yaesu123");
     Serial.println("AP: Using default password");
   }
 }
 
 void saveApPassword() {
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 8; i++) {
     EEPROM.write(AP_PASS_EEPROM_START + i, apPassword[i]);
   }
   EEPROM.write(AP_PASS_EEPROM_MAGIC, AP_PASS_EEPROM_MAGIC_VAL);
@@ -4077,14 +4083,16 @@ void actionRegenApPassword() {
   delay(200);
   pressTime = millis();
   
-  // Generate random 5-digit number using button press time as seed
+  // Generate random 8-character alphanumeric password using button press time as seed
+  // WPA2 requires minimum 8 characters
   randomSeed(pressTime + micros());
-  int newPassword = random(10000, 100000);
+  const char charset[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const int charsetLen = 58;  // Excluded confusing chars (0,O,1,l,I)
   
-  // Convert to string and save
-  char buf[6];
-  sprintf(buf, "%05d", newPassword);
-  strcpy(apPassword, buf);
+  for (int i = 0; i < 8; i++) {
+    apPassword[i] = charset[random(charsetLen)];
+  }
+  apPassword[8] = '\0';
   saveApPassword();
   
   // Show the new password

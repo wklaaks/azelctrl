@@ -883,11 +883,13 @@ Regen AP Password
 - Btn1 long-press: Select current option
 - Btn2: Go back to WiFi Mode menu
 
-**AP Password**: By default, the AP password is "yaesu". You can generate a new random 5-digit password by selecting "Regen AP Password". The process:
+**AP Password**: By default, the AP password is "yaesu123". You can generate a new random 8-character password by selecting "Regen AP Password". The process:
 1. Screen shows "Generating new password..."
 2. Press Btn1 to provide timing entropy for randomness
-3. New 5-digit password is displayed — note it down!
+3. New 8-character password is displayed — note it down!
 4. Press Btn1 to acknowledge and return to AP Mode menu
+
+**Note**: WPA2 requires a minimum of 8 characters for the password.
 
 **AP Status screen** shows:
 ```
@@ -895,7 +897,7 @@ AP Status
 ---------
 AP Mode Active
 SSID: AZELCTRL
-Pass: yaesu
+Pass: yaesu123
 IP: 192.168.4.1
 
 · · · · · · · · · · · · · · · ·
