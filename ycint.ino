@@ -835,7 +835,13 @@ void startApMode() {
   wifiState = WIFI_AP_MODE;
   
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, apPassword);
+  delay(100);  // Allow WiFi mode to settle
+  bool ok = WiFi.softAP(AP_SSID, apPassword);
+  if (!ok) {
+    Serial.println("AP: softAP failed, retrying...");
+    delay(200);
+    WiFi.softAP(AP_SSID, apPassword);
+  }
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   
@@ -3421,13 +3427,13 @@ void updateNetworkLabels() {
   networkItems[1].label = setupHamlibLabel;
   // WiFi mode label
   if (deviceWifiMode == MODE_STA) {
-    strcpy(setupWifiLabel, "Wifi(Station)");
+    strcpy(setupWifiLabel, "WiFi Mode(Station)");
   } else if (deviceWifiMode == MODE_AP) {
-    strcpy(setupWifiLabel, "Wifi(AP)");
+    strcpy(setupWifiLabel, "WiFi Mode(AP)");
   } else if (EEPROM.read(WIFI_MODE_MAGIC) == WIFI_MODE_MAGIC_VAL) {
-    strcpy(setupWifiLabel, "Wifi(Disabled)");
+    strcpy(setupWifiLabel, "WiFi Mode(Disabled)");
   } else {
-    strcpy(setupWifiLabel, "Wifi(None)");
+    strcpy(setupWifiLabel, "WiFi Mode(None)");
   }
   networkItems[0].label = setupWifiLabel;
 }
@@ -3539,7 +3545,7 @@ MenuItem bootItems[] = {
 // Setup Menu
 char setupRotatorLabel[24] = "Rot Variant";
 char setupCalLabel[24] = "Rot Calibrate";
-char setupWifiLabel[24] = "Wifi(None)";
+char setupWifiLabel[28] = "WiFi Mode(None)";
 
 // Dependency check: Rot Calibrate requires Rot Variant to be configured
 bool checkCalibrateSelectable() {
@@ -3984,10 +3990,14 @@ void actionRetryWifi() {
 void actionApStatus() {
   Serial.println("Action: AP Status");
   
+  // Get actual SSID and IP from WiFi (in case softAP used fallback)
+  String actualSsid = WiFi.softAPSSID();
+  IPAddress apIp = WiFi.softAPIP();
+  
   // Keep String objects alive to avoid dangling pointers
-  String ssidLine = "SSID: " + String(AP_SSID);
+  String ssidLine = "SSID: " + actualSsid;
   String passLine = "Pass: " + String(apPassword);
-  String ipLine = "IP: " + String(AP_IP);
+  String ipLine = "IP: " + apIp.toString();
   const char* lines[] = {
     "AP Mode Active",
     "",
