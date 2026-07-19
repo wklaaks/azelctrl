@@ -505,9 +505,9 @@ Every menu screen displays a footer line that tells you which button action to u
 | `2\|` | Long-press Btn2 |
 | `2!` | Hold Btn2 |
 
-The separator between actions is a space and a period (` . `) or a pipe (` \| `). For example:
+The separator between actions is a space and a period (` . `) or a pipe (` | `). For example:
 
-- `1.Nav 1\|Sel 2.Back` means: short-press Btn1 to navigate, long-press Btn1 to select, short-press Btn2 to go back
+- `1.Nav 1|Sel 2.Back` means: short-press Btn1 to navigate, long-press Btn1 to select, short-press Btn2 to go back
 - `1.OK 2.Back` means: short-press Btn1 to confirm, short-press Btn2 to go back
 - `1.Done 2.Cancel` means: short-press Btn1 to finish, short-press Btn2 to cancel
 
@@ -515,47 +515,92 @@ The footer adapts to the current screen's available actions.
 
 ### 6.2 Startup Screens
 
+#### Splash Screen
+
+On power-up, AZELCtrl displays a splash screen for 3 seconds:
+
+```
+AZELCtrl
+
+Ver: 1.0.0
+Date: Jul 19 2026
+By: ZS6TW
+```
+
+Shows product name, firmware version, build date, and author.
+
+#### Missing Settings
+
+If mandatory settings are incomplete (rotator variant not configured, calibration not done, or WiFi mode not set), a notice appears for 3 seconds:
+
+```
+Missing
+Settings!
+```
+
+After the notice, the device goes directly to the SETUP menu. The footer omits the Back button — you must complete the mandatory settings before leaving.
+
+#### Boot Menu
+
+If all mandatory settings are configured, the Boot menu appears:
+
+```
+Boot
+----
+Rotator Ctrl
+Setup
+
+1.Nav 1|Sel
+```
+
+- **Rotator Ctrl**: Starts the rotator controller. Has a 3-second countdown — auto-selects if no button is pressed.
+- **Setup**: Opens the SETUP menu.
+
+**Button behavior**: Btn1 short-press cycles options. Btn1 long-press selects. There is no Back button (this is the root menu).
+
 #### WiFi Connecting
 
+When "Rotator Ctrl" is selected and WiFi mode is set to Station, the WiFi connecting screen appears:
+
 ```
-WiFi Connecting
+WiFi
+Connect
 
 SSID: YourWifiSSID
-
-Waiting: 5s
+Waiting: 3s
 ```
 
-Shows WiFi connection progress with elapsed time.
+Shows the SSID being connected to and a running elapsed time counter. The device attempts to connect for up to 15 seconds.
 
 #### WiFi Connected
 
+On successful connection:
+
 ```
-WiFi Connected!
+Connected!
 
-IP: 192.168.x.x
-
+IP: 192.168.1.42
+Signal: -65 dBm
 SSID: YourWifiSSID
-
-RSSI: -65 dBm
-
-Press button to continue...
+                    3
 ```
 
-Shows connection details. Press Btn1 or Btn2, or wait 30 seconds to proceed.
+Shows the assigned IP address, signal strength, and SSID. A countdown timer in the bottom-right corner counts down from 5 seconds. Press any button to skip the countdown and proceed immediately to the rotator control screen.
 
 #### WiFi Failed
 
+If the connection times out:
+
 ```
-WiFi FAILED!
+WiFi
+Failed
 
 SSID: YourWifiSSID
 
-Status: 6
-
-Press button to continue...
+Status: WL_CONNECT_FAILED
 ```
 
-WiFi connection timed out. Press Btn1 or Btn2, or wait 30 seconds to proceed without WiFi.
+Shows the SSID that failed and the WiFi status code. Displays for 2 seconds, then proceeds to the rotator control screen without WiFi. The device can still be controlled via USB serial or through the OLED menu.
 
 ### 6.3 Main Az/El Control Screen
 
