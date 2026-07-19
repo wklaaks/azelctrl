@@ -550,6 +550,7 @@ Boot
 Rotator Ctrl
 Setup
 
+· · · · · · · · · · · · · · · ·
 1.Nav 1|Sel
 ```
 
@@ -695,6 +696,7 @@ Network
 PC Interface
 Wipe all settings
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -725,6 +727,7 @@ S360 (0 to 360)
 N450 (-225 to 225)
 S450 (-45 to 405)
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -757,6 +760,7 @@ Azimuth
 Elevation
 Skip (Az=El=3.2V)
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -783,6 +787,7 @@ Network
 Wifi(Station)
 Hamlib Server (Y)
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -807,6 +812,7 @@ Station
 Access Point
 Disable
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -834,6 +840,7 @@ Connect
 SSID: YourNetworkName
 Passwd: a*..*z
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -864,6 +871,7 @@ AP Status
 Retry Home WiFi
 Calibrate Pots
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -891,6 +899,7 @@ Show Commands: Yes
 Reverse Delay: 1s
 Protocol (GS-232B)
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -919,6 +928,7 @@ Select Baud Rate
 19200
 9600
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -935,6 +945,7 @@ GS-232A (Yaesu)
 GS-232B (Hamlib)
 Easycom
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -952,6 +963,7 @@ saved settings.
 
 Continue?
 
+· · · · · · · · · · · · · · · ·
 1.Wipe  2.Back
 ```
 
@@ -985,6 +997,7 @@ Azimuth
 Elevation
 Skip (Az=El=3.2V)
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
@@ -995,10 +1008,9 @@ When calibration is running:
 ```
 Cal-AZ: Sweep CCW
 Moving CCW...
-· · · · · · · · · · · ·
  AZ:  -180.0 ( 123mV)
  EL:    45.2 (2400mV)
-· · · · · · · · · · · ·
+· · · · · · · · · · · · · · · ·
 1.Exit 2.Back
 ```
 
@@ -1038,6 +1050,7 @@ Horizon (0) [5]
 90
 Skip
 
+· · · · · · · · · · · · · · · ·
 1.Nav  1|Sel  2.Back
 ```
 
