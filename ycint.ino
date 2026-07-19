@@ -1185,8 +1185,7 @@ button:active{background:#00b8d4;color:#fff;padding:17px 10px 13px 10px;box-shad
 <div class='info'>
 <div>Az: <span class='val' id='az'>--</span>&deg;</div>
 <div>El: <span class='val' id='el'>--</span>&deg;</div>
-<div>Move: <span id='move'>IDLE</span></div>
-<div>Status: <span id='status'>OK</span></div>
+<div>Moving: <span id='move'>IDLE</span></div>
 </div>
 <div class='controls'>
 <div class='grid'>
@@ -1208,7 +1207,6 @@ fetch('/status').then(function(r){return r.json();}).then(function(d){
 document.getElementById('az').textContent=padNum(d.az);
 document.getElementById('el').textContent=padNum(d.el);
 document.getElementById('move').textContent=d.move;
-document.getElementById('status').textContent=d.pause?'PAUSE':'OK';
 }).catch(function(){});
 fetch('/btn').then(function(r){return r.json();}).then(function(d){
 var btns=document.querySelectorAll('.dir-btn');
