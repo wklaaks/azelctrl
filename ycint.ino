@@ -3637,9 +3637,8 @@ MenuItem wifiConnectItems[] = {
   {"Rotator Model", actionRotatorModel, 0, true, nullptr, nullptr}
 };
 
-// AP Mode Menu (shown when STA fails or user selects field mode)
+// AP Mode Menu (shown when user selects Access Point from WiFi Mode)
 MenuItem apModeItems[] = {
-  {"Rotator Control", actionRotatorControl, 5, true, nullptr, nullptr},
   {"AP Status", actionApStatus, 0, true, nullptr, nullptr},
   {"Regen AP Password", actionRegenApPassword, 0, true, nullptr, nullptr}
 };
@@ -3656,7 +3655,7 @@ Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &bootMenu);
 Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
-Menu apModeMenu("AP Mode", apModeItems, 3, nullptr);
+Menu apModeMenu("AP Mode", apModeItems, 2, &wifiModeMenu);
 Menu calPotsMenu("Voltage Calibration", calPotsItems, 3, &setupMenu);
 
 // Current active menu (nullptr = rotator control mode)

@@ -866,7 +866,6 @@ Selecting "Access Point" opens the AP Mode menu:
 ```
 AP Mode
 -------
-Rotator Control
 AP Status
 Regen AP Password
 
@@ -876,14 +875,13 @@ Regen AP Password
 
 | Option | Function |
 |--------|----------|
-| **Rotator Control** | Enter the main rotator control screen while running as an Access Point (auto-selects after 5 seconds) |
 | **AP Status** | Show AP information (SSID, password, IP) |
 | **Regen AP Password** | Generate a new random 5-digit password for AP access |
 
 **Controls**:
 - Btn1 short-press: Cycle through options
 - Btn1 long-press: Select current option
-- Btn2: Go back to SETUP menu
+- Btn2: Go back to WiFi Mode menu
 
 **AP Password**: By default, the AP password is "yaesu". You can generate a new random 5-digit password by selecting "Regen AP Password". The process:
 1. Screen shows "Generating new password..."
