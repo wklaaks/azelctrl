@@ -753,7 +753,7 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
     const nameIdx = header.indexOf('OBJECT_NAME');
     const noradIdx = header.indexOf('NORAD_CAT_ID');
     
-    const mySats = satellites.map(s => s.norad);
+    const mySats = satellites.map(s => parseInt(s.norad));
     const available = [];
     
     // Collect available satellites
