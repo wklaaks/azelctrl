@@ -754,8 +754,9 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
     const noradIdx = header.indexOf('NORAD_CAT_ID');
     
     const mySats = satellites.map(s => s.norad);
-    let availableCount = 0;
+    const available = [];
     
+    // Collect available satellites
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
       const name = cols[nameIdx];
@@ -763,25 +764,29 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
       if (!name || !norad) continue;
       
       const noradNum = parseInt(norad);
-      
-      // Skip satellites user already has
       if (mySats.includes(noradNum)) continue;
       
-      availableCount++;
-      
+      available.push({ name, norad });
+    }
+    
+    // Sort alphabetically by name
+    available.sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Display sorted list
+    for (const sat of available) {
       const item = document.createElement('div');
       item.className = 'browse-sat-item';
       item.innerHTML = `
-        <span class="browse-sat-name">${name}</span>
-        <span class="browse-sat-norad">${norad}</span>
+        <span class="browse-sat-name">${sat.name}</span>
+        <span class="browse-sat-norad">${sat.norad}</span>
         <button class="browse-sat-btn">Add</button>
       `;
       
       const btn = item.querySelector('.browse-sat-btn');
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        document.getElementById('newSatName').value = name;
-        document.getElementById('newSatNORAD').value = norad;
+        document.getElementById('newSatName').value = sat.name;
+        document.getElementById('newSatNORAD').value = sat.norad;
         document.getElementById('fetchTleBtn').click();
         btn.textContent = '...';
         btn.disabled = true;
