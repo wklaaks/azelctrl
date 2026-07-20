@@ -5421,6 +5421,193 @@ void setupWebServer() {
     server.send(200, "application/json", json);
   });
   
+  // ==================== SATELLITE TRACKING API ====================
+  
+  // GET /getpos — current position + movement directions
+  // Response: {"az":181.9,"el":44.8,"maz":"cw","mel":"up"}
+  // maz: "cw"|"ccw"|"idle", mel: "up"|"down"|"idle"
+  server.on("/getpos", []() {
+    // Report effective (satellite-space) coords when ELF is on
+    float az = displayAzimuth(currentAz);
+    float el = currentEl;
+    az = elfAz(az);
+    el = elfEl(el);
+    
+    // Movement direction strings
+    const char* maz;
+    switch (azDirection) {
+      case DIR_CW:    maz = "cw"; break;
+      case DIR_CCW:   maz = "ccw"; break;
+      default:        maz = "idle"; break;
+    }
+    const char* mel;
+    switch (elDirection) {
+      case DIR_UP:    mel = "up"; break;
+      case DIR_DOWN:  mel = "down"; break;
+      default:        mel = "idle"; break;
+    }
+    
+    String json = "{";
+    json += "\"az\":" + String(az, 1) + ",";
+    json += "\"el\":" + String(el, 1) + ",";
+    json += "\"maz\":\"" + String(maz) + "\",";
+    json += "\"mel\":\"" + String(mel) + "\"";
+    json += "}";
+    
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+  
+  // OPTIONS /setpos — CORS preflight
+  server.on("/setpos", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+  
+  // POST /setpos — set target position
+  // Body: {"az":182.4,"el":45.1}
+  // Incoming targets are in satellite space (ELF handles transformation)
+  server.on("/setpos", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"no body\"}");
+      return;
+    }
+    
+    String body = server.arg("plain");
+    
+    // Simple JSON parsing without library: find "az": and "el": values
+    float targetAz = -1, targetEl = -1;
+    bool hasAz = false, hasEl = false;
+    
+    int azIdx = body.indexOf("\"az\"");
+    int elIdx = body.indexOf("\"el\"");
+    
+    if (azIdx >= 0) {
+      int colon = body.indexOf(':', azIdx);
+      if (colon >= 0) {
+        int start = colon + 1;
+        while (start < body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+        int end = start;
+        while (end < body.length() && (isdigit(body[end]) || body[end] == '.' || body[end] == '-' || body[end] == '+' || body[end] == 'e' || body[end] == 'E')) end++;
+        if (end > start) {
+          String numStr = body.substring(start, end);
+          targetAz = numStr.toFloat();
+          hasAz = true;
+        }
+      }
+    }
+    
+    if (elIdx >= 0) {
+      int colon = body.indexOf(':', elIdx);
+      if (colon >= 0) {
+        int start = colon + 1;
+        while (start < body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+        int end = start;
+        while (end < body.length() && (isdigit(body[end]) || body[end] == '.' || body[end] == '-' || body[end] == '+' || body[end] == 'e' || body[end] == 'E')) end++;
+        if (end > start) {
+          String numStr = body.substring(start, end);
+          targetEl = numStr.toFloat();
+          hasEl = true;
+        }
+      }
+    }
+    
+    if (!hasAz && !hasEl) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"missing az and el\"}");
+      return;
+    }
+    
+    // Validate ranges
+    if (hasAz && (targetAz < 0 || targetAz > 360)) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"az out of range\"}");
+      return;
+    }
+    if (hasEl && (targetEl < 0 || targetEl > 180)) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"el out of range\"}");
+      return;
+    }
+    
+    // Execute moves via existing protocol functions (handles ELF transformation)
+    if (hasAz) executeProtocolAzMove(targetAz);
+    if (hasEl) executeProtocolElMove(targetEl);
+    
+    Serial.print("Web /setpos: az="); Serial.print(hasAz ? String(targetAz, 1) : "unchanged");
+    Serial.print(" el="); Serial.println(hasEl ? String(targetEl, 1) : "unchanged");
+    
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+  
+  // OPTIONS /elf — CORS preflight
+  server.on("/elf", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+  
+  // GET /elf — current ELF mode state
+  // Response: {"enabled":true}
+  server.on("/elf", HTTP_GET, []() {
+    String json = "{\"enabled\":" + String(elfMode ? "true" : "false") + "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+  
+  // POST /elf — set ELF mode
+  // Body: {"enabled":true} or {"enabled":false}
+  server.on("/elf", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"no body\"}");
+      return;
+    }
+    
+    String body = server.arg("plain");
+    
+    // Simple parse: look for "enabled":true or "enabled":false
+    bool hasEnabled = false;
+    bool enabledValue = false;
+    
+    int enIdx = body.indexOf("\"enabled\"");
+    if (enIdx >= 0) {
+      int colon = body.indexOf(':', enIdx);
+      if (colon >= 0) {
+        int start = colon + 1;
+        while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+        if (body.startsWith("true", start)) {
+          enabledValue = true;
+          hasEnabled = true;
+        } else if (body.startsWith("false", start)) {
+          enabledValue = false;
+          hasEnabled = true;
+        }
+      }
+    }
+    
+    if (!hasEnabled) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"missing enabled\"}");
+      return;
+    }
+    
+    elfMode = enabledValue;
+    saveElfMode();
+    
+    Serial.print("Web /elf: mode = ");
+    Serial.println(elfMode ? "ON" : "OFF");
+    
+    String json = "{\"enabled\":" + String(elfMode ? "true" : "false") + "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+  
   server.begin();
   Serial.println("HTTP server started on port 80");
 }

@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>AZELCtrl — Satellite (computed) Tracker</title>
+<!-- satellite.js for orbital propagation -->
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --orange: #d29922;
+  --tab-active: #c9d1d9;
+  --tab-inactive: #8b949e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.header h1 { font-size: 1.1rem; font-weight: 600; }
+.header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.device-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; width: 150px; }
+.device-input:focus { outline: none; border-color: var(--accent); }
+.btn { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; font-size: 0.8rem; }
+.btn:hover { background: var(--border); }
+.btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+.btn-primary:hover { background: #79c0ff; }
+.btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+.btn-danger:hover { background: #ff6b6b; }
+.btn-success { background: var(--green); color: #000; border-color: var(--green); }
+.btn-success:hover { background: #56d364; }
+.btn-sm { padding: 3px 8px; font-size: 0.75rem; }
+
+/* Connection status */
+.conn-status { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.conn-dot.connected { background: var(--green); }
+.conn-dot.error { background: var(--red); }
+
+/* Tabs */
+.tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tab { padding: 10px 16px; font-size: 0.85rem; cursor: pointer; border-bottom: 2px solid transparent; color: var(--tab-inactive); white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--tab-active); border-bottom-color: var(--accent); }
+
+/* Content */
+.tab-content { display: none; padding: 16px; flex: 1; }
+.tab-content.active { display: block; }
+
+/* Cards */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px; }
+.card-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Tracking view */
+.tracking-top { display: grid; grid-template-columns: auto auto; gap: 12px; margin-bottom: 12px; justify-content: center; }
+@media (max-width: 420px) { .tracking-top { grid-template-columns: 1fr; } }
+.pos-box { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; text-align: center; }
+.pos-label { font-size: 0.9rem; font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+.pos-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; justify-content: center; }
+.pos-value { font-size: 1.2rem; font-weight: 700; font-family: monospace; }
+.pos-unit { font-size: 1rem; color: var(--muted); }
+.pos-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+/* Movement indicators */
+.movement-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; margin-top: 4px; }
+.mv-arrow { font-size: 1.1rem; color: var(--accent); }
+.mv-arrow.idle { color: var(--muted); }
+
+/* Satellite info bar */
+.sat-info-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.sat-name { font-size: 1.1rem; font-weight: 600; }
+.tle-age { font-size: 0.75rem; }
+.tle-age.fresh { color: var(--green); }
+.tle-age.stale { color: var(--orange); }
+.tle-age.old { color: var(--red); }
+
+/* Polar plot */
+.plot-container { display: flex; justify-content: center; margin: 12px 0; }
+.plot-container svg { max-width: 100%; height: auto; }
+
+/* Tracking controls */
+.tracking-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; justify-content: center; }
+.elf-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; }
+.toggle-switch { position: relative; width: 40px; height: 20px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border); border-radius: 20px; transition: 0.2s; }
+.toggle-slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background: var(--text); border-radius: 50%; transition: 0.2s; }
+.toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
+
+/* Manual entry */
+.manual-entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.manual-entry label { font-size: 0.8rem; color: var(--muted); }
+.manual-entry input { width: 80px; padding: 4px 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-size: 0.85rem; }
+.manual-entry input:focus { outline: none; border-color: var(--accent); }
+
+/* Control pad */
+.control-pad { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 16px 0; }
+.control-row { display: flex; gap: 6px; }
+.control-row > div { width: 70px; height: 48px; }
+.dir-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid var(--accent); background: rgba(88,166,255,0.12); color: var(--accent); cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
+.dir-btn:hover { background: rgba(88,166,255,0.25); }
+.dir-btn:active, .dir-btn.active { background: var(--accent); color: #000; transform: scale(0.96); }
+.stop-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid var(--red); background: var(--red); color: #fff; cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
+.stop-btn:hover { background: #ff6b6b; }
+.stop-btn:active { background: #cc0000; transform: scale(0.96); }
+.control-status { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
+.control-status.moving { color: var(--accent); font-weight: 600; }
+
+/* Control cards centering */
+.control-card { text-align: center; }
+.control-card .card-title { text-align: center; font-size: 0.9rem; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.control-desc { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; text-align: center; }
+.control-card .manual-entry { justify-content: center; }
+.control-card .manual-entry input { width: 65px; }
+.control-card .manual-entry input::-webkit-outer-spin-button,
+.control-card .manual-entry input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.control-card .manual-entry input[type="number"] {
+  -moz-appearance: textfield;
+}
+.control-card .manual-entry .btn-sm {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.control-card .manual-entry .btn-sm:hover {
+  background: #79c0ff;
+}
+.control-card .manual-entry input::placeholder { color: #484f58; opacity: 0.6; }
+
+/* Pass countdown */
+.pass-status { text-align: center; padding: 10px; font-size: 0.9rem; }
+.pass-status.in-progress { color: var(--green); }
+.pass-status.upcoming { color: var(--accent); }
+.pass-status.none { color: var(--muted); }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+tr:hover td { background: rgba(88,166,255,0.05); }
+td.num { font-variant-numeric: tabular-nums; }
+td.max-el-high { color: var(--green); font-weight: 600; }
+td.max-el-med { color: var(--accent); }
+td.max-el-low { color: var(--muted); }
+
+/* Satellites list */
+.sat-list-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.sat-list-item:hover { background: rgba(88,166,255,0.05); }
+.sat-list-item.selected { background: rgba(88,166,255,0.1); border-left: 3px solid var(--accent); }
+.sat-list-name { font-size: 0.9rem; }
+.sat-list-meta { font-size: 0.7rem; color: var(--muted); }
+.sat-list-actions { display: flex; gap: 6px; }
+
+/* TLE input */
+.tle-input { width: 100%; min-height: 80px; padding: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 0.8rem; resize: vertical; }
+.tle-input:focus { outline: none; border-color: var(--accent); }
+
+/* Settings */
+.setting-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.setting-row:last-child { border-bottom: none; }
+.setting-label { font-size: 0.85rem; }
+.setting-desc { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+.setting-control { display: flex; align-items: center; gap: 8px; }
+.setting-control input, .setting-control select { padding: 4px 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; font-size: 0.85rem; }
+
+/* Quick-sat list */
+.quick-sats { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.quick-sat-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.75rem; cursor: pointer; }
+.quick-sat-btn:hover { background: var(--border); border-color: var(--accent); }
+
+/* Error/warning banners */
+.banner { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; font-size: 0.8rem; }
+.banner.info { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); color: var(--accent); }
+.banner.warn { background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.3); color: var(--orange); }
+.banner.error { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); color: var(--red); }
+
+/* Footer */
+.footer { padding: 8px 16px; font-size: 0.7rem; color: var(--muted); text-align: center; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>AZELCtrl Satellite Tracker</h1>
+  <div class="header-controls">
+    <div class="conn-status">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connLabel">Disconnected</span>
+    </div>
+    <input type="text" class="device-input" id="deviceIp" placeholder="Device IP (e.g. 192.168.1.55)" title="Leave empty when served from device itself">
+    <button class="btn btn-sm" id="saveIpBtn">Save</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="tracking">Tracking</div>
+  <div class="tab" data-tab="satellites">Satellites</div>
+  <div class="tab" data-tab="passes">Pass Predictions</div>
+  <div class="tab" data-tab="control">Control</div>
+  <div class="tab" data-tab="settings">Settings</div>
+</div>
+
+<!-- Tab: Tracking -->
+<div class="tab-content active" id="tab-tracking">
+  <div class="sat-info-bar">
+    <div style="flex:1;">
+      <label style="font-size:0.85rem; color:var(--muted);">Satellite:</label>
+      <select id="trackSatSelect" class="input-sm" style="min-width:160px; margin-left:4px;">
+        <option value="-1">— select satellite —</option>
+      </select>
+      <div class="tle-age" id="currentTleAge"></div>
+    </div>
+    <div class="elf-toggle">
+      <span>ELF Mode</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="elfToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span style="font-size:0.7rem;color:var(--muted)">Over-the-top tracking</span>
+    </div>
+  </div>
+
+  <div class="tracking-top">
+    <div class="pos-box">
+      <div class="pos-label" style="color: #58a6ff;">SATELLITE (computed)</div>
+      <div class="pos-row" style="font-family: monospace;">
+        <span id="targetAzLabel" style="font-size: 1.1rem;">Az:</span>
+        <span id="targetAz" class="pos-value">---</span>
+      </div>
+      <div class="pos-row" style="font-family: monospace;">
+        <span id="targetElLabel" style="font-size: 1.1rem;">El:</span>
+        <span id="targetEl" class="pos-value">---</span>
+      </div>
+      <div class="movement-indicator" id="targetRange">Range: --- km</div>
+    </div>
+    <div class="pos-box">
+      <div class="pos-label" style="color: #3fb950;">ROTATOR (actual)</div>
+      <div class="pos-row" style="font-family: monospace;">
+        <span id="actualAzLabel" style="font-size: 1.1rem;">Az:</span>
+        <span id="actualAz" class="pos-value">---</span>
+        <span class="mv-arrow idle" id="mvAz">●</span>
+      </div>
+      <div class="pos-row" style="font-family: monospace;">
+        <span id="actualElLabel" style="font-size: 1.1rem;">El:</span>
+        <span id="actualEl" class="pos-value">---</span>
+        <span class="mv-arrow idle" id="mvEl">●</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tracking-controls">
+    <button class="btn btn-success" id="startTrackBtn">Start Tracking</button>
+    <button class="btn btn-danger" id="stopTrackBtn">Stop</button>
+  </div>
+
+  <div class="card">
+    <div class="plot-container">
+      <svg id="polarPlot" width="460" height="460" viewBox="0 0 460 460"></svg>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Satellites -->
+<div class="tab-content" id="tab-satellites">
+  <div class="card">
+    <div class="card-title">Quick Add (Common Amateur Satellites)</div>
+    <div class="quick-sats" id="quickSats"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Stored Satellites</div>
+    <div id="satList"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Add Satellite</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <input type="text" class="device-input" id="newSatName" placeholder="Satellite name" style="flex:1;">
+      <input type="text" class="device-input" id="newSatNORAD" placeholder="NORAD ID (optional)" style="width:120px;">
+    </div>
+    <textarea class="tle-input" id="tleInput" placeholder="Paste TLE lines here (2 lines)..." rows="3"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" id="addSatBtn">Add</button>
+      <button class="btn" id="fetchTleBtn">Fetch from CelesTrak</button>
+    </div>
+    <div id="tleStatus"></div>
+  </div>
+</div>
+
+<!-- Tab: Pass Predictions -->
+<div class="tab-content" id="tab-passes">
+  <div class="card">
+    <div class="card-title">Upcoming Passes</div>
+    <div id="passInfo">Select a satellite to see pass predictions</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+      <label style="font-size:0.8rem;color:var(--muted)">Lookahead:</label>
+      <select id="passLookahead" style="padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:0.8rem;">
+        <option value="24">24 hours</option>
+        <option value="48" selected>48 hours</option>
+        <option value="72">72 hours</option>
+      </select>
+      <button class="btn btn-sm" id="refreshPassesBtn">Refresh</button>
+    </div>
+    <div id="passTable" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- Tab: Control -->
+<div class="tab-content" id="tab-control">
+  <div class="pos-box" style="margin-bottom:12px;">
+    <div class="pos-label" style="color: #3fb950;">ROTATOR (actual)</div>
+    <div class="pos-row" style="font-family: monospace;">
+      <span style="font-size: 1.1rem;">Az:</span>
+      <span class="pos-value" id="ctrlActualAz">---</span>
+      <span class="mv-arrow idle" id="ctrlMvAz">●</span>
+    </div>
+    <div class="pos-row" style="font-family: monospace;">
+      <span style="font-size: 1.1rem;">El:</span>
+      <span class="pos-value" id="ctrlActualEl">---</span>
+      <span class="mv-arrow idle" id="ctrlMvEl">●</span>
+    </div>
+  </div>
+
+  <div class="card control-card">
+    <div class="card-title" style="color: #d29922;">BUTTON CONTROL</div>
+    <p class="control-desc">Hold a button to move the rotator in that direction. Release to stop.</p>
+    <div class="control-pad">
+      <div class="control-row">
+        <div></div>
+        <button class="dir-btn" id="btnUp">UP</button>
+        <div></div>
+      </div>
+      <div class="control-row">
+        <button class="dir-btn" id="btnLeft">LEFT</button>
+        <button class="stop-btn" id="btnStop">STOP</button>
+        <button class="dir-btn" id="btnRight">RIGHT</button>
+      </div>
+      <div class="control-row">
+        <div></div>
+        <button class="dir-btn" id="btnDown">DOWN</button>
+        <div></div>
+      </div>
+    </div>
+    <div class="control-status" id="controlStatus">IDLE</div>
+  </div>
+
+  <div class="card control-card">
+    <div class="card-title" style="color: #bc8cff;">MANUAL POSITION</div>
+    <p class="control-desc">Enter Azimuth and/or Elevation. Leave a field blank to keep that axis unchanged.</p>
+    <div class="manual-entry">
+      <label>Az:</label>
+      <input type="number" id="manualAz" min="0" max="360" step="0.1" placeholder="0-360" maxlength="3">
+      <label>El:</label>
+      <input type="number" id="manualEl" min="0" max="180" step="0.1" placeholder="0-180" maxlength="3">
+      <button class="btn btn-sm" id="manualSetBtn">Set Position</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Settings -->
+<div class="tab-content" id="tab-settings">
+  <div class="card">
+    <div class="card-title">Ground Station Location</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Maidenhead Grid Square</div>
+        <div class="setting-desc">e.g. KG44BD (6 chars = ~5×5 km resolution)</div>
+      </div>
+      <div class="setting-control">
+        <input type="text" id="gridSquare" placeholder="KG44BD" style="width:100px;text-transform:uppercase;">
+        <button class="btn btn-sm" id="convertGridBtn">Convert</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Latitude</div>
+        <div class="setting-desc">Decimal degrees (negative = South)</div>
+      </div>
+      <div class="setting-control">
+        <input type="number" id="latitude" step="0.0001" placeholder="-33.9249">
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Longitude</div>
+        <div class="setting-desc">Decimal degrees (negative = West)</div>
+      </div>
+      <div class="setting-control">
+        <input type="number" id="longitude" step="0.0001" placeholder="18.4241">
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Altitude</div>
+        <div class="setting-desc">Meters above sea level (optional, minor accuracy improvement)</div>
+      </div>
+      <div class="setting-control">
+        <input type="number" id="altitude" step="1" placeholder="1000" style="width:80px;">
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-primary" id="saveLocBtn">Save Location</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Tracking Preferences</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Update Interval</div>
+        <div class="setting-desc">How often to compute position and send to rotator</div>
+      </div>
+      <div class="setting-control">
+        <select id="updateInterval">
+          <option value="1000">1 second</option>
+          <option value="2000" selected>2 seconds</option>
+          <option value="5000">5 seconds</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Minimum Elevation</div>
+        <div class="setting-desc">Ignore passes below this angle</div>
+      </div>
+      <div class="setting-control">
+        <select id="minElevation">
+          <option value="5">5°</option>
+          <option value="10" selected>10°</option>
+          <option value="15">15°</option>
+          <option value="20">20°</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-primary" id="savePrefsBtn">Save Preferences</button>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  AZELCtrl Satellite Tracker — All orbital computation runs in your browser via satellite.js
+</div>
+
+<script>
+// ==================== CONFIGURATION ====================
+function normalizeApiBase(raw) {
+  raw = (raw || '').trim();
+  if (!raw) return '';
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
+    return 'http://' + raw;
+  }
+  return raw.replace(/\/+$/, '');  // strip trailing slashes
+}
+
+function getApiBase() {
+  return normalizeApiBase(localStorage.getItem('deviceApiBase') || '');
+}
+document.getElementById('deviceIp').value = localStorage.getItem('deviceApiBase') || '';
+
+// ==================== STATE ====================
+let satellites = JSON.parse(localStorage.getItem('satellites') || '[]');
+let selectedSatIndex = parseInt(localStorage.getItem('selectedSatIndex') || '-1');
+let tracking = false;
+let trackingInterval = null;
+let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
+let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
+let stationLocation = JSON.parse(localStorage.getItem('stationLocation') || '{"lat":-33.9249,"lon":18.4241,"alt":1000}');
+let elfMode = false;
+let currentPass = null;
+let upcomingPasses = [];
+
+// ==================== COMMON SATELLITES (NORAD IDs) ====================
+const QUICK_SATS = [
+  { name: 'ISS (ZARYA)', norad: 25544 },
+  { name: 'SO-50', norad: 24278 },
+  { name: 'AO-91 (FOX-1B)', norad: 44234 },
+  { name: 'AO-73 (FUNcube-1)', norad: 39444 },
+  { name: 'AO-27', norad: 27424 },
+  { name: 'AO-7', norad: 10978 },
+  { name: 'LILACSAT-2 (AO-116)', norad: 58277 },
+  { name: 'TIGRISAT (AO-120)', norad: 59863 },
+];
+
+// ==================== TABS ====================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'passes') refreshPasses();
+  });
+});
+
+// ==================== DEVICE IP ====================
+document.getElementById('saveIpBtn').addEventListener('click', () => {
+  const ip = document.getElementById('deviceIp').value.trim();
+  localStorage.setItem('deviceApiBase', ip);
+  updateConnectionStatus();
+});
+
+// ==================== CONNECTION STATUS ====================
+function updateConnectionStatus() {
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  dot.className = 'conn-dot';
+  label.textContent = 'Checking...';
+  fetchPos().then(() => {
+    dot.classList.add('connected');
+    label.textContent = 'Connected';
+  }).catch(() => {
+    dot.classList.add('error');
+    label.textContent = 'Disconnected';
+  });
+}
+
+// ==================== API CALLS ====================
+function api(url) {
+  const base = getApiBase() || '';
+  return fetch(base + url);
+}
+
+async function fetchPos() {
+  const resp = await api('/getpos');
+  if (!resp.ok) throw new Error('GET /getpos failed');
+  return await resp.json();
+}
+
+async function setPosition(az, el) {
+  const body = {};
+  if (az !== undefined && az !== null && !isNaN(az)) body.az = az;
+  if (el !== undefined && el !== null && !isNaN(el)) body.el = el;
+  if (Object.keys(body).length === 0) throw new Error('Provide at least Az or El');
+  const resp = await fetch((getApiBase() || '') + '/setpos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error('POST /setpos failed');
+  return await resp.json();
+}
+
+async function getElfMode() {
+  const resp = await api('/elf');
+  if (!resp.ok) throw new Error('GET /elf failed');
+  return await resp.json();
+}
+
+async function setElfMode(enabled) {
+  const resp = await fetch((getApiBase() || '') + '/elf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled })
+  });
+  if (!resp.ok) throw new Error('POST /elf failed');
+  return await resp.json();
+}
+
+// ==================== ELF MODE ====================
+document.getElementById('elfToggle').addEventListener('change', async (e) => {
+  const enabled = e.target.checked;
+  try {
+    await setElfMode(enabled);
+    elfMode = enabled;
+  } catch (err) {
+    e.target.checked = elfMode;
+    showBanner('tleStatus', 'Failed to set ELF mode: ' + err.message, 'error');
+  }
+});
+
+// ==================== SATELLITE MANAGEMENT ====================
+function saveSatellites() {
+  localStorage.setItem('satellites', JSON.stringify(satellites));
+  localStorage.setItem('selectedSatIndex', selectedSatIndex);
+  renderSatList();
+  updateTrackSatSelect();
+}
+
+function renderSatList() {
+  const container = document.getElementById('satList');
+  if (satellites.length === 0) {
+    container.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.8rem;">No satellites stored yet. Add one below or use Quick Add.</div>';
+    return;
+  }
+  container.innerHTML = satellites.map((sat, i) => {
+    const age = getTleAge(sat);
+    const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
+    return `
+      <div class="sat-list-item ${i === selectedSatIndex ? 'selected' : ''}" data-index="${i}">
+        <div>
+          <div class="sat-list-name">${sat.name}</div>
+          <div class="sat-list-meta">NORAD: ${sat.norad || '—'} · TLE age: ${formatAge(age)} <span class="${ageClass}"></span></div>
+        </div>
+        <div class="sat-list-actions">
+          <button class="btn btn-sm" onclick="event.stopPropagation();removeSat(${i})">Remove</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.sat-list-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectedSatIndex = parseInt(item.dataset.index);
+      saveSatellites();
+      updateCurrentSatDisplay(); updateTrackSatSelect();
+    });
+  });
+}
+
+function getTleAge(sat) {
+  if (!sat.tleDate) return Infinity;
+  return (Date.now() - new Date(sat.tleDate).getTime()) / 1000;
+}
+
+function formatAge(seconds) {
+  if (seconds === Infinity) return 'unknown';
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+  return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function updateCurrentSatDisplay() {
+  const ageEl = document.getElementById('currentTleAge');
+  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
+    ageEl.textContent = '';
+    return;
+  }
+  const sat = satellites[selectedSatIndex];
+  const age = getTleAge(sat);
+  const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
+  ageEl.className = 'tle-age ' + ageClass;
+  ageEl.textContent = 'TLE: ' + formatAge(age);
+}
+
+function updateTrackSatSelect() {
+  const select = document.getElementById('trackSatSelect');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="-1">— select satellite —</option>';
+  satellites.forEach((sat, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = sat.name;
+    select.appendChild(opt);
+  });
+  select.value = selectedSatIndex >= 0 ? String(selectedSatIndex) : '-1';
+}
+
+function removeSat(index) {
+  satellites.splice(index, 1);
+  if (selectedSatIndex === index) {
+    selectedSatIndex = -1;
+    stopTracking();
+  }
+  saveSatellites();
+  updateCurrentSatDisplay(); updateTrackSatSelect();
+}
+
+// Quick Add
+document.getElementById('quickSats').innerHTML = QUICK_SATS.map(s =>
+  `<button class="quick-sat-btn" data-norad="${s.norad}" data-name="${s.name}">${s.name}</button>`
+).join('');
+document.querySelectorAll('.quick-sat-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const norad = btn.dataset.norad;
+    const name = btn.dataset.name;
+    fetchTleForNORAD(norad, name);
+  });
+});
+
+// Add satellite
+document.getElementById('addSatBtn').addEventListener('click', () => {
+  const name = document.getElementById('newSatName').value.trim();
+  const norad = document.getElementById('newSatNORAD').value.trim();
+  const tleText = document.getElementById('tleInput').value.trim();
+  const statusEl = document.getElementById('tleStatus');
+
+  if (!name) { showBanner(statusEl, 'Enter a satellite name', 'error'); return; }
+  if (!tleText) { showBanner(statusEl, 'Paste the TLE (2 lines)', 'error'); return; }
+
+  const lines = tleText.split('\n').map(l => l.trim()).filter(l => l);
+  if (lines.length < 2) { showBanner(statusEl, 'TLE must have 2 lines', 'error'); return; }
+
+  try {
+    const satrec = satellite.twoline2satrec(lines[0], lines[1]);
+    const newSat = {
+      name,
+      norad: norad || lines[0].substring(2, 7).trim(),
+      line1: lines[0],
+      line2: lines[1],
+      tleDate: new Date().toISOString()
+    };
+    satellites.push(newSat);
+    selectedSatIndex = satellites.length - 1;
+    saveSatellites();
+    updateCurrentSatDisplay(); updateTrackSatSelect();
+    document.getElementById('newSatName').value = '';
+    document.getElementById('newSatNORAD').value = '';
+    document.getElementById('tleInput').value = '';
+    showBanner(statusEl, 'Added ' + name, 'info');
+  } catch (e) {
+    showBanner(statusEl, 'Invalid TLE: ' + e.message, 'error');
+  }
+});
+
+// Fetch TLE from CelesTrak
+document.getElementById('fetchTleBtn').addEventListener('click', () => {
+  const norad = document.getElementById('newSatNORAD').value.trim();
+  const name = document.getElementById('newSatName').value.trim();
+  if (norad) {
+    fetchTleForNORAD(norad, name);
+  } else {
+    showBanner(document.getElementById('tleStatus'), 'Enter a NORAD ID or use Quick Add', 'error');
+  }
+});
+
+async function fetchTleForNORAD(norad, preferredName) {
+  const statusEl = document.getElementById('tleStatus');
+  showBanner(statusEl, 'Fetching TLE for NORAD ' + norad + '...', 'info');
+  try {
+    const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const text = await resp.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length < 3) throw new Error('Unexpected response format');
+    const celesTrakName = lines[0];
+    const line1 = lines[1];
+    const line2 = lines[2];
+
+    // Validate
+    satellite.twoline2satrec(line1, line2);
+
+    // Check if already stored
+    const existingIdx = satellites.findIndex(s => s.norad === norad);
+    const newSat = {
+      name: preferredName || celesTrakName || 'SAT ' + norad,
+      norad: norad,
+      line1,
+      line2,
+      tleDate: new Date().toISOString()
+    };
+    if (existingIdx >= 0) {
+      satellites[existingIdx] = newSat;
+      showBanner(statusEl, 'Updated ' + newSat.name, 'info');
+    } else {
+      satellites.push(newSat);
+      showBanner(statusEl, 'Added ' + newSat.name, 'info');
+    }
+    selectedSatIndex = existingIdx >= 0 ? existingIdx : satellites.length - 1;
+    saveSatellites();
+    updateCurrentSatDisplay(); updateTrackSatSelect();
+    document.getElementById('newSatName').value = newSat.name;
+    document.getElementById('newSatNORAD').value = norad;
+    document.getElementById('tleInput').value = line1 + '\n' + line2;
+  } catch (e) {
+    showBanner(statusEl, 'Failed to fetch TLE: ' + e.message, 'error');
+  }
+}
+
+function showBanner(el, msg, type) {
+  el.innerHTML = `<div class="banner ${type}">${msg}</div>`;
+  setTimeout(() => { if (el.innerHTML.includes(msg)) el.innerHTML = ''; }, 5000);
+}
+
+// ==================== TRACKING ====================
+document.getElementById('startTrackBtn').addEventListener('click', startTracking);
+document.getElementById('stopTrackBtn').addEventListener('click', stopTracking);
+document.getElementById('trackSatSelect').addEventListener('change', (e) => {
+  const idx = parseInt(e.target.value);
+  selectedSatIndex = idx;
+  localStorage.setItem('selectedSatIndex', idx);
+  updateCurrentSatDisplay();
+});
+
+function startTracking() {
+  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
+    alert('Select a satellite first');
+    return;
+  }
+  const sat = satellites[selectedSatIndex];
+  try {
+    satellite.twoline2satrec(sat.line1, sat.line2);
+  } catch (e) {
+    alert('Invalid TLE for ' + sat.name);
+    return;
+  }
+  tracking = true;
+  document.getElementById('startTrackBtn').textContent = 'Tracking...';
+  document.getElementById('startTrackBtn').disabled = true;
+  computeAndSend();
+  trackingInterval = setInterval(computeAndSend, updateIntervalMs);
+}
+
+function stopTracking() {
+  tracking = false;
+  if (trackingInterval) {
+    clearInterval(trackingInterval);
+    trackingInterval = null;
+  }
+  document.getElementById('startTrackBtn').textContent = 'Start Tracking';
+  document.getElementById('startTrackBtn').disabled = false;
+  // Send STOP to device
+  const api = getApiBase();
+  if (api) {
+    fetch(api + '/cmd?dir=STOP', { method: 'GET' }).catch(() => {});
+  }
+}
+
+function geodeticToEci(lat, lon, alt, gmst) {
+  // WGS84 ellipsoid
+  const a = 6378.137;     // equatorial radius (km)
+  const f = 1 / 298.257223563;
+  const e2 = 2 * f - f * f;
+  const sinLat = Math.sin(lat);
+  const cosLat = Math.cos(lat);
+  const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
+
+  const x = (N + alt) * cosLat * Math.cos(lon + gmst);
+  const y = (N + alt) * cosLat * Math.sin(lon + gmst);
+  const z = (N * (1 - e2) + alt) * sinLat;
+
+  return { x, y, z };
+}
+
+function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
+  const posVel = satellite.propagate(satrec, date);
+  if (!posVel.position) return null;
+
+  const pos = posVel.position;
+
+  // Get GMST from satellite.js
+  const gmst = satellite.gstime(date);
+
+  // Convert station to ECI
+  const lat = stationLat * Math.PI / 180;
+  const lon = stationLon * Math.PI / 180;
+  const stationEci = geodeticToEci(lat, lon, stationAlt / 1000, gmst);
+
+  // Range vector from station to satellite
+  const rangeX = pos.x - stationEci.x;
+  const rangeY = pos.y - stationEci.y;
+  const rangeZ = pos.z - stationEci.z;
+  const rangeKm = Math.sqrt(rangeX * rangeX + rangeY * rangeY + rangeZ * rangeZ);
+
+  // Transform to topocentric (SEZ) frame
+  const theta = gmst + lon;
+  const sinLat = Math.sin(lat);
+  const cosLat = Math.cos(lat);
+  const sinTheta = Math.sin(theta);
+  const cosTheta = Math.cos(theta);
+
+  // SEZ transformation
+  const s = -sinTheta * rangeX + cosTheta * rangeY;
+  const e = -sinLat * cosTheta * rangeX - sinLat * sinTheta * rangeY + cosLat * rangeZ;
+  const z = cosLat * cosTheta * rangeX + cosLat * sinTheta * rangeY + sinLat * rangeZ;
+
+  // Azimuth and elevation
+  const azimuth = Math.atan2(s, e);
+  const elevation = Math.atan2(z, Math.sqrt(s * s + e * e));
+
+  return {
+    azimuth: azimuth,        // radians, 0 = North, clockwise
+    elevation: elevation,    // radians
+    range: rangeKm           // km
+  };
+}
+
+async function computeAndSend() {
+  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
+    stopTracking();
+    return;
+  }
+  const sat = satellites[selectedSatIndex];
+  try {
+    const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+    const now = new Date();
+    const posVel = satellite.propagate(satrec, now);
+    if (!posVel.position) {
+      return;
+    }
+    const gv = satellite.eciToGeodetic(posVel.position, posVel.epoch);
+    const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+
+    let satAz = top.azimuth;
+    let satEl = top.elevation;
+    let satRange = satellite.distance(posVel.position);
+
+    // Convert satellite.js radians to degrees
+    satAz = (satAz * 180 / Math.PI + 360) % 360;
+    satEl = satEl * 180 / Math.PI;
+
+    // Update target display with aligned decimal points
+    document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
+    document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+    document.getElementById('targetRange').textContent = 'Range: ' + satRange.toFixed(0) + ' km';
+
+
+
+    // Send to rotator (only if above minimum elevation)
+    if (satEl >= minElevation) {
+      try {
+        await setPosition(satAz, satEl);
+      } catch (err) {
+        console.warn('Failed to send position:', err);
+      }
+    }
+
+    // Update polar plot
+    drawPolarPlot(top, sat);
+
+  } catch (e) {
+    console.error('Tracking error:', e);
+  }
+}
+
+// Manual set
+document.getElementById('manualSetBtn').addEventListener('click', async () => {
+  const azVal = document.getElementById('manualAz').value.trim();
+  const elVal = document.getElementById('manualEl').value.trim();
+  const az = azVal !== '' ? parseFloat(azVal) : undefined;
+  const el = elVal !== '' ? parseFloat(elVal) : undefined;
+  if (az === undefined && el === undefined) {
+    alert('Enter at least Az or El');
+    return;
+  }
+  if (az !== undefined && (az < 0 || az > 360)) {
+    alert('Azimuth must be 0-360');
+    return;
+  }
+  if (el !== undefined && (el < 0 || el > 180)) {
+    alert('Elevation must be 0-180');
+    return;
+  }
+  try {
+    await setPosition(az, el);
+    if (az !== undefined) {
+      document.getElementById('targetAz').textContent = String(az.toFixed(1)).padStart(5, '\u00A0') + '°';
+    }
+    if (el !== undefined) {
+      document.getElementById('targetEl').textContent = String(el.toFixed(1)).padStart(5, '\u00A0') + '°';
+    }
+  } catch (e) {
+    alert('Failed to set position: ' + e.message);
+  }
+});
+
+// Limit input to 3 characters (handles type="number" where maxlength alone doesn't work)
+['manualAz', 'manualEl'].forEach(id => {
+  document.getElementById(id).addEventListener('input', function() {
+    if (this.value.length > 3) this.value = this.value.slice(0, 3);
+  });
+});
+
+// ==================== ROTATOR STATUS POLLING ====================
+setInterval(async () => {
+  try {
+    const pos = await fetchPos();
+    const azStr = String(pos.az.toFixed(1)).padStart(5, '\u00A0') + '°';
+    const elStr = String(pos.el.toFixed(1)).padStart(5, '\u00A0') + '°';
+
+    // Tracking tab
+    document.getElementById('actualAz').textContent = azStr;
+    document.getElementById('actualEl').textContent = elStr;
+
+    // Control tab
+    document.getElementById('ctrlActualAz').textContent = azStr;
+    document.getElementById('ctrlActualEl').textContent = elStr;
+
+    // Movement indicators (Tracking tab)
+    const mvAz = document.getElementById('mvAz');
+    const mvEl = document.getElementById('mvEl');
+    mvAz.className = 'mv-arrow ' + (pos.maz === 'idle' ? 'idle' : '');
+    mvEl.className = 'mv-arrow ' + (pos.mel === 'idle' ? 'idle' : '');
+    switch (pos.maz) {
+      case 'cw': mvAz.textContent = '→'; break;
+      case 'ccw': mvAz.textContent = '←'; break;
+      default: mvAz.textContent = '●'; break;
+    }
+    switch (pos.mel) {
+      case 'up': mvEl.textContent = '↑'; break;
+      case 'down': mvEl.textContent = '↓'; break;
+      default: mvEl.textContent = '●'; break;
+    }
+
+    // Movement indicators (Control tab)
+    const ctrlMvAz = document.getElementById('ctrlMvAz');
+    const ctrlMvEl = document.getElementById('ctrlMvEl');
+    ctrlMvAz.className = 'mv-arrow ' + (pos.maz === 'idle' ? 'idle' : '');
+    ctrlMvEl.className = 'mv-arrow ' + (pos.mel === 'idle' ? 'idle' : '');
+    switch (pos.maz) {
+      case 'cw': ctrlMvAz.textContent = '→'; break;
+      case 'ccw': ctrlMvAz.textContent = '←'; break;
+      default: ctrlMvAz.textContent = '●'; break;
+    }
+    switch (pos.mel) {
+      case 'up': ctrlMvEl.textContent = '↑'; break;
+      case 'down': ctrlMvEl.textContent = '↓'; break;
+      default: ctrlMvEl.textContent = '●'; break;
+    }
+
+    // Update Control tab status and button highlights
+    const controlStatus = document.getElementById('controlStatus');
+    const btnUp = document.getElementById('btnUp');
+    const btnDown = document.getElementById('btnDown');
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+
+    // Only auto-highlight if user isn't currently pressing a button
+    if (!activeDirection) {
+      btnUp.classList.toggle('active', pos.mel === 'up');
+      btnDown.classList.toggle('active', pos.mel === 'down');
+      btnLeft.classList.toggle('active', pos.maz === 'ccw');
+      btnRight.classList.toggle('active', pos.maz === 'cw');
+    }
+
+    // Build status text
+    const parts = [];
+    if (pos.maz === 'cw') parts.push('AZ →');
+    else if (pos.maz === 'ccw') parts.push('AZ ←');
+    if (pos.mel === 'up') parts.push('EL ↑');
+    else if (pos.mel === 'down') parts.push('EL ↓');
+    if (parts.length > 0) {
+      controlStatus.textContent = parts.join('  ');
+      controlStatus.className = 'control-status moving';
+    } else {
+      controlStatus.textContent = 'IDLE';
+      controlStatus.className = 'control-status';
+    }
+  } catch (e) {
+    // Connection lost — don't spam errors
+  }
+
+  // Update polar plot even when not tracking
+  if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
+    try {
+      const sat = satellites[selectedSatIndex];
+      const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+      const now = new Date();
+      const posVel = satellite.propagate(satrec, now);
+      if (posVel.position) {
+        const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        drawPolarPlot(top, sat);
+      }
+    } catch (e) {
+      // Ignore errors during polar plot update
+    }
+  }
+}, 1000);
+
+// ==================== POLAR PLOT ====================
+function drawPolarPlot(top, sat) {
+  const svg = document.getElementById('polarPlot');
+  const cx = 230, cy = 230, r = 170;
+  const satAzDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
+  const satElDeg = top.elevation * 180 / Math.PI;
+
+  // Fetch rotator position for current dot
+  fetchPos().then(pos => {
+    const rotAz = pos.az;
+    const rotEl = Math.min(pos.el, 90); // clamp for display
+
+    // Convert to SVG coords (0° = North/top, clockwise)
+    function toSvg(az, el) {
+      const rad = ((90 - el) / 90) * r;
+      const angle = (az - 90) * Math.PI / 180;
+      return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
+    }
+
+    // Generate elevation grid circles
+    let elGrid = '';
+    const elSteps = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+    elSteps.forEach(el => {
+      const radius = ((90 - el) / 90) * r;
+      const strokeDash = el === 90 ? '' : 'stroke-dasharray="2,3"';
+      elGrid += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#484f58" stroke-width="0.7" ${strokeDash}/>`;
+      // Label on the north axis (top)
+      if (el % 20 === 0 || el === 90) {
+        elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#8b949e" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
+      }
+    });
+
+    // Generate azimuth grid lines and labels
+    let azGrid = '';
+    const azSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+    azSteps.forEach(az => {
+      const angle = (az - 90) * Math.PI / 180;
+      const x2 = cx + r * Math.cos(angle);
+      const y2 = cy + r * Math.sin(angle);
+      azGrid += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#484f58" stroke-width="0.5" stroke-dasharray="2,4"/>`;
+      // Label at the edge
+      const labelR = r + 12;
+      const lx = cx + labelR * Math.cos(angle);
+      const ly = cy + labelR * Math.sin(angle);
+      const anchor = az === 0 ? 'middle' : az === 180 ? 'middle' : az < 180 ? 'start' : 'end';
+      if (az % 30 === 0) {
+        azGrid += `<text x="${lx}" y="${ly + 3}" fill="#8b949e" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
+      }
+    });
+
+    // Cardinal direction labels (larger, brighter)
+    let cardinal = `
+      <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
+      <text x="${cx}" y="${cy + r + 32}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">S</text>
+      <text x="450" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">E</text>
+      <text x="10" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">W</text>`;
+
+    const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
+    const rotPt = toSvg(rotAz, rotEl);
+
+    svg.innerHTML = `
+      <defs>
+        <radialGradient id="plotBg" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#161b22"/>
+          <stop offset="100%" stop-color="#0d1117"/>
+        </radialGradient>
+      </defs>
+      <!-- Background -->
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#plotBg)" stroke="#30363d" stroke-width="1"/>
+      <!-- Elevation grid -->
+      ${elGrid}
+      <!-- Azimuth grid -->
+      ${azGrid}
+      <!-- Cardinal labels -->
+      ${cardinal}
+      <!-- Satellite position -->
+      <circle cx="${satPt.x}" cy="${satPt.y}" r="6" fill="#58a6ff" opacity="0.9">
+        <title>Satellite: Az=${satAzDeg.toFixed(1)}° El=${satElDeg.toFixed(1)}°</title>
+      </circle>
+      <!-- Rotator position -->
+      <circle cx="${rotPt.x}" cy="${rotPt.y}" r="4" fill="#3fb950" opacity="0.9">
+        <title>Rotator: Az=${rotAz.toFixed(1)}° El=${rotEl.toFixed(1)}°</title>
+      </circle>
+    `;
+  }).catch(() => {
+    // Draw without rotator position if offline
+    function toSvg(az, el) {
+      const rad = ((90 - el) / 90) * r;
+      const angle = (az - 90) * Math.PI / 180;
+      return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
+    }
+
+    let elGrid = '';
+    const elSteps = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+    elSteps.forEach(el => {
+      const radius = ((90 - el) / 90) * r;
+      elGrid += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#484f58" stroke-width="0.7" stroke-dasharray="2,3"/>`;
+      if (el % 20 === 0 || el === 90) {
+        elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#8b949e" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
+      }
+    });
+
+    let azGrid = '';
+    const azSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+    azSteps.forEach(az => {
+      const angle = (az - 90) * Math.PI / 180;
+      const x2 = cx + r * Math.cos(angle);
+      const y2 = cy + r * Math.sin(angle);
+      azGrid += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#484f58" stroke-width="0.5" stroke-dasharray="2,4"/>`;
+      const labelR = r + 12;
+      const lx = cx + labelR * Math.cos(angle);
+      const ly = cy + labelR * Math.sin(angle);
+      const anchor = az === 0 ? 'middle' : az === 180 ? 'middle' : az < 180 ? 'start' : 'end';
+      if (az % 30 === 0) {
+        azGrid += `<text x="${lx}" y="${ly + 3}" fill="#8b949e" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
+      }
+    });
+
+    const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
+
+    svg.innerHTML = `
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="#161b22" stroke="#30363d"/>
+      ${elGrid}
+      ${azGrid}
+      <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
+      <text x="${cx}" y="${cy + r + 32}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">S</text>
+      <text x="450" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">E</text>
+      <text x="10" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">W</text>
+      <circle cx="${satPt.x}" cy="${satPt.y}" r="6" fill="#58a6ff"/>
+    `;
+  });
+}
+
+// ==================== PASS PREDICTIONS ====================
+function refreshPasses() {
+  const infoEl = document.getElementById('passInfo');
+  const tableEl = document.getElementById('passTable');
+  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
+    infoEl.textContent = 'Select a satellite to see pass predictions';
+    tableEl.innerHTML = '';
+    return;
+  }
+  const sat = satellites[selectedSatIndex];
+  const hours = parseInt(document.getElementById('passLookahead').value);
+  const minEl = parseFloat(document.getElementById('minElevation').value);
+
+  try {
+    const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+    const now = new Date();
+    const end = new Date(now.getTime() + hours * 3600000);
+    const passes = [];
+
+    // Compute elevation every 60 seconds and find crossings
+    const points = [];
+    for (let t = now; t < end; t = new Date(t.getTime() + 60000)) {
+      const top = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      if (!top) continue;
+      const elDeg = top.elevation * 180 / Math.PI;
+      const azDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
+      points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+    }
+
+    // Find elevation crossings (rising and falling)
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      // Rising through minElevation
+      if (prev.el < minEl && curr.el >= minEl) {
+        const aos = interpolateTime(prev, curr, minEl);
+        const aosAz = interpolateAz(prev, curr, minEl);
+        // Find LOS (falling below minEl)
+        let los = aos + 60000; // default 1 min pass
+        let losAz = aosAz;
+        let maxEl = curr.el;
+        let maxElTime = curr.time;
+        let maxElAz = curr.az;
+        for (let j = i + 1; j < points.length && points[j].time < aos + 3600000; j++) {
+          if (points[j].el > maxEl) {
+            maxEl = points[j].el;
+            maxElTime = points[j].time;
+            maxElAz = points[j].az;
+          }
+          if (points[j].el < minEl && points[j - 1].el >= minEl) {
+            los = interpolateTime(points[j - 1], points[j], minEl);
+            losAz = interpolateAz(points[j - 1], points[j], minEl);
+            break;
+          }
+        }
+        if (maxEl >= minEl && los > aos) {
+          passes.push({ aos, los, maxEl, maxElTime, maxElAz, aosAz, losAz });
+        }
+      }
+    }
+
+    // Sort by AOS time
+    passes.sort((a, b) => a.aos - b.aos);
+
+    upcomingPasses = passes;
+
+    if (passes.length === 0) {
+      infoEl.textContent = 'No passes above ' + minEl + '° in the next ' + hours + ' hours';
+      tableEl.innerHTML = '';
+      return;
+    }
+
+    infoEl.textContent = 'Upcoming passes for ' + sat.name + ' (min ' + minEl + '° elevation)';
+    tableEl.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>AOS</th>
+            <th style="text-align: right;">AOS Az</th>
+            <th style="text-align: right;">LOS Az</th>
+            <th>\u00A0\u00A0\u00A0\u00A0Max El</th>
+            <th>LOS</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${passes.map(p => {
+            const aos = new Date(p.aos);
+            const los = new Date(p.los);
+            const dur = (los - aos) / 60000;
+            const elClass = p.maxEl >= 45 ? 'max-el-high' : p.maxEl >= 20 ? 'max-el-med' : 'max-el-low';
+            return `
+              <tr>
+                <td>${formatDate(aos)}</td>
+                <td class="num">${formatTime(aos)}</td>
+                <td class="num" style="text-align: right;">${p.aosAz.toFixed(0)}°</td>
+                <td class="num" style="text-align: right;">${p.losAz.toFixed(0)}°</td>
+                <td class="num ${elClass}" style="font-family: monospace;">${String(p.maxEl.toFixed(1)).padStart(5, '\u00A0')}° @${String(p.maxElAz.toFixed(0)).padStart(3, '\u00A0')}</td>
+                <td class="num">${formatTime(los)}</td>
+                <td class="num">${dur.toFixed(1)} min</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    infoEl.textContent = 'Error computing passes: ' + e.message;
+    tableEl.innerHTML = '';
+  }
+}
+
+function interpolateTime(prev, curr, targetEl) {
+  const dt = curr.time - prev.time;
+  const de = curr.el - prev.el;
+  if (de === 0) return prev.time;
+  return prev.time + dt * (targetEl - prev.el) / de;
+}
+
+function interpolateAz(prev, curr, targetEl) {
+  const de = curr.el - prev.el;
+  if (de === 0) return prev.az;
+  const ratio = (targetEl - prev.el) / de;
+  let az = prev.az + ratio * (curr.az - prev.az);
+  // Handle azimuth wrap-around
+  if (Math.abs(curr.az - prev.az) > 180) {
+    // Take the shorter path around the circle
+    const diff = curr.az - prev.az;
+    const adjustedDiff = diff > 180 ? diff - 360 : diff < -180 ? diff + 360 : diff;
+    az = prev.az + ratio * adjustedDiff;
+  }
+  return (az + 360) % 360;
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDate(date) {
+  const today = new Date();
+  const tomorrow = new Date(today.getTime() + 86400000);
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+  return date.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+}
+
+document.getElementById('refreshPassesBtn').addEventListener('click', refreshPasses);
+document.getElementById('passLookahead').addEventListener('change', refreshPasses);
+
+// ==================== DIRECTIONAL CONTROL ====================
+let activeDirection = null;
+
+function sendDirection(dir) {
+  const api = getApiBase();
+  if (!api) return;
+  fetch(api + '/cmd?dir=' + dir, { method: 'GET' })
+    .then(() => {
+      const statusEl = document.getElementById('controlStatus');
+      if (dir === 'STOP') {
+        statusEl.textContent = 'IDLE';
+        statusEl.className = 'control-status';
+      } else {
+        statusEl.textContent = dir + '...';
+        statusEl.className = 'control-status moving';
+      }
+    })
+    .catch(() => {});
+}
+
+function startDirection(dir, btn) {
+  if (activeDirection) return;
+  activeDirection = dir;
+  btn.classList.add('active');
+  sendDirection(dir);  // Send once — firmware handles continuous movement
+}
+
+function stopDirection(btn) {
+  if (!activeDirection) return;
+  if (btn) btn.classList.remove('active');
+  activeDirection = null;
+  sendDirection('STOP');
+}
+
+// Mouse events
+['Up', 'Down', 'Left', 'Right'].forEach(dir => {
+  const btn = document.getElementById('btn' + dir);
+  const command = dir.toUpperCase();
+  btn.addEventListener('mousedown', (e) => { e.preventDefault(); startDirection(command, btn); });
+  btn.addEventListener('mouseup', (e) => { e.preventDefault(); stopDirection(btn); });
+  btn.addEventListener('mouseleave', (e) => { if (activeDirection) stopDirection(btn); });
+});
+
+// Touch events
+['Up', 'Down', 'Left', 'Right'].forEach(dir => {
+  const btn = document.getElementById('btn' + dir);
+  const command = dir.toUpperCase();
+  btn.addEventListener('touchstart', (e) => { e.preventDefault(); startDirection(command, btn); }, { passive: false });
+  btn.addEventListener('touchend', (e) => { e.preventDefault(); stopDirection(btn); }, { passive: false });
+  btn.addEventListener('touchcancel', (e) => { stopDirection(btn); });
+});
+
+// Stop button
+const stopBtn = document.getElementById('btnStop');
+stopBtn.addEventListener('mousedown', (e) => { e.preventDefault(); stopDirection(null); stopTracking(); });
+stopBtn.addEventListener('touchstart', (e) => { e.preventDefault(); stopDirection(null); stopTracking(); }, { passive: false });
+
+// Prevent context menu on long press
+document.querySelectorAll('.dir-btn, .stop-btn').forEach(btn => {
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+
+// ==================== MAIDENHEAD GRID SQUARE ====================
+function gridToLatLon(grid) {
+  grid = grid.toUpperCase().trim();
+  if (grid.length < 4) return null;
+
+  let lon = ((grid.charCodeAt(0) - 65) * 20) - 180;
+  let lat = ((grid.charCodeAt(1) - 65) * 10) - 90;
+
+  lon += parseInt(grid[2]) * 2;
+  lat += parseInt(grid[3]) * 1;
+
+  if (grid.length >= 6) {
+    const fields = 'ABCDEFGHIJKLMNOPQR';
+    lon += (fields.indexOf(grid[4]) + 0.5) / 12;
+    lat += (fields.indexOf(grid[5]) + 0.5) / 24;
+  }
+
+  return { lat, lon };
+}
+
+document.getElementById('convertGridBtn').addEventListener('click', () => {
+  const grid = document.getElementById('gridSquare').value.trim();
+  const result = gridToLatLon(grid);
+  if (!result) {
+    alert('Enter at least 4 characters (e.g. KG44)');
+    return;
+  }
+  document.getElementById('latitude').value = result.lat.toFixed(4);
+  document.getElementById('longitude').value = result.lon.toFixed(4);
+});
+
+// ==================== SETTINGS ====================
+document.getElementById('saveLocBtn').addEventListener('click', () => {
+  const lat = parseFloat(document.getElementById('latitude').value);
+  const lon = parseFloat(document.getElementById('longitude').value);
+  const alt = parseFloat(document.getElementById('altitude').value) || 1000;
+  if (isNaN(lat) || isNaN(lon)) {
+    alert('Enter valid latitude and longitude');
+    return;
+  }
+  stationLocation = { lat, lon, alt };
+  localStorage.setItem('stationLocation', JSON.stringify(stationLocation));
+  alert('Location saved');
+});
+
+document.getElementById('savePrefsBtn').addEventListener('click', () => {
+  updateIntervalMs = parseInt(document.getElementById('updateInterval').value);
+  minElevation = parseFloat(document.getElementById('minElevation').value);
+  localStorage.setItem('updateInterval', updateIntervalMs);
+  localStorage.setItem('minElevation', minElevation);
+  if (tracking) {
+    stopTracking();
+    startTracking();
+  }
+  alert('Preferences saved');
+});
+
+// ==================== INIT ====================
+function init() {
+  renderSatList();
+  updateCurrentSatDisplay(); updateTrackSatSelect();
+  updateConnectionStatus();
+
+  // Load saved settings
+  document.getElementById('latitude').value = stationLocation.lat;
+  document.getElementById('longitude').value = stationLocation.lon;
+  document.getElementById('altitude').value = stationLocation.alt;
+  document.getElementById('updateInterval').value = updateIntervalMs;
+  document.getElementById('minElevation').value = minElevation;
+
+  // Load ELF mode from device
+  getElfMode().then(data => {
+    elfMode = data.enabled;
+    document.getElementById('elfToggle').checked = elfMode;
+  }).catch(() => {
+    // Device not reachable yet
+  });
+
+  // Draw initial polar plot
+  setTimeout(() => {
+    drawPolarPlot({ azimuth: 0, elevation: 0 }, {});
+  }, 500);
+}
+
+init();
+</script>
+</body>
+</html>
