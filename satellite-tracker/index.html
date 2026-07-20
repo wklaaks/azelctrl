@@ -186,6 +186,17 @@ td.max-el-low { color: var(--muted); }
 .quick-sat-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.75rem; cursor: pointer; }
 .quick-sat-btn:hover { background: var(--border); border-color: var(--accent); }
 
+/* Browse satellite list */
+.browse-sat-list { max-height: 350px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 5px; background: var(--bg); }
+.browse-sat-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid rgba(48,54,61,0.5); cursor: pointer; transition: background 0.1s; }
+.browse-sat-item:hover { background: rgba(88,166,255,0.05); }
+.browse-sat-item.added { opacity: 0.5; }
+.browse-sat-item input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
+.browse-sat-name { flex: 1; font-size: 0.8rem; }
+.browse-sat-norad { font-size: 0.7rem; color: var(--muted); font-family: monospace; }
+.browse-sat-btn { padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; font-size: 0.7rem; }
+.browse-sat-btn:hover { background: var(--accent); color: #000; }
+
 /* Error/warning banners */
 .banner { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; font-size: 0.8rem; }
 .banner.info { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); color: var(--accent); }
@@ -283,20 +294,28 @@ td.max-el-low { color: var(--muted); }
 <!-- Tab: Satellites -->
 <div class="tab-content" id="tab-satellites">
   <div class="card">
-    <div class="card-title">Quick Add (Common Amateur Satellites)</div>
-    <div class="quick-sats" id="quickSats"></div>
+    <div class="card-title">Your Satellites</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+      <button class="btn btn-sm btn-primary" id="refreshTlesBtn">Refresh All TLEs</button>
+      <span style="font-size:0.75rem;color:var(--muted);" id="satCount">0 satellites</span>
+    </div>
+    <div id="satList"></div>
   </div>
 
   <div class="card">
-    <div class="card-title">Stored Satellites</div>
-    <div id="satList"></div>
+    <div class="card-title">Browse Amateur Radio Satellites</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+      <button class="btn btn-sm" id="browseSatListBtn">Load List from CelesTrak</button>
+      <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
+    </div>
+    <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
   </div>
 
   <div class="card">
     <div class="card-title">Add Satellite</div>
     <div style="display:flex;gap:8px;margin-bottom:8px;">
       <input type="text" class="device-input" id="newSatName" placeholder="Satellite name" style="flex:1;">
-      <input type="text" class="device-input" id="newSatNORAD" placeholder="NORAD ID (optional)" style="width:120px;">
+      <input type="text" class="device-input" id="newSatNORAD" placeholder="NORAD ID" style="width:120px;">
     </div>
     <textarea class="tle-input" id="tleInput" placeholder="Paste TLE lines here (2 lines)..." rows="3"></textarea>
     <div style="display:flex;gap:8px;margin-top:8px;">
@@ -491,18 +510,6 @@ let elfMode = false;
 let currentPass = null;
 let upcomingPasses = [];
 
-// ==================== COMMON SATELLITES (NORAD IDs) ====================
-const QUICK_SATS = [
-  { name: 'ISS (ZARYA)', norad: 25544 },
-  { name: 'SO-50', norad: 24278 },
-  { name: 'AO-91 (FOX-1B)', norad: 44234 },
-  { name: 'AO-73 (FUNcube-1)', norad: 39444 },
-  { name: 'AO-27', norad: 27424 },
-  { name: 'AO-7', norad: 10978 },
-  { name: 'LILACSAT-2 (AO-116)', norad: 58277 },
-  { name: 'TIGRISAT (AO-120)', norad: 59863 },
-];
-
 // ==================== TABS ====================
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -600,8 +607,11 @@ function saveSatellites() {
 
 function renderSatList() {
   const container = document.getElementById('satList');
+  const countEl = document.getElementById('satCount');
+  countEl.textContent = satellites.length + ' satellite' + (satellites.length !== 1 ? 's' : '');
+  
   if (satellites.length === 0) {
-    container.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.8rem;">No satellites stored yet. Add one below or use Quick Add.</div>';
+    container.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.8rem;">No satellites stored yet. Browse the list below or add one manually.</div>';
     return;
   }
   container.innerHTML = satellites.map((sat, i) => {
@@ -678,17 +688,139 @@ function removeSat(index) {
   updateCurrentSatDisplay(); updateTrackSatSelect();
 }
 
-// Quick Add
-document.getElementById('quickSats').innerHTML = QUICK_SATS.map(s =>
-  `<button class="quick-sat-btn" data-norad="${s.norad}" data-name="${s.name}">${s.name}</button>`
-).join('');
-document.querySelectorAll('.quick-sat-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const norad = btn.dataset.norad;
-    const name = btn.dataset.name;
-    fetchTleForNORAD(norad, name);
-  });
+// ==================== BROWSE SATELLITES ====================
+document.getElementById('browseSatListBtn').addEventListener('click', async () => {
+  const listEl = document.getElementById('browseSatList');
+  const statusEl = document.getElementById('browseStatus');
+  
+  statusEl.textContent = 'Loading...';
+  listEl.style.display = 'block';
+  listEl.innerHTML = '';
+  
+  try {
+    const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=csv');
+    const text = await resp.text();
+    const lines = text.trim().split('\n');
+    const header = lines[0].split(',');
+    const nameIdx = header.indexOf('OBJECT_NAME');
+    const noradIdx = header.indexOf('NORAD_CAT_ID');
+    
+    const mySats = satellites.map(s => s.norad);
+    
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const name = cols[nameIdx];
+      const norad = cols[noradIdx];
+      if (!name || !norad) continue;
+      
+      const noradNum = parseInt(norad);
+      const isAdded = mySats.includes(noradNum);
+      
+      const item = document.createElement('div');
+      item.className = 'browse-sat-item' + (isAdded ? ' added' : '');
+      item.innerHTML = `
+        <span class="browse-sat-name">${name}</span>
+        <span class="browse-sat-norad">${norad}</span>
+        ${isAdded ? '<span style="font-size:0.7rem;color:var(--green);">✓</span>' : '<button class="browse-sat-btn">Add</button>'}
+      `;
+      
+      if (!isAdded) {
+        const btn = item.querySelector('.browse-sat-btn');
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          document.getElementById('newSatName').value = name;
+          document.getElementById('newSatNORAD').value = norad;
+          document.getElementById('fetchTleBtn').click();
+          btn.textContent = '...';
+          btn.disabled = true;
+        });
+      }
+      
+      listEl.appendChild(item);
+    }
+    
+    statusEl.textContent = `Loaded ${lines.length - 1} amateur satellites`;
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + err.message;
+    listEl.innerHTML = '';
+  }
 });
+
+// ==================== REFRESH ALL TLES ====================
+document.getElementById('refreshTlesBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('tleStatus');
+  showBanner(statusEl, `Refreshing TLEs for ${satellites.length} satellites...`, 'info');
+  
+  let success = 0;
+  let failed = 0;
+  
+  for (let i = 0; i < satellites.length; i++) {
+    const sat = satellites[i];
+    try {
+      const result = await fetchTleOrCsv(sat.norad);
+      if (result && result.length >= 2) {
+        sat.line1 = result[0];
+        sat.line2 = result[1];
+        sat.tleDate = new Date().toISOString();
+        success++;
+      } else {
+        failed++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  
+  saveSatellites();
+  showBanner(statusEl, `Done: ${success} updated, ${failed} failed`, failed === 0 ? 'success' : 'warn');
+});
+
+// ==================== FETCH TLE OR CSV ====================
+async function fetchTleOrCsv(norad) {
+  // Try TLE first
+  const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
+  const text = await resp.text();
+  
+  if (!text.startsWith('No GP data found')) {
+    const lines = text.trim().split('\n');
+    if (lines.length >= 2) {
+      return lines;
+    }
+  }
+  
+  // Fall back to CSV (for NORAD >= 100000)
+  const resp2 = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=csv');
+  const csvText = await resp2.text();
+  
+  if (csvText.startsWith('No GP data found')) {
+    throw new Error('No GP data found for NORAD ' + norad);
+  }
+  
+  const lines = csvText.trim().split('\n');
+  const header = lines[0].split(',');
+  const row = lines[1].split(',');
+  const getField = (name) => row[header.indexOf(name)];
+  
+  // Convert CSV to TLE-like format for satellite.js
+  const line1 = '1 ' + String(getField('NORAD_CAT_ID')).padStart(5, '0') + '  ' + getField('OBJECT_ID') + ' ' +
+                getField('EPOCH').replace('T', ' ') + ' ' +
+                String(getField('MEAN_MOTION_DOT')).padStart(11, ' ') + ' ' +
+                String(getField('BSTAR') || '0').padStart(10, ' ') + ' ' +
+                String(getField('ELEMENT_SET_NO')).padStart(2, '0') + ' ' +
+                String(getField('EPHEMERIS_TYPE')).padStart(1, '0') + ' ';
+  
+  const line2 = '2 ' + String(getField('NORAD_CAT_ID')).padStart(5, '0') + ' ' +
+                String(getField('INCLINATION')).padStart(8, ' ') + ' ' +
+                String(getField('RA_OF_ASC_NODE')).padStart(8, ' ') + ' ' +
+                String(getField('ECCENTRICITY')).padStart(8, '.') + ' ' +
+                String(getField('ARG_OF_PERICENTER')).padStart(8, ' ') + ' ' +
+                String(getField('MEAN_ANOMALY')).padStart(8, ' ') + ' ' +
+                String(getField('MEAN_MOTION')).padStart(11, ' ') + ' ' +
+                String(getField('REV_AT_EPOCH')).padStart(5, '0') + ' ' +
+                String(getField('EPHEMERIS_TYPE')).padStart(1, '0');
+  
+  return [line1, line2];
+}
 
 // Add satellite
 document.getElementById('addSatBtn').addEventListener('click', () => {
@@ -1593,34 +1725,30 @@ document.getElementById('savePrefsBtn').addEventListener('click', () => {
   alert('Preferences saved');
 });
 
-// ==================== INIT ====================
-function init() {
-  renderSatList();
-  updateCurrentSatDisplay(); updateTrackSatSelect();
-  updateConnectionStatus();
+// ==================== INITIALIZATION ====================
+renderSatList();
+updateTrackSatSelect();
+updateCurrentSatDisplay();
+updateConnectionStatus();
 
-  // Load saved settings
-  document.getElementById('latitude').value = stationLocation.lat;
-  document.getElementById('longitude').value = stationLocation.lon;
-  document.getElementById('altitude').value = stationLocation.alt;
-  document.getElementById('updateInterval').value = updateIntervalMs;
-  document.getElementById('minElevation').value = minElevation;
+// Load settings
+document.getElementById('gridSquare').value = localStorage.getItem('gridSquare') || '';
+document.getElementById('latitude').value = stationLocation.lat || '';
+document.getElementById('longitude').value = stationLocation.lon || '';
+document.getElementById('altitude').value = stationLocation.alt || '';
+document.getElementById('updateInterval').value = updateIntervalMs;
+document.getElementById('minElevation').value = minElevation;
 
-  // Load ELF mode from device
-  getElfMode().then(data => {
-    elfMode = data.enabled;
-    document.getElementById('elfToggle').checked = elfMode;
-  }).catch(() => {
-    // Device not reachable yet
-  });
+// Load ELF mode from device
+getElfMode().then(data => {
+  elfMode = data.enabled;
+  document.getElementById('elfToggle').checked = elfMode;
+}).catch(() => {});
 
-  // Draw initial polar plot
-  setTimeout(() => {
-    drawPolarPlot({ azimuth: 0, elevation: 0 }, {});
-  }, 500);
-}
-
-init();
+// Draw initial polar plot
+setTimeout(() => {
+  drawPolarPlot({ azimuth: 0, elevation: 0 }, {});
+}, 500);
 </script>
 </body>
 </html>
