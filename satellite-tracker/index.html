@@ -44,6 +44,8 @@ a:hover { text-decoration: underline; }
 .btn-success:hover { background: #56d364; }
 
 .btn-sm { padding: 3px 8px; font-size: 0.75rem; }
+.btn-refresh { background: #d29922; color: #fff; border-color: #d29922; }
+.btn-refresh:hover { background: #e3b341; }
 .btn-sort { background: #238636; color: #fff; border-color: #238636; }
 .btn-sort:hover { background: #2ea043; }
 .btn-manage { background: #1f6feb; color: #fff; border-color: #1f6feb; }
@@ -355,7 +357,7 @@ td.max-el-low { color: var(--muted); }
   <div class="card">
     <div class="card-title">Your Satellites</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
-      <button class="btn btn-sm btn-primary" id="refreshTlesBtn">Refresh All TLEs</button>
+      <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
       <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
       <button class="btn btn-sm btn-manage" id="manageSatBtn">Manage Satellites</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
