@@ -770,7 +770,7 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
       
       // Check in 1-minute intervals
       const interval = 60 * 1000;
-      let lastEl = -90;
+      let lastElDeg = -90;
       let t = new Date(now);
       
       while (t < searchEnd) {
@@ -778,24 +778,27 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
         if (pos && pos.elevation !== null) {
           const el = pos.elevation;
           
+          // Convert elevation from radians to degrees
+          const elDeg = el * 180 / Math.PI;
+          
           // Detect AOS (elevation crossing minEl going up)
-          if (lastEl < minEl && el >= minEl && !nextAos) {
+          if (lastElDeg < minEl && elDeg >= minEl && !nextAos) {
             // Interpolate AOS time
-            const dt = interval / (el - lastEl);
-            nextAos = new Date(t.getTime() - (minEl - lastEl) * dt);
+            const dt = interval / (elDeg - lastElDeg);
+            nextAos = new Date(t.getTime() - (minEl - lastElDeg) * dt);
           }
           
-          if (nextAos && el > maxEl) {
-            maxEl = el;
-            maxElAz = pos.azimuth;
+          if (nextAos && elDeg > maxEl) {
+            maxEl = elDeg;
+            maxElAz = pos.azimuth * 180 / Math.PI;
           }
           
           // Detect LOS (elevation crossing minEl going down)
-          if (nextAos && lastEl >= minEl && el < minEl) {
+          if (nextAos && lastElDeg >= minEl && elDeg < minEl) {
             break;
           }
         }
-        lastEl = pos ? pos.elevation : -90;
+        lastElDeg = pos ? pos.elevation * 180 / Math.PI : -90;
         t = new Date(t.getTime() + interval);
       }
       
