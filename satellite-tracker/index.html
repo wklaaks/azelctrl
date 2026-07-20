@@ -217,40 +217,6 @@ td.max-el-low { color: var(--muted); }
 
 /* Footer */
 .footer { padding: 8px 16px; font-size: 0.7rem; color: var(--muted); text-align: center; border-top: 1px solid var(--border); }
-
-/* Modal */
-.modal-overlay {
-  display: none;
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.7);
-  z-index: 1000;
-  justify-content: center;
-  align-items: center;
-  padding: 20px 16px;
-  overflow-y: auto;
-}
-.modal-overlay.active { display: flex; }
-.modal {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  max-width: 700px;
-  width: 100%;
-  height: auto;
-  min-height: 300px;
-  max-height: calc(100vh - 40px);
-  display: flex;
-  flex-direction: column;
-}
-.modal .card {
-  margin-bottom: 12px;
-  flex-shrink: 0;
-}
-.modal .card:last-child {
-  margin-bottom: 0;
-}
 .modal-title {
   font-size: 1rem;
   font-weight: 600;
@@ -291,6 +257,7 @@ td.max-el-low { color: var(--muted); }
 <div class="tabs">
   <div class="tab active" data-tab="tracking">Tracking</div>
   <div class="tab" data-tab="satellites">Satellites</div>
+  <div class="tab" data-tab="browse-satellites">Browse Satellites</div>
   <div class="tab" data-tab="add-satellite">Add Satellite</div>
   <div class="tab" data-tab="passes">Pass Predictions</div>
   <div class="tab" data-tab="control">Control</div>
@@ -364,29 +331,21 @@ td.max-el-low { color: var(--muted); }
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
       <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
-      <button class="btn btn-sm btn-manage" id="manageSatBtn">Browse Satellites</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satList"></div>
   </div>
 </div>
 
-<!-- Manage Satellites Modal -->
-<div class="modal-overlay" id="manageModal">
-  <div class="modal">
-    <div class="modal-title">
-      <span>Browse Amateur Radio Satellites</span>
-      <button class="modal-close" id="manageModalClose">&times;</button>
+<!-- Tab: Browse Satellites -->
+<div class="tab-content" id="tab-browse-satellites">
+  <div class="card">
+    <div class="card-title">Browse Amateur Radio Satellites</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+      <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
+      <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
     </div>
-
-    <div class="card">
-      <div class="card-title">Available Satellites</div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
-        <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
-        <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
-      </div>
-      <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
-    </div>
+    <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
   </div>
 </div>
 
@@ -768,21 +727,6 @@ function removeSat(index) {
   saveSatellites();
   updateCurrentSatDisplay(); updateTrackSatSelect();
 }
-
-// ==================== BROWSE SATELLITES MODAL ====================
-document.getElementById('manageSatBtn').addEventListener('click', () => {
-  document.getElementById('manageModal').classList.add('active');
-});
-
-document.getElementById('manageModalClose').addEventListener('click', () => {
-  document.getElementById('manageModal').classList.remove('active');
-});
-
-document.getElementById('manageModal').addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) {
-    e.currentTarget.classList.remove('active');
-  }
-});
 
 // Sort by name
 document.getElementById('sortByNameBtn').addEventListener('click', () => {
