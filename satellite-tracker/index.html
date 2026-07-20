@@ -740,7 +740,6 @@ document.getElementById('sortByNameBtn').addEventListener('click', () => {
 document.getElementById('browseSatListBtn').addEventListener('click', async () => {
   const listEl = document.getElementById('browseSatList');
   const statusEl = document.getElementById('browseStatus');
-  const modal = document.getElementById('manageModal');
   
   statusEl.textContent = 'Loading...';
   listEl.style.display = 'block';
@@ -836,7 +835,6 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
   const norad = document.getElementById('newSatNORAD').value.trim();
   const tleText = document.getElementById('tleInput').value.trim();
   const statusEl = document.getElementById('tleStatus');
-  const modal = document.getElementById('manageModal');
 
   if (!name) { showBanner(statusEl, 'Enter a satellite name', 'error'); return; }
   if (!tleText) { showBanner(statusEl, 'Paste the TLE (2 lines)', 'error'); return; }
