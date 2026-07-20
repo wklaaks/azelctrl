@@ -199,7 +199,7 @@ td.max-el-low { color: var(--muted); }
 .quick-sat-btn:hover { background: var(--border); border-color: var(--accent); }
 
 /* Browse satellite list */
-.browse-sat-list { max-height: 350px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 5px; background: var(--bg); }
+.browse-sat-list { min-height: 200px; max-height: calc(100vh - 200px); overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 5px; background: var(--bg); }
 .browse-sat-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid rgba(48,54,61,0.5); cursor: pointer; transition: background 0.1s; }
 .browse-sat-item:hover { background: rgba(88,166,255,0.05); }
 .browse-sat-item.added { opacity: 0.5; }
