@@ -291,6 +291,7 @@ td.max-el-low { color: var(--muted); }
 <div class="tabs">
   <div class="tab active" data-tab="tracking">Tracking</div>
   <div class="tab" data-tab="satellites">Satellites</div>
+  <div class="tab" data-tab="add-satellite">Add Satellite</div>
   <div class="tab" data-tab="passes">Pass Predictions</div>
   <div class="tab" data-tab="control">Control</div>
   <div class="tab" data-tab="settings">Settings</div>
@@ -363,7 +364,7 @@ td.max-el-low { color: var(--muted); }
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
       <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
-      <button class="btn btn-sm btn-manage" id="manageSatBtn">Manage Satellites</button>
+      <button class="btn btn-sm btn-manage" id="manageSatBtn">Browse Satellites</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satList"></div>
@@ -374,32 +375,35 @@ td.max-el-low { color: var(--muted); }
 <div class="modal-overlay" id="manageModal">
   <div class="modal">
     <div class="modal-title">
-      <span>Manage Satellites</span>
+      <span>Browse Amateur Radio Satellites</span>
       <button class="modal-close" id="manageModalClose">&times;</button>
     </div>
 
     <div class="card">
-      <div class="card-title">Browse Amateur Radio Satellites</div>
+      <div class="card-title">Available Satellites</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
         <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
       </div>
       <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
     </div>
+  </div>
+</div>
 
-    <div class="card">
-      <div class="card-title">Add Satellite</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <input type="text" class="device-input" id="newSatName" placeholder="Satellite name" style="flex:1;">
-        <input type="text" class="device-input" id="newSatNORAD" placeholder="NORAD ID" style="width:120px;">
-      </div>
-      <textarea class="tle-input" id="tleInput" placeholder="Paste TLE lines here (2 lines)..." rows="3"></textarea>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button class="btn btn-primary" id="addSatBtn">Add</button>
-        <button class="btn btn-sm btn-fetch" id="fetchTleBtn">Fetch from CelesTrak</button>
-      </div>
-      <div id="tleStatus"></div>
+<!-- Tab: Add Satellite -->
+<div class="tab-content" id="tab-add-satellite">
+  <div class="card">
+    <div class="card-title">Add Satellite</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <input type="text" class="device-input" id="newSatName" placeholder="Satellite name" style="flex:1;">
+      <input type="text" class="device-input" id="newSatNORAD" placeholder="NORAD ID" style="width:120px;">
     </div>
+    <textarea class="tle-input" id="tleInput" placeholder="Paste TLE lines here (2 lines)..." rows="3"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-primary" id="addSatBtn">Add</button>
+      <button class="btn btn-sm btn-fetch" id="fetchTleBtn">Fetch from CelesTrak</button>
+    </div>
+    <div id="tleStatus"></div>
   </div>
 </div>
 
@@ -765,7 +769,7 @@ function removeSat(index) {
   updateCurrentSatDisplay(); updateTrackSatSelect();
 }
 
-// ==================== MANAGE SATELLITES MODAL ====================
+// ==================== BROWSE SATELLITES MODAL ====================
 document.getElementById('manageSatBtn').addEventListener('click', () => {
   document.getElementById('manageModal').classList.add('active');
 });
