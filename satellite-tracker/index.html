@@ -331,9 +331,11 @@ td.max-el-low { color: var(--muted); }
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
       <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
+      <button class="btn btn-sm btn-browse" id="showNextPassBtn">Next Pass</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satList"></div>
+    <div id="satPassTable" style="display:none;margin-top:10px;"></div>
   </div>
 </div>
 
@@ -734,6 +736,140 @@ document.getElementById('sortByNameBtn').addEventListener('click', () => {
   saveSatellites();
   renderSatList();
   updateTrackSatSelect();
+});
+
+// Show next pass for each satellite
+document.getElementById('showNextPassBtn').addEventListener('click', () => {
+  const satListEl = document.getElementById('satList');
+  const passTableEl = document.getElementById('satPassTable');
+  
+  if (satellites.length === 0) {
+    alert('No satellites stored yet');
+    return;
+  }
+  
+  // Hide list, show table
+  satListEl.style.display = 'none';
+  passTableEl.style.display = 'block';
+  
+  const now = new Date();
+  const station = stationLocation;
+  const minEl = parseFloat(document.getElementById('minElevation').value);
+  
+  const passes = [];
+  
+  for (const sat of satellites) {
+    try {
+      const satrec = satrecFromSat(sat);
+      
+      // Search for next pass over next 48 hours
+      const searchEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+      let nextAos = null;
+      let maxEl = 0;
+      let maxElAz = 0;
+      
+      // Check in 1-minute intervals
+      const interval = 60 * 1000;
+      let lastEl = -90;
+      let t = new Date(now);
+      
+      while (t < searchEnd) {
+        const pos = computeTopo(satrec, station, t);
+        if (pos && pos.elevation !== null) {
+          const el = pos.elevation;
+          
+          // Detect AOS (elevation crossing minEl going up)
+          if (lastEl < minEl && el >= minEl && !nextAos) {
+            // Interpolate AOS time
+            const dt = interval / (el - lastEl);
+            nextAos = new Date(t.getTime() - (minEl - lastEl) * dt);
+          }
+          
+          if (nextAos && el > maxEl) {
+            maxEl = el;
+            maxElAz = pos.azimuth;
+          }
+          
+          // Detect LOS (elevation crossing minEl going down)
+          if (nextAos && lastEl >= minEl && el < minEl) {
+            break;
+          }
+        }
+        lastEl = pos ? pos.elevation : -90;
+        t = new Date(t.getTime() + interval);
+      }
+      
+      if (nextAos) {
+        const minsUntil = Math.round((nextAos - now) / 60000);
+        passes.push({
+          sat,
+          aos: nextAos,
+          minsUntil,
+          maxEl,
+          maxElAz
+        });
+      }
+    } catch (e) {
+      // Skip satellites with invalid TLE
+    }
+  }
+  
+  // Sort by minutes until AOS
+  passes.sort((a, b) => a.minsUntil - b.minsUntil);
+  
+  // Build table
+  let html = '<table><thead><tr>' +
+    '<th>Satellite</th>' +
+    '<th>AOS Time</th>' +
+    '<th>Until</th>' +
+    '<th>Max El</th>' +
+    '<th></th>' +
+    '</tr></thead><tbody>';
+  
+  for (const p of passes) {
+    const aosStr = p.aos.toLocaleString('en-ZA', {
+      weekday: 'short', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+    const minsStr = p.minsUntil < 60 ? p.minsUntil + ' min' :
+      Math.floor(p.minsUntil / 60) + 'h ' + (p.minsUntil % 60) + 'm';
+    const maxElStr = p.maxEl.toFixed(1) + '° @' + String(Math.round(p.maxElAz)).padStart(3, ' ');
+    
+    html += '<tr>' +
+      '<td>' + p.sat.name + '</td>' +
+      '<td class="num">' + aosStr + '</td>' +
+      '<td class="num" style="font-weight:600;">' + minsStr + '</td>' +
+      '<td class="num">' + maxElStr + '</td>' +
+      '<td><button class="btn btn-sm btn-select" data-name="' + p.sat.name + '">Select</button></td>' +
+      '</tr>';
+  }
+  
+  html += '</tbody></table>';
+  
+  if (passes.length === 0) {
+    html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No upcoming passes found in next 48 hours</div>';
+  }
+  
+  passTableEl.innerHTML = '<div style="margin-bottom:8px;"><button class="btn btn-sm" id="backToListBtn">Back to List</button></div>' + html;
+  
+  document.getElementById('backToListBtn').addEventListener('click', () => {
+    satListEl.style.display = 'block';
+    passTableEl.style.display = 'none';
+  });
+  
+  // Add select handlers
+  passTableEl.querySelectorAll('.btn-select').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.name;
+      const idx = satellites.findIndex(s => s.name === name);
+      if (idx >= 0) {
+        selectedSatIndex = idx;
+        saveSatellites();
+        updateCurrentSatDisplay();
+        updateTrackSatSelect();
+      }
+    });
+  });
 });
 
 // ==================== BROWSE SATELLITES ====================
