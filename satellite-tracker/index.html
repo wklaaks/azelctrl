@@ -795,11 +795,11 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
       listEl.appendChild(item);
     }
     
-    if (availableCount === 0) {
+    if (available.length === 0) {
       listEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All available amateur satellites are already in your list</div>';
       statusEl.textContent = 'All satellites already added';
     } else {
-      statusEl.textContent = `${availableCount} satellites available to add`;
+      statusEl.textContent = `${available.length} satellites available to add`;
     }
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
