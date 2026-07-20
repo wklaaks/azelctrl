@@ -50,6 +50,10 @@ a:hover { text-decoration: underline; }
 .btn-sort:hover { background: #2ea043; }
 .btn-manage { background: #1f6feb; color: #fff; border-color: #1f6feb; }
 .btn-manage:hover { background: #388bfd; }
+.btn-browse { background: #8957e5; color: #fff; border-color: #8957e5; }
+.btn-browse:hover { background: #a371f7; }
+.btn-fetch { background: #3fb950; color: #000; border-color: #3fb950; }
+.btn-fetch:hover { background: #56d364; }
 
 
 /* Connection status */
@@ -377,7 +381,7 @@ td.max-el-low { color: var(--muted); }
     <div class="card">
       <div class="card-title">Browse Amateur Radio Satellites</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
-        <button class="btn btn-sm" id="browseSatListBtn">Load List from CelesTrak</button>
+        <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
         <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
       </div>
       <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
@@ -392,7 +396,7 @@ td.max-el-low { color: var(--muted); }
       <textarea class="tle-input" id="tleInput" placeholder="Paste TLE lines here (2 lines)..." rows="3"></textarea>
       <div style="display:flex;gap:8px;margin-top:8px;">
         <button class="btn btn-primary" id="addSatBtn">Add</button>
-        <button class="btn" id="fetchTleBtn">Fetch from CelesTrak</button>
+        <button class="btn btn-sm btn-fetch" id="fetchTleBtn">Fetch from CelesTrak</button>
       </div>
       <div id="tleStatus"></div>
     </div>
