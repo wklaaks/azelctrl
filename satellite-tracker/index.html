@@ -774,7 +774,7 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
       let t = new Date(now);
       
       while (t < searchEnd) {
-        const pos = computeTopo(satrec, station, t);
+        const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
         if (pos && pos.elevation !== null) {
           const el = pos.elevation;
           
