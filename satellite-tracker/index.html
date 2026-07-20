@@ -754,6 +754,7 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
     const noradIdx = header.indexOf('NORAD_CAT_ID');
     
     const mySats = satellites.map(s => s.norad);
+    let availableCount = 0;
     
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
@@ -762,32 +763,39 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
       if (!name || !norad) continue;
       
       const noradNum = parseInt(norad);
-      const isAdded = mySats.includes(noradNum);
+      
+      // Skip satellites user already has
+      if (mySats.includes(noradNum)) continue;
+      
+      availableCount++;
       
       const item = document.createElement('div');
-      item.className = 'browse-sat-item' + (isAdded ? ' added' : '');
+      item.className = 'browse-sat-item';
       item.innerHTML = `
         <span class="browse-sat-name">${name}</span>
         <span class="browse-sat-norad">${norad}</span>
-        ${isAdded ? '<span style="font-size:0.7rem;color:var(--green);">✓</span>' : '<button class="browse-sat-btn">Add</button>'}
+        <button class="browse-sat-btn">Add</button>
       `;
       
-      if (!isAdded) {
-        const btn = item.querySelector('.browse-sat-btn');
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          document.getElementById('newSatName').value = name;
-          document.getElementById('newSatNORAD').value = norad;
-          document.getElementById('fetchTleBtn').click();
-          btn.textContent = '...';
-          btn.disabled = true;
-        });
-      }
+      const btn = item.querySelector('.browse-sat-btn');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('newSatName').value = name;
+        document.getElementById('newSatNORAD').value = norad;
+        document.getElementById('fetchTleBtn').click();
+        btn.textContent = '...';
+        btn.disabled = true;
+      });
       
       listEl.appendChild(item);
     }
     
-    statusEl.textContent = `Loaded ${lines.length - 1} amateur satellites`;
+    if (availableCount === 0) {
+      listEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All available amateur satellites are already in your list</div>';
+      statusEl.textContent = 'All satellites already added';
+    } else {
+      statusEl.textContent = `${availableCount} satellites available to add`;
+    }
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
     listEl.innerHTML = '';
