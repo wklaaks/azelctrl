@@ -748,8 +748,9 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
 
 // ==================== REFRESH ALL TLES ====================
 document.getElementById('refreshTlesBtn').addEventListener('click', async () => {
-  const statusEl = document.getElementById('tleStatus');
-  showBanner(statusEl, `Refreshing TLEs for ${satellites.length} satellites...`, 'info');
+  const countEl = document.getElementById('satCount');
+  const origText = countEl.textContent;
+  countEl.textContent = 'Refreshing...';
   
   let success = 0;
   let failed = 0;
@@ -759,68 +760,26 @@ document.getElementById('refreshTlesBtn').addEventListener('click', async () => 
     try {
       const result = await fetchTleOrCsv(sat.norad);
       if (result && result.length >= 2) {
+        // result is [line1, line2] from fetchTleOrCsv
         sat.line1 = result[0];
         sat.line2 = result[1];
+        delete sat.csvData;  // clear any cached CSV data
         sat.tleDate = new Date().toISOString();
         success++;
       } else {
         failed++;
       }
-    } catch {
+    } catch (err) {
       failed++;
     }
   }
   
   saveSatellites();
-  showBanner(statusEl, `Done: ${success} updated, ${failed} failed`, failed === 0 ? 'success' : 'warn');
+  renderSatList();
+  countEl.textContent = `Done: ${success} updated${failed > 0 ? ', ' + failed + ' failed' : ''}`;
+  setTimeout(() => { countEl.textContent = origText; }, 5000);
 });
 
-// ==================== FETCH TLE OR CSV ====================
-async function fetchTleOrCsv(norad) {
-  // Try TLE first
-  const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
-  const text = await resp.text();
-  
-  if (!text.startsWith('No GP data found')) {
-    const lines = text.trim().split('\n');
-    if (lines.length >= 2) {
-      return lines;
-    }
-  }
-  
-  // Fall back to CSV (for NORAD >= 100000)
-  const resp2 = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=csv');
-  const csvText = await resp2.text();
-  
-  if (csvText.startsWith('No GP data found')) {
-    throw new Error('No GP data found for NORAD ' + norad);
-  }
-  
-  const lines = csvText.trim().split('\n');
-  const header = lines[0].split(',');
-  const row = lines[1].split(',');
-  const getField = (name) => row[header.indexOf(name)];
-  
-  // Convert CSV to TLE-like format for satellite.js
-  const line1 = '1 ' + String(getField('NORAD_CAT_ID')).padStart(5, '0') + '  ' + getField('OBJECT_ID') + ' ' +
-                getField('EPOCH').replace('T', ' ') + ' ' +
-                String(getField('MEAN_MOTION_DOT')).padStart(11, ' ') + ' ' +
-                String(getField('BSTAR') || '0').padStart(10, ' ') + ' ' +
-                String(getField('ELEMENT_SET_NO')).padStart(2, '0') + ' ' +
-                String(getField('EPHEMERIS_TYPE')).padStart(1, '0') + ' ';
-  
-  const line2 = '2 ' + String(getField('NORAD_CAT_ID')).padStart(5, '0') + ' ' +
-                String(getField('INCLINATION')).padStart(8, ' ') + ' ' +
-                String(getField('RA_OF_ASC_NODE')).padStart(8, ' ') + ' ' +
-                String(getField('ECCENTRICITY')).padStart(8, '.') + ' ' +
-                String(getField('ARG_OF_PERICENTER')).padStart(8, ' ') + ' ' +
-                String(getField('MEAN_ANOMALY')).padStart(8, ' ') + ' ' +
-                String(getField('MEAN_MOTION')).padStart(11, ' ') + ' ' +
-                String(getField('REV_AT_EPOCH')).padStart(5, '0') + ' ' +
-                String(getField('EPHEMERIS_TYPE')).padStart(1, '0');
-  
-  return [line1, line2];
-}
 
 // Add satellite
 document.getElementById('addSatBtn').addEventListener('click', () => {
@@ -917,13 +876,15 @@ function showBanner(el, msg, type) {
 
 // ==================== TLE/CSV FETCHING ====================
 async function fetchTleOrCsv(norad) {
+  // Try TLE format first (works for catalog IDs < 100000)
   try {
-    // Try TLE format first (works for catalog IDs < 100000)
     const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
     const text = await resp.text();
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-    if (lines.length >= 3 && !text.includes('No GP data found')) {
-      return lines;
+    if (!text.includes('No GP data found')) {
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+      if (lines.length >= 3) {
+        return [lines[1], lines[2]];  // Return only line1 and line2
+      }
     }
   } catch (e) {
     // TLE failed, try CSV
@@ -933,6 +894,9 @@ async function fetchTleOrCsv(norad) {
   try {
     const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=csv');
     const text = await resp.text();
+    if (text.includes('No GP data found')) {
+      throw new Error('No GP data found for NORAD ' + norad);
+    }
     const csvLines = text.split('\n').filter(l => l);
     if (csvLines.length >= 2) {
       const headers = csvLines[0].split(',');
@@ -940,13 +904,14 @@ async function fetchTleOrCsv(norad) {
       const row = {};
       headers.forEach((h, i) => row[h] = values[i]);
       const tleLines = csvToTle(row);
-      return tleLines;
+      return [tleLines[1], tleLines[2]];  // Return only line1 and line2
     }
   } catch (e) {
-    // CSV also failed
+    if (e.message) throw e;
+    throw new Error('Failed to fetch data for NORAD ' + norad);
   }
 
-  return null;
+  throw new Error('No data available for NORAD ' + norad);
 }
 
 function csvToTle(row) {
@@ -1012,7 +977,7 @@ function satrecFromSat(sat) {
   // If we have valid TLE lines, use twoline2satrec
   if (sat.line1 && sat.line2) {
     try {
-      return satrecFromSat(sat);
+      return satellite.twoline2satrec(sat.line1, sat.line2);
     } catch (e) {
       // Fall through to CSV-based construction
     }
