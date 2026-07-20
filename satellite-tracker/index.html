@@ -740,11 +740,10 @@ async function fetchTleForNORAD(norad, preferredName) {
   const statusEl = document.getElementById('tleStatus');
   showBanner(statusEl, 'Fetching TLE for NORAD ' + norad + '...', 'info');
   try {
-    const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const text = await resp.text();
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-    if (lines.length < 3) throw new Error('Unexpected response format');
+    const lines = await fetchTleOrCsv(norad);
+    if (!lines || lines.length < 3) {
+      throw new Error('No GP data found for NORAD ' + norad);
+    }
     const celesTrakName = lines[0];
     const line1 = lines[1];
     const line2 = lines[2];
@@ -784,6 +783,131 @@ function showBanner(el, msg, type) {
   setTimeout(() => { if (el.innerHTML.includes(msg)) el.innerHTML = ''; }, 5000);
 }
 
+// ==================== TLE/CSV FETCHING ====================
+async function fetchTleOrCsv(norad) {
+  try {
+    // Try TLE format first (works for catalog IDs < 100000)
+    const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=tle');
+    const text = await resp.text();
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length >= 3 && !text.includes('No GP data found')) {
+      return lines;
+    }
+  } catch (e) {
+    // TLE failed, try CSV
+  }
+
+  // Fall back to CSV format (works for all catalog IDs including >= 100000)
+  try {
+    const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=' + norad + '&FORMAT=csv');
+    const text = await resp.text();
+    const csvLines = text.split('\n').filter(l => l);
+    if (csvLines.length >= 2) {
+      const headers = csvLines[0].split(',');
+      const values = csvLines[1].split(',');
+      const row = {};
+      headers.forEach((h, i) => row[h] = values[i]);
+      const tleLines = csvToTle(row);
+      return tleLines;
+    }
+  } catch (e) {
+    // CSV also failed
+  }
+
+  return null;
+}
+
+function csvToTle(row) {
+  const name = (row.OBJECT_NAME || 'SAT').padEnd(25);
+  const catalogId = String(row.NORAD_CAT_ID).padStart(5, '0');
+  const objectId = row.OBJECT_ID || '00000A';
+  const epoch = parseEpoch(row.EPOCH);
+  const bstar = parseFloat(row.BSTAR || '0');
+  const nDot = parseFloat(row.MEAN_MOTION_DOT || '0');
+  const nDotDot = parseFloat(row.MEAN_MOTION_DDOT || '0');
+  const ecc = parseFloat(row.ECCENTRICITY);
+  const inc = parseFloat(row.INCLINATION);
+  const raan = parseFloat(row.RA_OF_ASC_NODE);
+  const argPer = parseFloat(row.ARG_OF_PERICENTER);
+  const meanAnom = parseFloat(row.MEAN_ANOMALY);
+  const meanMotion = parseFloat(row.MEAN_MOTION);
+
+  const line1 = '1 ' + catalogId + 'U ' + objectId + '   ' +
+    String(epoch.jd).padStart(12) + '  ' +
+    formatSci(nDot, 10) + '  ' +
+    formatSci(bstar, 10) + ' 0  ' +
+    String(row.ELEMENT_SET_NO || '999').padStart(3);
+
+  const line2 = '2 ' + catalogId + ' ' +
+    formatAngle(inc) + ' ' + formatAngle(raan) + ' ' +
+    formatEcc(ecc) + ' ' + formatAngle(argPer) + ' ' +
+    formatAngle(meanAnom) + ' ' +
+    String(meanMotion.toFixed(8)).padStart(11) + String(row.REV_AT_EPOCH || '0').padStart(5);
+
+  return [name, line1, line2];
+}
+
+function parseEpoch(iso) {
+  const d = new Date(iso);
+  const jd = d.getTime() / 86400000 + 2440587.5;
+  const yearOffset = jd - 2440587.5;
+  const yearDigits = String(Math.floor(yearOffset / 365.25)).slice(-2);
+  const dayOfYear = yearOffset % 365.25;
+  return {
+    jd: yearDigits + String(dayOfYear).padStart(9, '0').replace('.', '')
+  };
+}
+
+function formatSci(val, width) {
+  const s = val.toExponential();
+  const parts = s.split('e');
+  const mantissa = parts[0].padEnd(7).slice(0, 7);
+  const exp = parseInt(parts[1]);
+  const sign = exp >= 0 ? '+' : '-';
+  const expStr = String(Math.abs(exp)).padStart(2, '0');
+  return mantissa + sign + expStr;
+}
+
+function formatAngle(val) {
+  return String(val.toFixed(4)).padStart(8, ' ');
+}
+
+function formatEcc(val) {
+  return String(val.toFixed(7)).padStart(7, '0');
+}
+
+function satrecFromSat(sat) {
+  // If we have valid TLE lines, use twoline2satrec
+  if (sat.line1 && sat.line2) {
+    try {
+      return satrecFromSat(sat);
+    } catch (e) {
+      // Fall through to CSV-based construction
+    }
+  }
+
+  // Construct satrec from CSV data
+  if (sat.csvData) {
+    const d = new Date(sat.csvData.EPOCH);
+    const epoch = satellite.jday(d.getFullYear(), d.getMonth() + 1, d.getDate(),
+      d.getHours(), d.getMinutes(), d.getSeconds() + d.getMilliseconds() / 1000);
+
+    const ecc = parseFloat(sat.csvData.ECCENTRICITY);
+    const inc = parseFloat(sat.csvData.INCLINATION) * Math.PI / 180;
+    const raan = parseFloat(sat.csvData.RA_OF_ASC_NODE) * Math.PI / 180;
+    const argPer = parseFloat(sat.csvData.ARG_OF_PERICENTER) * Math.PI / 180;
+    const meanAnom = parseFloat(sat.csvData.MEAN_ANOMALY) * Math.PI / 180;
+    const meanMotion = parseFloat(sat.csvData.MEAN_MOTION) * Math.PI * 2 / 60;
+    const bstar = parseFloat(sat.csvData.BSTAR || '0');
+    const nDot = parseFloat(sat.csvData.MEAN_MOTION_DOT || '0');
+    const nDotDot = parseFloat(sat.csvData.MEAN_MOTION_DDOT || '0');
+
+    return satellite.propagate.initSatRec(epoch, bstar, ecc, inc, raan, argPer, meanAnom, meanMotion, nDot, nDotDot);
+  }
+
+  throw new Error('No valid TLE or CSV data for ' + sat.name);
+}
+
 // ==================== TRACKING ====================
 document.getElementById('startTrackBtn').addEventListener('click', startTracking);
 document.getElementById('stopTrackBtn').addEventListener('click', stopTracking);
@@ -801,7 +925,7 @@ function startTracking() {
   }
   const sat = satellites[selectedSatIndex];
   try {
-    satellite.twoline2satrec(sat.line1, sat.line2);
+    satrecFromSat(sat);
   } catch (e) {
     alert('Invalid TLE for ' + sat.name);
     return;
@@ -894,7 +1018,7 @@ async function computeAndSend() {
   }
   const sat = satellites[selectedSatIndex];
   try {
-    const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+    const satrec = satrecFromSat(sat);
     const now = new Date();
     const posVel = satellite.propagate(satrec, now);
     if (!posVel.position) {
@@ -1056,7 +1180,7 @@ setInterval(async () => {
   if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
     try {
       const sat = satellites[selectedSatIndex];
-      const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+      const satrec = satrecFromSat(sat);
       const now = new Date();
       const posVel = satellite.propagate(satrec, now);
       if (posVel.position) {
@@ -1216,7 +1340,7 @@ function refreshPasses() {
   const minEl = parseFloat(document.getElementById('minElevation').value);
 
   try {
-    const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+    const satrec = satrecFromSat(sat);
     const now = new Date();
     const end = new Date(now.getTime() + hours * 3600000);
     const passes = [];
