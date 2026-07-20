@@ -42,7 +42,13 @@ a:hover { text-decoration: underline; }
 .btn-danger:hover { background: #ff6b6b; }
 .btn-success { background: var(--green); color: #000; border-color: var(--green); }
 .btn-success:hover { background: #56d364; }
+
 .btn-sm { padding: 3px 8px; font-size: 0.75rem; }
+.btn-sort { background: #238636; color: #fff; border-color: #238636; }
+.btn-sort:hover { background: #2ea043; }
+.btn-manage { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+.btn-manage:hover { background: #388bfd; }
+
 
 /* Connection status */
 .conn-status { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; }
@@ -214,8 +220,8 @@ td.max-el-low { color: var(--muted); }
   background: rgba(0,0,0,0.7);
   z-index: 1000;
   justify-content: center;
-  align-items: flex-start;
-  padding: 40px 16px;
+  align-items: center;
+  padding: 20px 16px;
   overflow-y: auto;
 }
 .modal-overlay.active { display: flex; }
@@ -226,8 +232,18 @@ td.max-el-low { color: var(--muted); }
   padding: 16px;
   max-width: 700px;
   width: 100%;
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
+  height: auto;
+  min-height: 300px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.modal .card {
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.modal .card:last-child {
+  margin-bottom: 0;
 }
 .modal-title {
   font-size: 1rem;
@@ -340,8 +356,8 @@ td.max-el-low { color: var(--muted); }
     <div class="card-title">Your Satellites</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-sm btn-primary" id="refreshTlesBtn">Refresh All TLEs</button>
-      <button class="btn btn-sm" id="sortByNameBtn">Sort by Name</button>
-      <button class="btn btn-sm" id="manageSatBtn">Manage Satellites</button>
+      <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
+      <button class="btn btn-sm btn-manage" id="manageSatBtn">Manage Satellites</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satList"></div>
