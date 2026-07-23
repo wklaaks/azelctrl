@@ -1670,36 +1670,71 @@ function drawPolarPlot(top, sat) {
       if (currentIdx < 0) currentIdx = points.length - 1;
       
       // Build path segments (only for points above minimum elevation)
-      const pastPts = [];
-      const futurePts = [];
+      // Break segments when azimuth wraps around 0/360
+      const pastSegments = [];
+      const futureSegments = [];
+      let currentSegment = [];
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
         if (pt.el >= minEl) {
+          // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
+          if (currentSegment.length > 0) {
+            const prev = currentSegment[currentSegment.length - 1];
+            const azDiff = Math.abs(pt.az - prev.az);
+            if (azDiff > 120) {
+              // Azimuth wrap detected - end current segment
+              if (i <= currentIdx) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+          }
+          
           if (i <= currentIdx) {
-            pastPts.push(toSvg(pt.az, pt.el));
+            currentSegment.push(toSvg(pt.az, pt.el));
           } else {
-            futurePts.push(toSvg(pt.az, pt.el));
+            // If we're past currentIdx, flush any remaining past segment
+            if (currentSegment.length > 0 && i > currentIdx) {
+              pastSegments.push([...currentSegment]);
+              currentSegment = [];
+            }
+            currentSegment.push(toSvg(pt.az, pt.el));
           }
         }
       }
       
-      // Draw past path (blue solid line)
-      if (pastPts.length > 1) {
-        let d = 'M' + pastPts[0].x.toFixed(1) + ',' + pastPts[0].y.toFixed(1);
-        for (let i = 1; i < pastPts.length; i++) {
-          d += ' L' + pastPts[i].x.toFixed(1) + ',' + pastPts[i].y.toFixed(1);
+      // Flush remaining segment
+      if (currentSegment.length > 0) {
+        if (currentSegment[0].time <= currentIdx) {
+          pastSegments.push(currentSegment);
+        } else {
+          futureSegments.push(currentSegment);
         }
-        pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
       }
       
-      // Draw future path (green dashed line)
-      if (futurePts.length > 1) {
-        let d = 'M' + futurePts[0].x.toFixed(1) + ',' + futurePts[0].y.toFixed(1);
-        for (let i = 1; i < futurePts.length; i++) {
-          d += ' L' + futurePts[i].x.toFixed(1) + ',' + futurePts[i].y.toFixed(1);
+      // Draw past path segments (blue solid line)
+      for (const seg of pastSegments) {
+        if (seg.length > 1) {
+          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+          for (let i = 1; i < seg.length; i++) {
+            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+          }
+          pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
         }
-        pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+      }
+      
+      // Draw future path segments (green dashed line)
+      for (const seg of futureSegments) {
+        if (seg.length > 1) {
+          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+          for (let i = 1; i < seg.length; i++) {
+            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+          }
+          pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+        }
       }
     } catch (e) {
       // Ignore errors
@@ -1805,34 +1840,65 @@ function drawPolarPlot(top, sat) {
       }
       if (currentIdx < 0) currentIdx = points.length - 1;
       
-      const pastPts = [];
-      const futurePts = [];
+      // Break segments when azimuth wraps around 0/360
+      const pastSegments = [];
+      const futureSegments = [];
+      let currentSegment = [];
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
         if (pt.el >= minEl) {
+          if (currentSegment.length > 0) {
+            const prev = currentSegment[currentSegment.length - 1];
+            const azDiff = Math.abs(pt.az - prev.az);
+            if (azDiff > 120) {
+              if (i <= currentIdx) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+          }
+          
           if (i <= currentIdx) {
-            pastPts.push(toSvg(pt.az, pt.el));
+            currentSegment.push(toSvg(pt.az, pt.el));
           } else {
-            futurePts.push(toSvg(pt.az, pt.el));
+            if (currentSegment.length > 0 && i > currentIdx) {
+              pastSegments.push([...currentSegment]);
+              currentSegment = [];
+            }
+            currentSegment.push(toSvg(pt.az, pt.el));
           }
         }
       }
       
-      if (pastPts.length > 1) {
-        let d = 'M' + pastPts[0].x.toFixed(1) + ',' + pastPts[0].y.toFixed(1);
-        for (let i = 1; i < pastPts.length; i++) {
-          d += ' L' + pastPts[i].x.toFixed(1) + ',' + pastPts[i].y.toFixed(1);
+      if (currentSegment.length > 0) {
+        if (currentSegment[0].time <= currentIdx) {
+          pastSegments.push(currentSegment);
+        } else {
+          futureSegments.push(currentSegment);
         }
-        pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
       }
       
-      if (futurePts.length > 1) {
-        let d = 'M' + futurePts[0].x.toFixed(1) + ',' + futurePts[0].y.toFixed(1);
-        for (let i = 1; i < futurePts.length; i++) {
-          d += ' L' + futurePts[i].x.toFixed(1) + ',' + futurePts[i].y.toFixed(1);
+      for (const seg of pastSegments) {
+        if (seg.length > 1) {
+          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+          for (let i = 1; i < seg.length; i++) {
+            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+          }
+          pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
         }
-        pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+      }
+      
+      for (const seg of futureSegments) {
+        if (seg.length > 1) {
+          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+          for (let i = 1; i < seg.length; i++) {
+            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+          }
+          pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+        }
       }
     } catch (e) {}
     
