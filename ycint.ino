@@ -204,6 +204,7 @@ bool protocolTargetAzSet = false;
 bool protocolTargetElSet = false;
 float protocolTargetAz = 0.0;
 float protocolTargetEl = 0.0;
+const float PROTOCOL_STOP_TOLERANCE = 3.0; // Degrees — don't start movement if within this range
 
 // Protocol variant selection (stored in EEPROM)
 enum ProtocolVariant {
@@ -2050,6 +2051,17 @@ void executeProtocolAzMove(float targetAz) {
 #endif
     stopAzimuth(); protocolTargetAzSet = false;
   }
+  
+  // Don't start movement if target is within auto-stop tolerance
+  // This prevents relay clicking when new targets arrive within the 3° zone
+  // where auto-stop would immediately kill the movement anyway
+  if (!mustRotateCW && !mustRotateCCW && abs(diff) <= PROTOCOL_STOP_TOLERANCE &&
+      azDirection == DIR_STOPPED && !protocolTargetAzSet) {
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
+#endif
+    protocolTargetAzSet = false;
+  }
 }
 
 void executeProtocolElMove(float targetEl) {
@@ -2075,6 +2087,14 @@ void executeProtocolElMove(float targetEl) {
   } else if (diff < -1.0) {
     moveDir = elfMode ? "UP" : "DOWN";
   } else {
+    // Don't start movement if within auto-stop tolerance
+    if (abs(diff) <= PROTOCOL_STOP_TOLERANCE && elDirection == DIR_STOPPED && !protocolTargetElSet) {
+#if DEBUG_ENABLED
+      Serial.printf("DBG:PROT_EL:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
+#endif
+      protocolTargetElSet = false;
+      return;
+    }
     stopElevation(); protocolTargetElSet = false;
     return;
   }
@@ -5911,8 +5931,8 @@ void loop() {
         if (normDiff > 180.0) normDiff -= 360.0;
         if (normDiff < -180.0) normDiff += 360.0;
         // Tolerance accounts for mechanical overshoot: motor keeps moving after power cut.
-        // 0.5° tolerance for continuous tracking; prevents premature stops.
-        if (abs(normDiff) <= 0.5) crossed = true;
+        // 3.0° stops early enough to avoid ±3-5° oscillation observed in tracking.
+        if (abs(normDiff) <= 3.0) crossed = true;
         
         if (crossed) {
           #if DEBUG_ENABLED
@@ -5935,7 +5955,7 @@ void loop() {
         if (elDirection == DIR_UP && diff < 0.0) crossed = true;
         if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
         // Same tolerance logic as azimuth - account for mechanical overshoot
-        if (crossed || abs(diff) <= 0.5) {
+        if (crossed || abs(diff) <= 3.0) {
           #if DEBUG_ENABLED
           Serial.println("DBG:AUTO_EL:STOP!");
           #endif
