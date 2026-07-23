@@ -1642,112 +1642,145 @@ function drawPolarPlot(top, sat) {
       return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
     }
     
-    // Generate satellite trajectory path
+    // Generate satellite trajectory path (only current/next pass)
     let pathSvg = '';
     try {
       const satrec = satrecFromSat(sat);
       const now = new Date();
       const minEl = parseFloat(document.getElementById('minElevation').value);
       
-      // Compute trajectory over next 12 hours at 10-second intervals
-      const points = [];
-      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
+      // Find the next AOS time first
+      let aosTime = null;
+      let losTime = null;
+      let inPass = false;
+      let currentEl = 0;
+      
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
         const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
         if (!top2) continue;
-        const elDeg = top2.elevation * 180 / Math.PI;
-        const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
-        points.push({ time: t.getTime(), el: elDeg, az: azDeg });
-      }
-      
-      // Find current position index
-      let currentIdx = -1;
-      for (let i = 0; i < points.length; i++) {
-        if (points[i].time >= now.getTime()) {
-          currentIdx = i;
-          break;
+        const prevEl = currentEl;
+        currentEl = top2.elevation * 180 / Math.PI;
+        
+        if (!inPass && currentEl >= minEl && prevEl < minEl) {
+          // AOS detected
+          aosTime = t;
+          inPass = true;
+        } else if (inPass && currentEl < minEl && prevEl >= minEl) {
+          // LOS detected
+          losTime = t;
+          break; // Only plot one pass
         }
       }
-      if (currentIdx < 0) currentIdx = points.length - 1;
       
-      // Build path segments (only for points above minimum elevation)
-      // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
-      const pastSegments = [];
-      const futureSegments = [];
-      let currentSegment = [];
-      let inPast = true;
+      // If satellite is currently above horizon, start from now
+      if (currentEl >= minEl) {
+        aosTime = now;
+      }
       
-      for (let i = 0; i < points.length; i++) {
-        const pt = points[i];
+      // If no AOS found (satellite never rises), skip trajectory
+      if (!aosTime) {
+        pathSvg = '';
+      } else {
+        // Compute trajectory for this pass only at 10-second intervals
+        const points = [];
+        for (let t = aosTime; losTime && t < losTime; t = new Date(t.getTime() + 10000)) {
+          const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+          if (!top2) continue;
+          const elDeg = top2.elevation * 180 / Math.PI;
+          const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
+          points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+        }
         
-        // If satellite goes below minimum elevation, break current segment
-        if (pt.el < minEl) {
-          if (currentSegment.length > 0) {
-            if (inPast) {
-              pastSegments.push([...currentSegment]);
-            } else {
-              futureSegments.push([...currentSegment]);
-            }
-            currentSegment = [];
+        // Find current position index
+        let currentIdx = -1;
+        for (let i = 0; i < points.length; i++) {
+          if (points[i].time >= now.getTime()) {
+            currentIdx = i;
+            break;
           }
-          continue;
+        }
+        if (currentIdx < 0) currentIdx = points.length - 1;
+        
+        // Build path segments (only for points above minimum elevation)
+        // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
+        const pastSegments = [];
+        const futureSegments = [];
+        let currentSegment = [];
+        let inPast = true;
+        
+        for (let i = 0; i < points.length; i++) {
+          const pt = points[i];
+          
+          // If satellite goes below minimum elevation, break current segment
+          if (pt.el < minEl) {
+            if (currentSegment.length > 0) {
+              if (inPast) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+            continue;
+          }
+          
+          // Satellite is above minimum elevation
+          // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
+          if (currentSegment.length > 0) {
+            const prev = currentSegment[currentSegment.length - 1];
+            const azDiff = Math.abs(pt.az - prev.az);
+            if (azDiff > 120) {
+              // Azimuth wrap detected - end current segment
+              if (inPast) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+          }
+          
+          // Switch from past to future at currentIdx
+          if (i > currentIdx && inPast) {
+            if (currentSegment.length > 0) {
+              pastSegments.push([...currentSegment]);
+              currentSegment = [];
+            }
+            inPast = false;
+          }
+          
+          currentSegment.push(toSvg(pt.az, pt.el));
         }
         
-        // Satellite is above minimum elevation
-        // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
+        // Flush remaining segment
         if (currentSegment.length > 0) {
-          const prev = currentSegment[currentSegment.length - 1];
-          const azDiff = Math.abs(pt.az - prev.az);
-          if (azDiff > 120) {
-            // Azimuth wrap detected - end current segment
-            if (inPast) {
-              pastSegments.push([...currentSegment]);
-            } else {
-              futureSegments.push([...currentSegment]);
+          if (inPast) {
+            pastSegments.push(currentSegment);
+          } else {
+            futureSegments.push(currentSegment);
+          }
+        }
+        
+        // Draw past path segments (blue solid line)
+        for (const seg of pastSegments) {
+          if (seg.length > 1) {
+            let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+            for (let i = 1; i < seg.length; i++) {
+              d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
             }
-            currentSegment = [];
+            pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
           }
         }
         
-        // Switch from past to future at currentIdx
-        if (i > currentIdx && inPast) {
-          if (currentSegment.length > 0) {
-            pastSegments.push([...currentSegment]);
-            currentSegment = [];
+        // Draw future path segments (green dashed line)
+        for (const seg of futureSegments) {
+          if (seg.length > 1) {
+            let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+            for (let i = 1; i < seg.length; i++) {
+              d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+            }
+            pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
           }
-          inPast = false;
-        }
-        
-        currentSegment.push(toSvg(pt.az, pt.el));
-      }
-      
-      // Flush remaining segment
-      if (currentSegment.length > 0) {
-        if (inPast) {
-          pastSegments.push(currentSegment);
-        } else {
-          futureSegments.push(currentSegment);
-        }
-      }
-      
-      // Draw past path segments (blue solid line)
-      for (const seg of pastSegments) {
-        if (seg.length > 1) {
-          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
-          for (let i = 1; i < seg.length; i++) {
-            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
-          }
-          pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
-        }
-      }
-      
-      // Draw future path segments (green dashed line)
-      for (const seg of futureSegments) {
-        if (seg.length > 1) {
-          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
-          for (let i = 1; i < seg.length; i++) {
-            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
-          }
-          pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
         }
       }
     } catch (e) {
@@ -1829,101 +1862,130 @@ function drawPolarPlot(top, sat) {
       return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
     }
     
-    // Generate satellite trajectory path
+    // Generate satellite trajectory path (only current/next pass)
     let pathSvg = '';
     try {
       const satrec = satrecFromSat(sat);
       const now = new Date();
       const minEl = parseFloat(document.getElementById('minElevation').value);
       
-      const points = [];
-      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
+      // Find the next AOS time first
+      let aosTime = null;
+      let losTime = null;
+      let inPass = false;
+      let currentEl = 0;
+      
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
         const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
         if (!top2) continue;
-        const elDeg = top2.elevation * 180 / Math.PI;
-        const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
-        points.push({ time: t.getTime(), el: elDeg, az: azDeg });
-      }
-      
-      let currentIdx = -1;
-      for (let i = 0; i < points.length; i++) {
-        if (points[i].time >= now.getTime()) {
-          currentIdx = i;
+        const prevEl = currentEl;
+        currentEl = top2.elevation * 180 / Math.PI;
+        
+        if (!inPass && currentEl >= minEl && prevEl < minEl) {
+          aosTime = t;
+          inPass = true;
+        } else if (inPass && currentEl < minEl && prevEl >= minEl) {
+          losTime = t;
           break;
         }
       }
-      if (currentIdx < 0) currentIdx = points.length - 1;
       
-      // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
-      const pastSegments = [];
-      const futureSegments = [];
-      let currentSegment = [];
-      let inPast = true;
+      if (currentEl >= minEl) {
+        aosTime = now;
+      }
       
-      for (let i = 0; i < points.length; i++) {
-        const pt = points[i];
+      if (!aosTime) {
+        pathSvg = '';
+      } else {
+        const points = [];
+        for (let t = aosTime; losTime && t < losTime; t = new Date(t.getTime() + 10000)) {
+          const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+          if (!top2) continue;
+          const elDeg = top2.elevation * 180 / Math.PI;
+          const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
+          points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+        }
         
-        if (pt.el < minEl) {
-          if (currentSegment.length > 0) {
-            if (inPast) {
-              pastSegments.push([...currentSegment]);
-            } else {
-              futureSegments.push([...currentSegment]);
-            }
-            currentSegment = [];
+        let currentIdx = -1;
+        for (let i = 0; i < points.length; i++) {
+          if (points[i].time >= now.getTime()) {
+            currentIdx = i;
+            break;
           }
-          continue;
+        }
+        if (currentIdx < 0) currentIdx = points.length - 1;
+        
+        // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
+        const pastSegments = [];
+        const futureSegments = [];
+        let currentSegment = [];
+        let inPast = true;
+        
+        for (let i = 0; i < points.length; i++) {
+          const pt = points[i];
+          
+          if (pt.el < minEl) {
+            if (currentSegment.length > 0) {
+              if (inPast) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+            continue;
+          }
+          
+          if (currentSegment.length > 0) {
+            const prev = currentSegment[currentSegment.length - 1];
+            const azDiff = Math.abs(pt.az - prev.az);
+            if (azDiff > 120) {
+              if (inPast) {
+                pastSegments.push([...currentSegment]);
+              } else {
+                futureSegments.push([...currentSegment]);
+              }
+              currentSegment = [];
+            }
+          }
+          
+          if (i > currentIdx && inPast) {
+            if (currentSegment.length > 0) {
+              pastSegments.push([...currentSegment]);
+              currentSegment = [];
+            }
+            inPast = false;
+          }
+          
+          currentSegment.push(toSvg(pt.az, pt.el));
         }
         
         if (currentSegment.length > 0) {
-          const prev = currentSegment[currentSegment.length - 1];
-          const azDiff = Math.abs(pt.az - prev.az);
-          if (azDiff > 120) {
-            if (inPast) {
-              pastSegments.push([...currentSegment]);
-            } else {
-              futureSegments.push([...currentSegment]);
+          if (inPast) {
+            pastSegments.push(currentSegment);
+          } else {
+            futureSegments.push(currentSegment);
+          }
+        }
+        
+        for (const seg of pastSegments) {
+          if (seg.length > 1) {
+            let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+            for (let i = 1; i < seg.length; i++) {
+              d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
             }
-            currentSegment = [];
+            pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
           }
         }
         
-        if (i > currentIdx && inPast) {
-          if (currentSegment.length > 0) {
-            pastSegments.push([...currentSegment]);
-            currentSegment = [];
+        for (const seg of futureSegments) {
+          if (seg.length > 1) {
+            let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+            for (let i = 1; i < seg.length; i++) {
+              d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+            }
+            pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
           }
-          inPast = false;
-        }
-        
-        currentSegment.push(toSvg(pt.az, pt.el));
-      }
-      
-      if (currentSegment.length > 0) {
-        if (inPast) {
-          pastSegments.push(currentSegment);
-        } else {
-          futureSegments.push(currentSegment);
-        }
-      }
-      
-      for (const seg of pastSegments) {
-        if (seg.length > 1) {
-          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
-          for (let i = 1; i < seg.length; i++) {
-            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
-          }
-          pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
-        }
-      }
-      
-      for (const seg of futureSegments) {
-        if (seg.length > 1) {
-          let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
-          for (let i = 1; i < seg.length; i++) {
-            d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
-          }
-          pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
         }
       }
     } catch (e) {}
