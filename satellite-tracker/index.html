@@ -858,7 +858,7 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
       '<td class="num">' + aosStr + '</td>' +
       '<td class="num" style="font-weight:600;">' + minsStr + '</td>' +
       '<td class="num">' + maxElStr + '</td>' +
-      '<td><button class="btn-select"' + (isSelected ? ' disabled class="btn-select selected"' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
+      '<td><button class="btn-select' + (isSelected ? ' selected"' : '"') + (isSelected ? ' disabled' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
       '</tr>';
   }
   
