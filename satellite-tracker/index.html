@@ -839,7 +839,7 @@ function renderPassTable() {
       minsStr = formatTimeRemaining(p.timeUntil);
     }
     
-    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0');
+    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
     
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
     const rowClass = isSelected ? 'selected-row' : '';
