@@ -1649,9 +1649,9 @@ function drawPolarPlot(top, sat) {
       const now = new Date();
       const minEl = parseFloat(document.getElementById('minElevation').value);
       
-      // Compute trajectory over next 12 hours at 30-second intervals
+      // Compute trajectory over next 12 hours at 10-second intervals
       const points = [];
-      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
         const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
         if (!top2) continue;
         const elDeg = top2.elevation * 180 / Math.PI;
@@ -1670,7 +1670,7 @@ function drawPolarPlot(top, sat) {
       if (currentIdx < 0) currentIdx = points.length - 1;
       
       // Build path segments (only for points above minimum elevation)
-      // Break segments when azimuth wraps around 0/360
+      // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
       const pastSegments = [];
       const futureSegments = [];
       let currentSegment = [];
@@ -1678,33 +1678,46 @@ function drawPolarPlot(top, sat) {
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
-        if (pt.el >= minEl) {
-          // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
+        
+        // If satellite goes below minimum elevation, break current segment
+        if (pt.el < minEl) {
           if (currentSegment.length > 0) {
-            const prev = currentSegment[currentSegment.length - 1];
-            const azDiff = Math.abs(pt.az - prev.az);
-            if (azDiff > 120) {
-              // Azimuth wrap detected - end current segment
-              if (inPast) {
-                pastSegments.push([...currentSegment]);
-              } else {
-                futureSegments.push([...currentSegment]);
-              }
-              currentSegment = [];
-            }
-          }
-          
-          // Switch from past to future at currentIdx
-          if (i > currentIdx && inPast) {
-            if (currentSegment.length > 0) {
+            if (inPast) {
               pastSegments.push([...currentSegment]);
-              currentSegment = [];
+            } else {
+              futureSegments.push([...currentSegment]);
             }
-            inPast = false;
+            currentSegment = [];
           }
-          
-          currentSegment.push(toSvg(pt.az, pt.el));
+          continue;
         }
+        
+        // Satellite is above minimum elevation
+        // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
+        if (currentSegment.length > 0) {
+          const prev = currentSegment[currentSegment.length - 1];
+          const azDiff = Math.abs(pt.az - prev.az);
+          if (azDiff > 120) {
+            // Azimuth wrap detected - end current segment
+            if (inPast) {
+              pastSegments.push([...currentSegment]);
+            } else {
+              futureSegments.push([...currentSegment]);
+            }
+            currentSegment = [];
+          }
+        }
+        
+        // Switch from past to future at currentIdx
+        if (i > currentIdx && inPast) {
+          if (currentSegment.length > 0) {
+            pastSegments.push([...currentSegment]);
+            currentSegment = [];
+          }
+          inPast = false;
+        }
+        
+        currentSegment.push(toSvg(pt.az, pt.el));
       }
       
       // Flush remaining segment
@@ -1824,7 +1837,7 @@ function drawPolarPlot(top, sat) {
       const minEl = parseFloat(document.getElementById('minElevation').value);
       
       const points = [];
-      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
         const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
         if (!top2) continue;
         const elDeg = top2.elevation * 180 / Math.PI;
@@ -1841,7 +1854,7 @@ function drawPolarPlot(top, sat) {
       }
       if (currentIdx < 0) currentIdx = points.length - 1;
       
-      // Break segments when azimuth wraps around 0/360
+      // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
       const pastSegments = [];
       const futureSegments = [];
       let currentSegment = [];
@@ -1849,30 +1862,41 @@ function drawPolarPlot(top, sat) {
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
-        if (pt.el >= minEl) {
+        
+        if (pt.el < minEl) {
           if (currentSegment.length > 0) {
-            const prev = currentSegment[currentSegment.length - 1];
-            const azDiff = Math.abs(pt.az - prev.az);
-            if (azDiff > 120) {
-              if (inPast) {
-                pastSegments.push([...currentSegment]);
-              } else {
-                futureSegments.push([...currentSegment]);
-              }
-              currentSegment = [];
-            }
-          }
-          
-          if (i > currentIdx && inPast) {
-            if (currentSegment.length > 0) {
+            if (inPast) {
               pastSegments.push([...currentSegment]);
-              currentSegment = [];
+            } else {
+              futureSegments.push([...currentSegment]);
             }
-            inPast = false;
+            currentSegment = [];
           }
-          
-          currentSegment.push(toSvg(pt.az, pt.el));
+          continue;
         }
+        
+        if (currentSegment.length > 0) {
+          const prev = currentSegment[currentSegment.length - 1];
+          const azDiff = Math.abs(pt.az - prev.az);
+          if (azDiff > 120) {
+            if (inPast) {
+              pastSegments.push([...currentSegment]);
+            } else {
+              futureSegments.push([...currentSegment]);
+            }
+            currentSegment = [];
+          }
+        }
+        
+        if (i > currentIdx && inPast) {
+          if (currentSegment.length > 0) {
+            pastSegments.push([...currentSegment]);
+            currentSegment = [];
+          }
+          inPast = false;
+        }
+        
+        currentSegment.push(toSvg(pt.az, pt.el));
       }
       
       if (currentSegment.length > 0) {
