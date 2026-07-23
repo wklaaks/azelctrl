@@ -87,7 +87,7 @@ a:hover { text-decoration: underline; }
 .pos-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
 
 /* Movement indicators */
-.movement-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; margin-top: 4px; }
+.movement-indicator { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; margin-top: 4px; }
 .mv-arrow { font-size: 1.1rem; color: var(--accent); }
 .mv-arrow.idle { color: var(--muted); }
 
@@ -305,7 +305,7 @@ td.max-el-low { color: var(--muted); }
         <span id="targetElLabel" style="font-size: 1.1rem;">El:</span>
         <span id="targetEl" class="pos-value">---</span>
       </div>
-      <div class="movement-indicator" id="aosLosTimer">AOS in: ---:--</div>
+      <div class="movement-indicator" id="aosLosTimer">AOS in: ---:--:--</div>
       <div class="movement-indicator" id="targetRange">Range: --- km</div>
     </div>
     <div class="pos-box">
@@ -1458,9 +1458,14 @@ function updateAosLosTimer(satrec, now) {
     }
     if (losTime) {
       const diff = losTime - now.getTime();
-      const mins = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
       const secs = Math.floor((diff % 60000) / 1000);
-      timerEl.textContent = 'LOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      if (hours > 0) {
+        timerEl.textContent = 'LOS in: ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      } else {
+        timerEl.textContent = 'LOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      }
     } else {
       timerEl.textContent = 'LOS: Never';
     }
