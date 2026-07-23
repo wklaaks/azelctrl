@@ -1317,16 +1317,14 @@ async function computeAndSend() {
   try {
     const satrec = satrecFromSat(sat);
     const now = new Date();
-    const posVel = satellite.propagate(satrec, now);
-    if (!posVel.position) {
+    const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (!top || top.elevation === null) {
       return;
     }
-    const gv = satellite.eciToGeodetic(posVel.position, posVel.epoch);
-    const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
 
     let satAz = top.azimuth;
     let satEl = top.elevation;
-    let satRange = satellite.distance(posVel.position);
+    let satRange = top.range;
 
     // Convert satellite.js radians to degrees
     satAz = (satAz * 180 / Math.PI + 360) % 360;
@@ -1485,7 +1483,7 @@ setInterval(async () => {
         
         let satAz = top.azimuth;
         let satEl = top.elevation;
-        let satRange = satellite.distance(posVel.position);
+        let satRange = top.range;
         
         // Convert satellite.js radians to degrees
         satAz = (satAz * 180 / Math.PI + 360) % 360;
