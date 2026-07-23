@@ -1674,6 +1674,7 @@ function drawPolarPlot(top, sat) {
       const pastSegments = [];
       const futureSegments = [];
       let currentSegment = [];
+      let inPast = true;
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
@@ -1684,7 +1685,7 @@ function drawPolarPlot(top, sat) {
             const azDiff = Math.abs(pt.az - prev.az);
             if (azDiff > 120) {
               // Azimuth wrap detected - end current segment
-              if (i <= currentIdx) {
+              if (inPast) {
                 pastSegments.push([...currentSegment]);
               } else {
                 futureSegments.push([...currentSegment]);
@@ -1693,22 +1694,22 @@ function drawPolarPlot(top, sat) {
             }
           }
           
-          if (i <= currentIdx) {
-            currentSegment.push(toSvg(pt.az, pt.el));
-          } else {
-            // If we're past currentIdx, flush any remaining past segment
-            if (currentSegment.length > 0 && i > currentIdx) {
+          // Switch from past to future at currentIdx
+          if (i > currentIdx && inPast) {
+            if (currentSegment.length > 0) {
               pastSegments.push([...currentSegment]);
               currentSegment = [];
             }
-            currentSegment.push(toSvg(pt.az, pt.el));
+            inPast = false;
           }
+          
+          currentSegment.push(toSvg(pt.az, pt.el));
         }
       }
       
       // Flush remaining segment
       if (currentSegment.length > 0) {
-        if (currentSegment[0].time <= currentIdx) {
+        if (inPast) {
           pastSegments.push(currentSegment);
         } else {
           futureSegments.push(currentSegment);
@@ -1844,6 +1845,7 @@ function drawPolarPlot(top, sat) {
       const pastSegments = [];
       const futureSegments = [];
       let currentSegment = [];
+      let inPast = true;
       
       for (let i = 0; i < points.length; i++) {
         const pt = points[i];
@@ -1852,7 +1854,7 @@ function drawPolarPlot(top, sat) {
             const prev = currentSegment[currentSegment.length - 1];
             const azDiff = Math.abs(pt.az - prev.az);
             if (azDiff > 120) {
-              if (i <= currentIdx) {
+              if (inPast) {
                 pastSegments.push([...currentSegment]);
               } else {
                 futureSegments.push([...currentSegment]);
@@ -1861,20 +1863,20 @@ function drawPolarPlot(top, sat) {
             }
           }
           
-          if (i <= currentIdx) {
-            currentSegment.push(toSvg(pt.az, pt.el));
-          } else {
-            if (currentSegment.length > 0 && i > currentIdx) {
+          if (i > currentIdx && inPast) {
+            if (currentSegment.length > 0) {
               pastSegments.push([...currentSegment]);
               currentSegment = [];
             }
-            currentSegment.push(toSvg(pt.az, pt.el));
+            inPast = false;
           }
+          
+          currentSegment.push(toSvg(pt.az, pt.el));
         }
       }
       
       if (currentSegment.length > 0) {
-        if (currentSegment[0].time <= currentIdx) {
+        if (inPast) {
           pastSegments.push(currentSegment);
         } else {
           futureSegments.push(currentSegment);
