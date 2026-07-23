@@ -602,13 +602,20 @@ async function setPosition(az, el) {
   if (az !== undefined && az !== null && !isNaN(az)) body.az = az;
   if (el !== undefined && el !== null && !isNaN(el)) body.el = el;
   if (Object.keys(body).length === 0) throw new Error('Provide at least Az or El');
-  const resp = await fetch((getApiBase() || '') + '/setpos', {
+  const url = (getApiBase() || '') + '/setpos';
+  console.log('setPosition:', url, body);
+  const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  if (!resp.ok) throw new Error('POST /setpos failed');
-  return await resp.json();
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error('POST /setpos failed: ' + resp.status + ' ' + text);
+  }
+  const result = await resp.json();
+  console.log('setPosition result:', result);
+  return result;
 }
 
 async function getElfMode() {
@@ -1231,7 +1238,7 @@ function startTracking() {
   document.getElementById('startTrackBtn').textContent = 'Tracking...';
   document.getElementById('startTrackBtn').disabled = true;
   computeAndSend();
-  trackingInterval = setInterval(computeAndSend, updateIntervalMs);
+  trackingInterval = setInterval(() => { computeAndSend().catch(e => console.error("Tracking error:", e)); }, updateIntervalMs);
 }
 
 function stopTracking() {
@@ -1338,12 +1345,15 @@ async function computeAndSend() {
 
 
     // Send to rotator (only if above minimum elevation)
+    console.log('Tracking: satAz=' + satAz.toFixed(1) + ', satEl=' + satEl.toFixed(1) + ', minEl=' + minElevation);
     if (satEl >= minElevation) {
       try {
         await setPosition(satAz, satEl);
       } catch (err) {
         console.warn('Failed to send position:', err);
       }
+    } else {
+      console.log('Satellite below minimum elevation, not sending to rotator');
     }
 
     // Update polar plot
@@ -1498,7 +1508,7 @@ setInterval(async () => {
         drawPolarPlot(top, sat);
       }
     } catch (e) {
-      // Ignore errors during satellite position update
+      console.error("Satellite position update error:", e);
     }
   }
 }, 1000);
