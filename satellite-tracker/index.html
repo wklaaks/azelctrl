@@ -175,8 +175,19 @@ td.max-el-low { color: var(--muted); }
 
 /* Satellites list */
 .sat-list-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
-.sat-list-item:hover { background: rgba(88,166,255,0.05); }
-.sat-list-item.selected { background: rgba(88,166,255,0.1); border-left: 3px solid var(--accent); }
+
+/* Next Pass table */
+#satPassTable table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+#satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.75rem; color: var(--muted); }
+#satPassTable td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
+#satPassTable tr:hover { background: rgba(88,166,255,0.05); }
+#satPassTable tr.selected-row { background: rgba(56,139,253,0.25); border-left: 4px solid #58a6ff; }
+#satPassTable tr.selected-row td:first-child { font-weight: 600; }
+.btn-select { background: #238636; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
+.btn-select:hover { background: #2ea043; }
+.btn-select.selected { background: #6e7681; cursor: default; }
+.sat-list-item:hover { background: rgba(88,166,255,0.08); }
+.sat-list-item.selected { background: rgba(56,139,253,0.25); border-left: 4px solid #58a6ff; font-weight: 600; }
 .sat-list-name { font-size: 0.9rem; }
 .sat-list-meta { font-size: 0.7rem; color: var(--muted); }
 .sat-list-actions { display: flex; gap: 6px; }
@@ -840,12 +851,14 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
       Math.floor(p.minsUntil / 60) + 'h ' + (p.minsUntil % 60) + 'm';
     const maxElStr = p.maxEl.toFixed(1) + '° @' + String(Math.round(p.maxElAz)).padStart(3, ' ');
     
-    html += '<tr>' +
+    const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
+    const rowClass = isSelected ? 'selected-row' : '';
+    html += '<tr class="' + rowClass + '" data-name="' + p.sat.name + '">' +
       '<td>' + p.sat.name + '</td>' +
       '<td class="num">' + aosStr + '</td>' +
       '<td class="num" style="font-weight:600;">' + minsStr + '</td>' +
       '<td class="num">' + maxElStr + '</td>' +
-      '<td><button class="btn btn-sm btn-select" data-name="' + p.sat.name + '">Select</button></td>' +
+      '<td><button class="btn-select"' + (isSelected ? ' disabled class="btn-select selected"' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
       '</tr>';
   }
   
@@ -872,6 +885,23 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
         saveSatellites();
         updateCurrentSatDisplay();
         updateTrackSatSelect();
+        
+        // Update row highlighting and button states
+        passTableEl.querySelectorAll('tr').forEach(row => {
+          row.classList.remove('selected-row');
+        });
+        passTableEl.querySelectorAll('.btn-select').forEach(b => {
+          b.textContent = 'Select';
+          b.classList.remove('selected');
+          b.disabled = false;
+        });
+        const selectedRow = passTableEl.querySelector('tr[data-name="' + name + '"]');
+        if (selectedRow) {
+          selectedRow.classList.add('selected-row');
+        }
+        btn.textContent = 'Selected';
+        btn.classList.add('selected');
+        btn.disabled = true;
       }
     });
   });
