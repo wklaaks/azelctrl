@@ -1114,7 +1114,7 @@ async function fetchTleOrCsv(norad) {
     if (!text.includes('No GP data found')) {
       const lines = text.split('\n').map(l => l.trim()).filter(l => l);
       if (lines.length >= 3) {
-        return [lines[1], lines[2]];  // Return only line1 and line2
+        return [lines[0], lines[1], lines[2]];  // Return name, line1, line2
       }
     }
   } catch (e) {
@@ -1135,7 +1135,7 @@ async function fetchTleOrCsv(norad) {
       const row = {};
       headers.forEach((h, i) => row[h] = values[i]);
       const tleLines = csvToTle(row);
-      return [tleLines[1], tleLines[2]];  // Return only line1 and line2
+      return tleLines;  // csvToTle already returns [name, line1, line2]
     }
   } catch (e) {
     if (e.message) throw e;
