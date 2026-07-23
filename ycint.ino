@@ -1958,23 +1958,8 @@ void executeProtocolAzMove(float targetAz) {
   Serial.print(" curRaw="); Serial.print(currentAz);
   Serial.print(" curDisp="); Serial.println(displayAzimuth(currentAz));
 #endif
-  // Direction calculation: compare in the same coordinate space
-  // When ELF is on, both in satellite space; when off, use displayAzimuth for model-offset
-  float curForDiff;
-  float tgtForDiff;
-  if (elfMode) {
-    curForDiff = elfAz(currentAz);
-    tgtForDiff = targetAz;
-  } else {
-    curForDiff = displayAzimuth(currentAz);
-    tgtForDiff = targetAz;
-  }
-  float diff = tgtForDiff - curForDiff;
-  float rawDiff = diff;
-  if (diff > 180.0) diff -= 360.0;
-  if (diff < -180.0) diff += 360.0;
 #if DEBUG_ENABLED
-  Serial.printf("DBG:PROT_AZ:DIFF:rawDiff=%.1f normDiff=%.1f\n", rawDiff, diff);
+  Serial.printf("DBG:PROT_AZ:DIFF:rawDiff=%.1f normDiff=%.1f\n", diff, diff);
 #endif
   float physicalStop;
   switch (rotModel) {
