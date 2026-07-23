@@ -269,8 +269,6 @@ td.max-el-low { color: var(--muted); }
   <div class="tab active" data-tab="tracking">Tracking</div>
   <div class="tab" data-tab="satellites">Satellites</div>
   <div class="tab" data-tab="manage">Manage</div>
-  <div class="tab" data-tab="browse-satellites">CelesTrak Add</div>
-  <div class="tab" data-tab="add-satellite">Paste Add</div>
   <div class="tab" data-tab="passes">Pass Predictions</div>
   <div class="tab" data-tab="control">Control</div>
   <div class="tab" data-tab="settings">Settings</div>
@@ -354,11 +352,7 @@ td.max-el-low { color: var(--muted); }
     <div class="card-title">Manage Satellites</div>
     <div id="satList"></div>
   </div>
-</div>
-
-<!-- Tab: Browse Satellites -->
-<div class="tab-content" id="tab-browse-satellites">
-  <div class="card">
+  <div class="card" style="margin-top:10px;">
     <div class="card-title">Browse Amateur Radio Satellites</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
       <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
@@ -366,11 +360,7 @@ td.max-el-low { color: var(--muted); }
     </div>
     <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
   </div>
-</div>
-
-<!-- Tab: Add Satellite -->
-<div class="tab-content" id="tab-add-satellite">
-  <div class="card">
+  <div class="card" style="margin-top:10px;">
     <div class="card-title">Add Satellite</div>
     <div style="display:flex;gap:8px;margin-bottom:8px;">
       <input type="text" class="device-input" id="newSatName" placeholder="Satellite name" style="flex:1;">
