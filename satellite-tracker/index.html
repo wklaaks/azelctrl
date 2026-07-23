@@ -268,6 +268,7 @@ td.max-el-low { color: var(--muted); }
 <div class="tabs">
   <div class="tab active" data-tab="tracking">Tracking</div>
   <div class="tab" data-tab="satellites">Satellites</div>
+  <div class="tab" data-tab="manage">Manage</div>
   <div class="tab" data-tab="browse-satellites">CelesTrak Add</div>
   <div class="tab" data-tab="add-satellite">Paste Add</div>
   <div class="tab" data-tab="passes">Pass Predictions</div>
@@ -338,15 +339,20 @@ td.max-el-low { color: var(--muted); }
 <!-- Tab: Satellites -->
 <div class="tab-content" id="tab-satellites">
   <div class="card">
-    <div class="card-title">Your Satellites</div>
+    <div class="card-title">Upcoming Passes</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
       <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
-      <button class="btn btn-sm btn-browse" id="showNextPassBtn">Next Pass</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
+    <div id="satPassTable"></div>
+  </div>
+</div>
+
+<div class="tab-content" id="tab-manage">
+  <div class="card">
+    <div class="card-title">Manage Satellites</div>
     <div id="satList"></div>
-    <div id="satPassTable" style="display:none;margin-top:10px;"></div>
   </div>
 </div>
 
@@ -693,84 +699,15 @@ function renderSatList() {
   });
 }
 
-function getTleAge(sat) {
-  if (!sat.tleDate) return Infinity;
-  return (Date.now() - new Date(sat.tleDate).getTime()) / 1000;
-}
-
-function formatAge(seconds) {
-  if (seconds === Infinity) return 'unknown';
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-  return Math.floor(seconds / 86400) + 'd ago';
-}
-
-function updateCurrentSatDisplay() {
-  const ageEl = document.getElementById('currentTleAge');
-  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
-    ageEl.textContent = '';
-    return;
-  }
-  const sat = satellites[selectedSatIndex];
-  const age = getTleAge(sat);
-  const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
-  ageEl.className = 'tle-age ' + ageClass;
-  ageEl.textContent = 'TLE: ' + formatAge(age);
-}
-
-function updateTrackSatSelect() {
-  const select = document.getElementById('trackSatSelect');
-  if (!select) return;
-  const current = select.value;
-  select.innerHTML = '<option value="-1">— select satellite —</option>';
-  satellites.forEach((sat, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = sat.name;
-    select.appendChild(opt);
-  });
-  select.value = selectedSatIndex >= 0 ? String(selectedSatIndex) : '-1';
-}
-
-function removeSat(index) {
-  satellites.splice(index, 1);
-  if (selectedSatIndex === index) {
-    selectedSatIndex = -1;
-    stopTracking();
-  }
-  saveSatellites();
-  updateCurrentSatDisplay(); updateTrackSatSelect();
-}
-
-// Sort by name
-document.getElementById('sortByNameBtn').addEventListener('click', () => {
-  satellites.sort((a, b) => a.name.localeCompare(b.name));
-  saveSatellites();
-  renderSatList();
-  updateTrackSatSelect();
-});
-
-// Show next pass for each satellite
-document.getElementById('showNextPassBtn').addEventListener('click', () => {
+function renderPassTable() {
   const passTableEl = document.getElementById('satPassTable');
   
   if (satellites.length === 0) {
-    alert('No satellites stored yet');
+    passTableEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No satellites stored yet</div>';
     return;
   }
-  
-  // Toggle pass table visibility (keep satellite list visible)
-  if (passTableEl.style.display === 'block') {
-    passTableEl.style.display = 'none';
-    document.getElementById('showNextPassBtn').textContent = 'Next Pass';
-    return;
-  }
-  passTableEl.style.display = 'block';
-  document.getElementById('showNextPassBtn').textContent = 'Hide Passes';
   
   const now = new Date();
-  const station = stationLocation;
   const minEl = parseFloat(document.getElementById('minElevation').value);
   
   const passes = [];
@@ -853,7 +790,7 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
     });
     const minsStr = p.minsUntil < 60 ? p.minsUntil + ' min' :
       Math.floor(p.minsUntil / 60) + 'h ' + (p.minsUntil % 60) + 'm';
-    const maxElStr = p.maxEl.toFixed(1) + '° @' + String(Math.round(p.maxElAz)).padStart(3, ' ');
+    const maxElStr = p.maxEl.toFixed(1) + '° @' + String(Math.round(p.maxElAz)).padStart(3, ' ');
     
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
     const rowClass = isSelected ? 'selected-row' : '';
@@ -884,27 +821,73 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
         saveSatellites();
         updateCurrentSatDisplay();
         updateTrackSatSelect();
-        
-        // Update row highlighting and button states
-        passTableEl.querySelectorAll('tr').forEach(row => {
-          row.classList.remove('selected-row');
-        });
-        passTableEl.querySelectorAll('.btn-select').forEach(b => {
-          b.textContent = 'Select';
-          b.classList.remove('selected');
-          b.disabled = false;
-        });
-        const selectedRow = passTableEl.querySelector('tr[data-name="' + name + '"]');
-        if (selectedRow) {
-          selectedRow.classList.add('selected-row');
-        }
-        btn.textContent = 'Selected';
-        btn.classList.add('selected');
-        btn.disabled = true;
+        renderPassTable(); // Re-render to update selection state
       }
     });
   });
+}
+
+
+function getTleAge(sat) {
+  if (!sat.tleDate) return Infinity;
+  return (Date.now() - new Date(sat.tleDate).getTime()) / 1000;
+}
+
+function formatAge(seconds) {
+  if (seconds === Infinity) return 'unknown';
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+  return Math.floor(seconds / 86400) + 'd ago';
+}
+
+function updateCurrentSatDisplay() {
+  const ageEl = document.getElementById('currentTleAge');
+  if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
+    ageEl.textContent = '';
+    return;
+  }
+  const sat = satellites[selectedSatIndex];
+  const age = getTleAge(sat);
+  const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
+  ageEl.className = 'tle-age ' + ageClass;
+  ageEl.textContent = 'TLE: ' + formatAge(age);
+}
+
+function updateTrackSatSelect() {
+  const select = document.getElementById('trackSatSelect');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="-1">— select satellite —</option>';
+  satellites.forEach((sat, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = sat.name;
+    select.appendChild(opt);
+  });
+  select.value = selectedSatIndex >= 0 ? String(selectedSatIndex) : '-1';
+}
+
+function removeSat(index) {
+  satellites.splice(index, 1);
+  if (selectedSatIndex === index) {
+    selectedSatIndex = -1;
+    stopTracking();
+  }
+  saveSatellites();
+  updateCurrentSatDisplay(); updateTrackSatSelect();
+}
+
+// Sort by name
+document.getElementById('sortByNameBtn').addEventListener('click', () => {
+  satellites.sort((a, b) => a.name.localeCompare(b.name));
+  saveSatellites();
+  renderSatList();
+  updateTrackSatSelect();
 });
+
+// Show next pass for each satellite
+);
 
 // ==================== BROWSE SATELLITES ====================
 document.getElementById('browseSatListBtn').addEventListener('click', async () => {
@@ -1944,9 +1927,13 @@ document.getElementById('savePrefsBtn').addEventListener('click', () => {
 
 // ==================== INITIALIZATION ====================
 renderSatList();
+renderPassTable();
 updateTrackSatSelect();
 updateCurrentSatDisplay();
 updateConnectionStatus();
+
+// Auto-refresh pass table every 5 seconds
+setInterval(renderPassTable, 5000);
 
 // Load settings
 document.getElementById('gridSquare').value = localStorage.getItem('gridSquare') || '';
