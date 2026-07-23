@@ -724,6 +724,19 @@ function renderPassTable() {
   const now = new Date();
   const minEl = parseFloat(document.getElementById('minElevation').value);
   
+  // Format time remaining as HH:MM:SS or MM:SS
+  function formatTimeRemaining(totalSeconds) {
+    if (totalSeconds < 0) totalSeconds = 0;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    
+    if (hours > 0) {
+      return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    }
+    return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+  }
+  
   const passes = [];
   
   for (const sat of satellites) {
@@ -733,13 +746,21 @@ function renderPassTable() {
       // Search for next pass over next 48 hours
       const searchEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
       let nextAos = null;
+      let nextLos = null;
       let maxEl = 0;
       let maxElAz = 0;
+      let inPass = false;
       
       // Check in 1-minute intervals
       const interval = 60 * 1000;
       let lastElDeg = -90;
       let t = new Date(now);
+      
+      // Check current elevation
+      const currentPos = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      if (currentPos) {
+        lastElDeg = currentPos.elevation * 180 / Math.PI;
+      }
       
       while (t < searchEnd) {
         const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -750,19 +771,23 @@ function renderPassTable() {
           const elDeg = el * 180 / Math.PI;
           
           // Detect AOS (elevation crossing minEl going up)
-          if (lastElDeg < minEl && elDeg >= minEl && !nextAos) {
+          if (!inPass && lastElDeg < minEl && elDeg >= minEl) {
             // Interpolate AOS time
             const dt = interval / (elDeg - lastElDeg);
             nextAos = new Date(t.getTime() - (minEl - lastElDeg) * dt);
+            inPass = true;
           }
           
-          if (nextAos && elDeg > maxEl) {
+          if (inPass && elDeg > maxEl) {
             maxEl = elDeg;
             maxElAz = pos.azimuth * 180 / Math.PI;
           }
           
           // Detect LOS (elevation crossing minEl going down)
-          if (nextAos && lastElDeg >= minEl && elDeg < minEl) {
+          if (inPass && lastElDeg >= minEl && elDeg < minEl) {
+            // Interpolate LOS time
+            const dt = interval / (lastElDeg - elDeg);
+            nextLos = new Date(t.getTime() - (lastElDeg - minEl) * dt);
             break;
           }
         }
@@ -770,12 +795,15 @@ function renderPassTable() {
         t = new Date(t.getTime() + interval);
       }
       
-      if (nextAos) {
-        const minsUntil = Math.round((nextAos - now) / 60000);
+      if (nextAos && nextLos) {
+        const timeUntil = (nextAos - now) / 1000; // seconds
+        const minsUntil = Math.round(timeUntil / 60);
         passes.push({
           sat,
           aos: nextAos,
+          los: nextLos,
           minsUntil,
+          timeUntil,
           maxEl,
           maxElAz
         });
@@ -802,8 +830,18 @@ function renderPassTable() {
       weekday: 'short', day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit'
     });
-    const minsStr = p.minsUntil < 60 ? p.minsUntil + ' min' :
-      Math.floor(p.minsUntil / 60) + 'h ' + (p.minsUntil % 60) + 'm';
+    
+    // Format time remaining
+    let minsStr;
+    if (p.minsUntil <= 0) {
+      // Satellite is currently overhead - show time until LOS
+      const losSeconds = (p.los - now) / 1000;
+      minsStr = formatTimeRemaining(losSeconds);
+    } else {
+      // Show time until AOS
+      minsStr = formatTimeRemaining(p.timeUntil);
+    }
+    
     const maxElStr = p.maxEl.toFixed(1) + '° @' + String(Math.round(p.maxElAz)).padStart(3, ' ');
     
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
@@ -811,7 +849,7 @@ function renderPassTable() {
     html += '<tr class="' + rowClass + '" data-name="' + p.sat.name + '">' +
       '<td>' + p.sat.name + '</td>' +
       '<td class="num">' + aosStr + '</td>' +
-      '<td class="num" style="font-weight:600;">' + minsStr + '</td>' +
+      '<td class="num" style="font-weight:600;font-family:monospace;">' + minsStr + '</td>' +
       '<td class="num">' + maxElStr + '</td>' +
       '<td><button class="btn-select' + (isSelected ? ' selected"' : '"') + (isSelected ? ' disabled' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
       '</tr>';
