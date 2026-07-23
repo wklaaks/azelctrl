@@ -1346,7 +1346,7 @@ void stopElevation() {
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
   elEngageStart = 0;  // Clear engagement timer
-  // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit stop commands
+  protocolTargetElSet = false;  // Clear so tolerance check works on next target
   protocolElReversing = false;
   // Clear movement indicator if elevation was moving
   if (currentMove == "UP" || currentMove == "DOWN" || currentMove == "EL POT") {
@@ -1926,6 +1926,31 @@ void executeProtocolAzMove(float targetAz) {
   // When ELF is on, incoming targets are in satellite space — transform to physical
   float physTarget = elfAz(targetAz);
   
+  // Direction calculation: compare in the same coordinate space
+  float curForDiff;
+  float tgtForDiff;
+  if (elfMode) {
+    curForDiff = elfAz(currentAz);
+    tgtForDiff = targetAz;
+  } else {
+    curForDiff = displayAzimuth(currentAz);
+    tgtForDiff = targetAz;
+  }
+  float diff = tgtForDiff - curForDiff;
+  if (diff > 180.0) diff -= 360.0;
+  if (diff < -180.0) diff += 360.0;
+  
+  // Don't start movement if target is within auto-stop tolerance and we're stopped
+  // This prevents relay clicking when new targets arrive within the zone where
+  // auto-stop would immediately kill movement anyway
+  if (azDirection == DIR_STOPPED && !protocolTargetAzSet && abs(diff) <= PROTOCOL_STOP_TOLERANCE) {
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_AZ:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
+#endif
+    protocolTargetAz = physTarget;
+    return;
+  }
+  
   protocolTargetAz = physTarget;
   protocolTargetAzSet = true;
 #if DEBUG_ENABLED
@@ -2051,17 +2076,6 @@ void executeProtocolAzMove(float targetAz) {
 #endif
     stopAzimuth(); protocolTargetAzSet = false;
   }
-  
-  // Don't start movement if target is within auto-stop tolerance
-  // This prevents relay clicking when new targets arrive within the 3° zone
-  // where auto-stop would immediately kill the movement anyway
-  if (!mustRotateCW && !mustRotateCCW && abs(diff) <= PROTOCOL_STOP_TOLERANCE &&
-      azDirection == DIR_STOPPED && !protocolTargetAzSet) {
-#if DEBUG_ENABLED
-    Serial.printf("DBG:PROT_AZ:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
-#endif
-    protocolTargetAzSet = false;
-  }
 }
 
 void executeProtocolElMove(float targetEl) {
@@ -2071,13 +2085,24 @@ void executeProtocolElMove(float targetEl) {
   // When ELF is on, incoming targets are in satellite space — transform to physical
   float physTarget = elfEl(targetEl);
   
-  protocolTargetEl = physTarget;
-  protocolTargetElSet = true;
-  
   // Direction calculation: compare in the same coordinate space
   // When ELF is on, both in satellite space; when off, use raw physical coords
   float curForDiff = elfEl(currentEl);
   float diff = targetEl - curForDiff;
+  
+  // Don't start movement if target is within auto-stop tolerance and we're stopped
+  // This prevents relay clicking when new targets arrive within the zone where
+  // auto-stop would immediately kill movement anyway
+  if (elDirection == DIR_STOPPED && !protocolTargetElSet && abs(diff) <= PROTOCOL_STOP_TOLERANCE) {
+#if DEBUG_ENABLED
+    Serial.printf("DBG:PROT_EL:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
+#endif
+    protocolTargetEl = physTarget;
+    return;
+  }
+  
+  protocolTargetEl = physTarget;
+  protocolTargetElSet = true;
   
   // Convert satellite-space direction to physical direction
   // In ELF mode: satellite UP = physical DOWN (Real El = 180 - Sat El)
@@ -2087,14 +2112,6 @@ void executeProtocolElMove(float targetEl) {
   } else if (diff < -1.0) {
     moveDir = elfMode ? "UP" : "DOWN";
   } else {
-    // Don't start movement if within auto-stop tolerance
-    if (abs(diff) <= PROTOCOL_STOP_TOLERANCE && elDirection == DIR_STOPPED && !protocolTargetElSet) {
-#if DEBUG_ENABLED
-      Serial.printf("DBG:PROT_EL:TOLERANCE:diff=%.1f within %d tolerance, not starting\n", diff, (int)PROTOCOL_STOP_TOLERANCE);
-#endif
-      protocolTargetElSet = false;
-      return;
-    }
     stopElevation(); protocolTargetElSet = false;
     return;
   }
