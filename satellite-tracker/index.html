@@ -545,6 +545,8 @@ let satellites = JSON.parse(localStorage.getItem('satellites') || '[]');
 let selectedSatIndex = parseInt(localStorage.getItem('selectedSatIndex') || '-1');
 let tracking = false;
 let trackingInterval = null;
+let lastSentAz = null;
+let lastSentEl = null;
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
 let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
 let stationLocation = JSON.parse(localStorage.getItem('stationLocation') || '{"lat":-33.9249,"lon":18.4241,"alt":1000}');
@@ -1243,6 +1245,8 @@ function startTracking() {
 
 function stopTracking() {
   tracking = false;
+  lastSentAz = null;
+  lastSentEl = null;
   if (trackingInterval) {
     clearInterval(trackingInterval);
     trackingInterval = null;
@@ -1344,16 +1348,19 @@ async function computeAndSend() {
 
 
 
-    // Send to rotator (only if above minimum elevation)
-    console.log('Tracking: satAz=' + satAz.toFixed(1) + ', satEl=' + satEl.toFixed(1) + ', minEl=' + minElevation);
-    if (satEl >= minElevation) {
+    // Send to rotator (only if above minimum elevation and position changed significantly)
+    const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 0.5;
+    const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 0.5;
+    
+    if (satEl >= minElevation && (azChanged || elChanged)) {
       try {
         await setPosition(satAz, satEl);
+        lastSentAz = satAz;
+        lastSentEl = satEl;
+        console.log('Sent position: Az=' + satAz.toFixed(1) + ', El=' + satEl.toFixed(1));
       } catch (err) {
         console.warn('Failed to send position:', err);
       }
-    } else {
-      console.log('Satellite below minimum elevation, not sending to rotator');
     }
 
     // Update polar plot
