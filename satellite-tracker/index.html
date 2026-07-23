@@ -1029,6 +1029,8 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
     satellites.push(newSat);
     selectedSatIndex = satellites.length - 1;
     saveSatellites();
+    renderSatList();
+    renderPassTable();
     updateCurrentSatDisplay(); updateTrackSatSelect();
     document.getElementById('newSatName').value = '';
     document.getElementById('newSatNORAD').value = '';
@@ -1083,6 +1085,8 @@ async function fetchTleForNORAD(norad, preferredName) {
     }
     selectedSatIndex = existingIdx >= 0 ? existingIdx : satellites.length - 1;
     saveSatellites();
+    renderSatList();
+    renderPassTable();
     updateCurrentSatDisplay(); updateTrackSatSelect();
     document.getElementById('newSatName').value = newSat.name;
     document.getElementById('newSatNORAD').value = norad;
