@@ -1998,7 +1998,7 @@ void executeProtocolAzMove(float targetAz) {
 #if DEBUG_ENABLED
   Serial.printf("DBG:PROT_AZ:FLAGS:mustCW=%d mustCCW=%d diff=%.1f\n", mustRotateCW, mustRotateCCW, diff);
 #endif
-  if (mustRotateCW || (diff > 0.3 && !mustRotateCCW)) {
+  if (mustRotateCW || (diff > 1.0 && !mustRotateCCW)) {
     // Need to move CW (RIGHT)
 #if DEBUG_ENABLED
     Serial.printf("DBG:PROT_AZ:ACTION:NEED_CW:azDir=%d\n", azDirection);
@@ -2021,7 +2021,7 @@ void executeProtocolAzMove(float targetAz) {
 #endif
     }
     // If already DIR_CW: do nothing, movement continues toward new target
-  } else if (mustRotateCCW || diff < -0.3) {
+  } else if (mustRotateCCW || diff < -1.0) {
     // Need to move CCW (LEFT)
 #if DEBUG_ENABLED
     Serial.printf("DBG:PROT_AZ:ACTION:NEED_CCW:azDir=%d\n", azDirection);
@@ -2070,9 +2070,9 @@ void executeProtocolElMove(float targetEl) {
   // Convert satellite-space direction to physical direction
   // In ELF mode: satellite UP = physical DOWN (Real El = 180 - Sat El)
   String moveDir;
-  if (diff > 0.3) {
+  if (diff > 1.0) {
     moveDir = elfMode ? "DOWN" : "UP";
-  } else if (diff < -0.3) {
+  } else if (diff < -1.0) {
     moveDir = elfMode ? "UP" : "DOWN";
   } else {
     stopElevation(); protocolTargetElSet = false;
