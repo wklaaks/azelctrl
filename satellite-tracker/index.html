@@ -305,6 +305,7 @@ td.max-el-low { color: var(--muted); }
         <span id="targetElLabel" style="font-size: 1.1rem;">El:</span>
         <span id="targetEl" class="pos-value">---</span>
       </div>
+      <div class="movement-indicator" id="aosLosTimer">AOS in: ---:--</div>
       <div class="movement-indicator" id="targetRange">Range: --- km</div>
     </div>
     <div class="pos-box">
@@ -1431,6 +1432,63 @@ document.getElementById('manualSetBtn').addEventListener('click', async () => {
   });
 });
 
+function updateAosLosTimer(satrec, now) {
+  const timerEl = document.getElementById('aosLosTimer');
+  const minEl = parseFloat(document.getElementById('minElevation').value);
+  
+  // Compute elevation over next 12 hours
+  const points = [];
+  for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 60000)) {
+    const top = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (!top) continue;
+    const elDeg = top.elevation * 180 / Math.PI;
+    points.push({ time: t.getTime(), el: elDeg });
+  }
+  
+  const currentEl = points[0]?.el || 0;
+  
+  if (currentEl >= 0) {
+    // Satellite is above horizon - find LOS
+    let losTime = null;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].el < minEl && points[i-1].el >= minEl) {
+        losTime = points[i].time;
+        break;
+      }
+    }
+    if (losTime) {
+      const diff = losTime - now.getTime();
+      const mins = Math.floor(diff / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      timerEl.textContent = 'LOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    } else {
+      timerEl.textContent = 'LOS: Never';
+    }
+  } else {
+    // Satellite is below horizon - find AOS
+    let aosTime = null;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].el >= minEl && points[i-1].el < minEl) {
+        aosTime = points[i].time;
+        break;
+      }
+    }
+    if (aosTime) {
+      const diff = aosTime - now.getTime();
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) {
+        timerEl.textContent = 'AOS in: ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      } else {
+        timerEl.textContent = 'AOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      }
+    } else {
+      timerEl.textContent = 'AOS: Never';
+    }
+  }
+}
+
 // ==================== ROTATOR STATUS POLLING ====================
 setInterval(async () => {
   try {
@@ -1532,6 +1590,9 @@ setInterval(async () => {
         document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
         document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
         document.getElementById('targetRange').textContent = 'Range: ' + satRange.toFixed(0) + ' km';
+        
+        // Update AOS/LOS timer
+        updateAosLosTimer(satrec, now);
         
         // Update polar plot
         drawPolarPlot(top, sat);
