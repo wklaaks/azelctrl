@@ -1628,19 +1628,82 @@ function drawPolarPlot(top, sat) {
   const cx = 230, cy = 230, r = 170;
   const satAzDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
   const satElDeg = top.elevation * 180 / Math.PI;
-
+  
   // Fetch rotator position for current dot
   fetchPos().then(pos => {
     const rotAz = pos.az;
     const rotEl = Math.min(pos.el, 90); // clamp for display
-
+    
     // Convert to SVG coords (0° = North/top, clockwise)
     function toSvg(az, el) {
       const rad = ((90 - el) / 90) * r;
       const angle = (az - 90) * Math.PI / 180;
       return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
     }
-
+    
+    // Generate satellite trajectory path
+    let pathSvg = '';
+    try {
+      const satrec = satrecFromSat(sat);
+      const now = new Date();
+      const minEl = parseFloat(document.getElementById('minElevation').value);
+      
+      // Compute trajectory over next 12 hours at 30-second intervals
+      const points = [];
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
+        const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        if (!top2) continue;
+        const elDeg = top2.elevation * 180 / Math.PI;
+        const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
+        points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+      }
+      
+      // Find current position index
+      let currentIdx = -1;
+      for (let i = 0; i < points.length; i++) {
+        if (points[i].time >= now.getTime()) {
+          currentIdx = i;
+          break;
+        }
+      }
+      if (currentIdx < 0) currentIdx = points.length - 1;
+      
+      // Build path segments (only for points above minimum elevation)
+      const pastPts = [];
+      const futurePts = [];
+      
+      for (let i = 0; i < points.length; i++) {
+        const pt = points[i];
+        if (pt.el >= minEl) {
+          if (i <= currentIdx) {
+            pastPts.push(toSvg(pt.az, pt.el));
+          } else {
+            futurePts.push(toSvg(pt.az, pt.el));
+          }
+        }
+      }
+      
+      // Draw past path (blue solid line)
+      if (pastPts.length > 1) {
+        let d = 'M' + pastPts[0].x.toFixed(1) + ',' + pastPts[0].y.toFixed(1);
+        for (let i = 1; i < pastPts.length; i++) {
+          d += ' L' + pastPts[i].x.toFixed(1) + ',' + pastPts[i].y.toFixed(1);
+        }
+        pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
+      }
+      
+      // Draw future path (green dashed line)
+      if (futurePts.length > 1) {
+        let d = 'M' + futurePts[0].x.toFixed(1) + ',' + futurePts[0].y.toFixed(1);
+        for (let i = 1; i < futurePts.length; i++) {
+          d += ' L' + futurePts[i].x.toFixed(1) + ',' + futurePts[i].y.toFixed(1);
+        }
+        pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+    
     // Generate elevation grid circles
     let elGrid = '';
     const elSteps = [10, 20, 30, 40, 50, 60, 70, 80, 90];
@@ -1653,7 +1716,7 @@ function drawPolarPlot(top, sat) {
         elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#8b949e" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
       }
     });
-
+    
     // Generate azimuth grid lines and labels
     let azGrid = '';
     const azSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
@@ -1671,17 +1734,17 @@ function drawPolarPlot(top, sat) {
         azGrid += `<text x="${lx}" y="${ly + 3}" fill="#8b949e" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
       }
     });
-
+    
     // Cardinal direction labels (larger, brighter)
     let cardinal = `
       <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
       <text x="${cx}" y="${cy + r + 32}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">S</text>
       <text x="450" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">E</text>
       <text x="10" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">W</text>`;
-
+    
     const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
     const rotPt = toSvg(rotAz, rotEl);
-
+    
     svg.innerHTML = `
       <defs>
         <radialGradient id="plotBg" cx="50%" cy="50%" r="50%">
@@ -1691,6 +1754,8 @@ function drawPolarPlot(top, sat) {
       </defs>
       <!-- Background -->
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#plotBg)" stroke="#30363d" stroke-width="1"/>
+      <!-- Satellite trajectory path -->
+      ${pathSvg}
       <!-- Elevation grid -->
       ${elGrid}
       <!-- Azimuth grid -->
@@ -1713,7 +1778,63 @@ function drawPolarPlot(top, sat) {
       const angle = (az - 90) * Math.PI / 180;
       return { x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) };
     }
-
+    
+    // Generate satellite trajectory path
+    let pathSvg = '';
+    try {
+      const satrec = satrecFromSat(sat);
+      const now = new Date();
+      const minEl = parseFloat(document.getElementById('minElevation').value);
+      
+      const points = [];
+      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
+        const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        if (!top2) continue;
+        const elDeg = top2.elevation * 180 / Math.PI;
+        const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
+        points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+      }
+      
+      let currentIdx = -1;
+      for (let i = 0; i < points.length; i++) {
+        if (points[i].time >= now.getTime()) {
+          currentIdx = i;
+          break;
+        }
+      }
+      if (currentIdx < 0) currentIdx = points.length - 1;
+      
+      const pastPts = [];
+      const futurePts = [];
+      
+      for (let i = 0; i < points.length; i++) {
+        const pt = points[i];
+        if (pt.el >= minEl) {
+          if (i <= currentIdx) {
+            pastPts.push(toSvg(pt.az, pt.el));
+          } else {
+            futurePts.push(toSvg(pt.az, pt.el));
+          }
+        }
+      }
+      
+      if (pastPts.length > 1) {
+        let d = 'M' + pastPts[0].x.toFixed(1) + ',' + pastPts[0].y.toFixed(1);
+        for (let i = 1; i < pastPts.length; i++) {
+          d += ' L' + pastPts[i].x.toFixed(1) + ',' + pastPts[i].y.toFixed(1);
+        }
+        pathSvg += `<path d="${d}" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`;
+      }
+      
+      if (futurePts.length > 1) {
+        let d = 'M' + futurePts[0].x.toFixed(1) + ',' + futurePts[0].y.toFixed(1);
+        for (let i = 1; i < futurePts.length; i++) {
+          d += ' L' + futurePts[i].x.toFixed(1) + ',' + futurePts[i].y.toFixed(1);
+        }
+        pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+      }
+    } catch (e) {}
+    
     let elGrid = '';
     const elSteps = [10, 20, 30, 40, 50, 60, 70, 80, 90];
     elSteps.forEach(el => {
@@ -1723,7 +1844,7 @@ function drawPolarPlot(top, sat) {
         elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#8b949e" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
       }
     });
-
+    
     let azGrid = '';
     const azSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
     azSteps.forEach(az => {
@@ -1739,11 +1860,12 @@ function drawPolarPlot(top, sat) {
         azGrid += `<text x="${lx}" y="${ly + 3}" fill="#8b949e" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
       }
     });
-
+    
     const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
-
+    
     svg.innerHTML = `
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="#161b22" stroke="#30363d"/>
+      ${pathSvg}
       ${elGrid}
       ${azGrid}
       <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
