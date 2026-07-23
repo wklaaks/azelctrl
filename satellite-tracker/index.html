@@ -947,9 +947,8 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
       const btn = item.querySelector('.browse-sat-btn');
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        document.getElementById('newSatName').value = sat.name;
-        document.getElementById('newSatNORAD').value = sat.norad;
-        document.getElementById('fetchTleBtn').click();
+        console.log('Adding satellite from browse:', sat.name, sat.norad);
+        fetchTleForNORAD(sat.norad, sat.name);
         btn.textContent = '...';
         btn.disabled = true;
       });
@@ -1085,13 +1084,18 @@ async function fetchTleForNORAD(norad, preferredName) {
     }
     selectedSatIndex = existingIdx >= 0 ? existingIdx : satellites.length - 1;
     saveSatellites();
+    console.log('fetchTleForNORAD: satellite added, total count:', satellites.length);
+    console.log('fetchTleForNORAD: calling renderSatList');
     renderSatList();
+    console.log('fetchTleForNORAD: calling renderPassTable');
     renderPassTable();
     updateCurrentSatDisplay(); updateTrackSatSelect();
     document.getElementById('newSatName').value = newSat.name;
     document.getElementById('newSatNORAD').value = norad;
     document.getElementById('tleInput').value = line1 + '\n' + line2;
+    console.log('fetchTleForNORAD: done');
   } catch (e) {
+    console.error('fetchTleForNORAD error:', e);
     showBanner(statusEl, 'Failed to fetch TLE: ' + e.message, 'error');
   }
 }
