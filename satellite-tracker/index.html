@@ -604,20 +604,13 @@ async function setPosition(az, el) {
   if (az !== undefined && az !== null && !isNaN(az)) body.az = az;
   if (el !== undefined && el !== null && !isNaN(el)) body.el = el;
   if (Object.keys(body).length === 0) throw new Error('Provide at least Az or El');
-  const url = (getApiBase() || '') + '/setpos';
-  console.log('setPosition:', url, body);
-  const resp = await fetch(url, {
+  const resp = await fetch((getApiBase() || '') + '/setpos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error('POST /setpos failed: ' + resp.status + ' ' + text);
-  }
-  const result = await resp.json();
-  console.log('setPosition result:', result);
-  return result;
+  if (!resp.ok) throw new Error('POST /setpos failed');
+  return await resp.json();
 }
 
 async function getElfMode() {
@@ -1357,7 +1350,6 @@ async function computeAndSend() {
         await setPosition(satAz, satEl);
         lastSentAz = satAz;
         lastSentEl = satEl;
-        console.log('Sent position: Az=' + satAz.toFixed(1) + ', El=' + satEl.toFixed(1));
       } catch (err) {
         console.warn('Failed to send position:', err);
       }
