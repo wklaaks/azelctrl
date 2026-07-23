@@ -1343,8 +1343,8 @@ async function computeAndSend() {
 
     // Send to rotator (only if above minimum elevation and position changed significantly)
     // Browser threshold prevents unnecessary setPosition calls
-    const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 0.5;
-    const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 0.5;
+    const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 1.0;
+    const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 1.0;
     
     if (satEl >= minElevation && (azChanged || elChanged)) {
       try {
