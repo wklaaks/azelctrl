@@ -5911,8 +5911,8 @@ void loop() {
         if (normDiff > 180.0) normDiff -= 360.0;
         if (normDiff < -180.0) normDiff += 360.0;
         // Tolerance accounts for mechanical overshoot: motor keeps moving after power cut.
-        // 3.0° stops early enough to avoid ±3-5° oscillation observed in tracking.
-        if (abs(normDiff) <= 3.0) crossed = true;
+        // 0.5° tolerance for continuous tracking; prevents premature stops.
+        if (abs(normDiff) <= 0.5) crossed = true;
         
         if (crossed) {
           #if DEBUG_ENABLED
@@ -5935,7 +5935,7 @@ void loop() {
         if (elDirection == DIR_UP && diff < 0.0) crossed = true;
         if (elDirection == DIR_DOWN && diff > 0.0) crossed = true;
         // Same tolerance logic as azimuth - account for mechanical overshoot
-        if (crossed || abs(diff) <= 3.0) {
+        if (crossed || abs(diff) <= 0.5) {
           #if DEBUG_ENABLED
           Serial.println("DBG:AUTO_EL:STOP!");
           #endif
