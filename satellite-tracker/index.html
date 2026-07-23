@@ -1473,7 +1473,7 @@ setInterval(async () => {
     // Connection lost — don't spam errors
   }
 
-  // Update polar plot even when not tracking
+  // Update satellite computed position and polar plot even when not tracking
   if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
     try {
       const sat = satellites[selectedSatIndex];
@@ -1482,10 +1482,25 @@ setInterval(async () => {
       const posVel = satellite.propagate(satrec, now);
       if (posVel.position) {
         const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        
+        let satAz = top.azimuth;
+        let satEl = top.elevation;
+        let satRange = satellite.distance(posVel.position);
+        
+        // Convert satellite.js radians to degrees
+        satAz = (satAz * 180 / Math.PI + 360) % 360;
+        satEl = satEl * 180 / Math.PI;
+        
+        // Update target display with aligned decimal points
+        document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
+        document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+        document.getElementById('targetRange').textContent = 'Range: ' + satRange.toFixed(0) + ' km';
+        
+        // Update polar plot
         drawPolarPlot(top, sat);
       }
     } catch (e) {
-      // Ignore errors during polar plot update
+      // Ignore errors during satellite position update
     }
   }
 }, 1000);
