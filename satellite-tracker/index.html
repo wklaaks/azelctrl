@@ -753,7 +753,6 @@ document.getElementById('sortByNameBtn').addEventListener('click', () => {
 
 // Show next pass for each satellite
 document.getElementById('showNextPassBtn').addEventListener('click', () => {
-  const satListEl = document.getElementById('satList');
   const passTableEl = document.getElementById('satPassTable');
   
   if (satellites.length === 0) {
@@ -761,9 +760,14 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
     return;
   }
   
-  // Hide list, show table
-  satListEl.style.display = 'none';
+  // Toggle pass table visibility (keep satellite list visible)
+  if (passTableEl.style.display === 'block') {
+    passTableEl.style.display = 'none';
+    document.getElementById('showNextPassBtn').textContent = 'Next Pass';
+    return;
+  }
   passTableEl.style.display = 'block';
+  document.getElementById('showNextPassBtn').textContent = 'Hide Passes';
   
   const now = new Date();
   const station = stationLocation;
@@ -868,12 +872,7 @@ document.getElementById('showNextPassBtn').addEventListener('click', () => {
     html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No upcoming passes found in next 48 hours</div>';
   }
   
-  passTableEl.innerHTML = '<div style="margin-bottom:8px;"><button class="btn btn-sm" id="backToListBtn">Back to List</button></div>' + html;
-  
-  document.getElementById('backToListBtn').addEventListener('click', () => {
-    satListEl.style.display = 'block';
-    passTableEl.style.display = 'none';
-  });
+  passTableEl.innerHTML = html;
   
   // Add select handlers
   passTableEl.querySelectorAll('.btn-select').forEach(btn => {
