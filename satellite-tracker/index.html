@@ -95,6 +95,7 @@ a:hover { text-decoration: underline; }
 /* Satellite info bar */
 .sat-info-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .aoslos-label { display: inline-block; width: 60px; text-align: right; font-family: monospace; }
+.aoslos-row { display: inline-flex; align-items: center; }
 .sat-name { font-size: 1.1rem; font-weight: 600; }
 .tle-age { font-size: 0.75rem; }
 .tle-age.fresh { color: var(--green); }
@@ -301,13 +302,13 @@ td.max-el-low { color: var(--muted); }
       </div>
       <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
       <div class="movement-indicator" id="aosLosTimer" style="justify-content: center;">
-        <span class="aoslos-label">AOS in:</span><span>---:--:--</span>
+        <div class="aoslos-row"><span class="aoslos-label">AOS in:</span><span>---:--:--</span></div>
       </div>
       <div class="movement-indicator" id="aosLosAz" style="justify-content: center; font-size: 0.8rem; color: var(--muted);">
-        <span class="aoslos-label">AOS Az:</span><span>---</span>
+        <div class="aoslos-row"><span class="aoslos-label">AOS Az:</span><span>---</span></div>
       </div>
       <div class="movement-indicator" id="targetRange" style="justify-content: center;">
-        <span class="aoslos-label">Range:</span><span>--- km</span>
+        <div class="aoslos-row"><span class="aoslos-label">Range:</span><span>--- km</span></div>
       </div>
     </div>
     <div class="pos-box">
@@ -1465,7 +1466,7 @@ async function computeAndSend(force) {
     // Update target display with aligned decimal points
     document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
     document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
-    document.getElementById('targetRange').innerHTML = '<span class="aoslos-label">Range:</span><span>' + satRange.toFixed(0) + ' km</span>';
+    document.getElementById('targetRange').innerHTML = '<div class="aoslos-row"><span class="aoslos-label">Range:</span><span>' + satRange.toFixed(0) + ' km</span></div>';
 
 
 
@@ -1594,14 +1595,14 @@ function updateAosLosTimer(satrec, now) {
     const secs = Math.floor((diff % 60000) / 1000);
     const label = 'LOS in:';
     if (hours > 0) {
-      timerEl.innerHTML = '<span class="aoslos-label">' + label + '</span><span>' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">' + label + '</span><span>' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span></div>';
     } else {
-      timerEl.innerHTML = '<span class="aoslos-label">' + label + '</span><span>' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">' + label + '</span><span>' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span></div>';
     }
     if (cachedLosAz !== null) {
-      azEl.innerHTML = '<span class="aoslos-label">LOS Az:</span><span>' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
+      azEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">LOS Az:</span><span>' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span></div>';
     } else {
-      azEl.innerHTML = '<span class="aoslos-label">LOS Az:</span><span></span>';
+      azEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">LOS Az:</span><span></span></div>';
     }
   } else if (cachedAosTime !== null) {
     const diff = cachedAosTime - now.getTime();
@@ -1610,19 +1611,19 @@ function updateAosLosTimer(satrec, now) {
     const secs = Math.floor((diff % 60000) / 1000);
     const label = 'AOS in:';
     if (hours > 0) {
-      timerEl.innerHTML = '<span class="aoslos-label">' + label + '</span><span>' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">' + label + '</span><span>' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span></div>';
     } else {
-      timerEl.innerHTML = '<span class="aoslos-label">' + label + '</span><span>' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">' + label + '</span><span>' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span></div>';
     }
     if (cachedAosAz !== null) {
-      azEl.innerHTML = '<span class="aoslos-label">AOS Az:</span><span>' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
+      azEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">AOS Az:</span><span>' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span></div>';
     } else {
-      azEl.innerHTML = '<span class="aoslos-label">AOS Az:</span><span></span>';
+      azEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">AOS Az:</span><span></span></div>';
     }
   } else {
     // No AOS or LOS found - check if satellite is always up or always down
-    timerEl.innerHTML = '<span class="aoslos-label">LOS:</span><span>Never</span>';
-    azEl.innerHTML = '<span class="aoslos-label"></span><span></span>';
+    timerEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label">LOS:</span><span>Never</span></div>';
+    azEl.innerHTML = '<div class="aoslos-row"><span class="aoslos-label"></span><span></span></div>';
   }
 }
 
