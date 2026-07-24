@@ -1300,8 +1300,32 @@ function startTracking() {
   tracking = true;
   document.getElementById('startTrackBtn').textContent = 'Tracking...';
   document.getElementById('startTrackBtn').disabled = true;
-  // Immediately command rotator to current satellite position (even if below horizon)
-  computeAndSend(true);
+  
+  // If satellite is below horizon, compute position at AOS and command there
+  const satrec = satrecFromSat(sat);
+  const now = new Date();
+  const minEl = parseFloat(document.getElementById('minElevation').value);
+  const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+  const currentEl = currentTop ? currentTop.elevation * 180 / Math.PI : -90;
+  
+  if (currentEl < minEl) {
+    // Satellite is below horizon - find AOS and command there
+    const aosTime = findNextAos(satrec, now, minEl);
+    if (aosTime) {
+      const aosTop = computeTopo(satrec, aosTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      if (aosTop) {
+        const aosAz = (aosTop.azimuth * 180 / Math.PI + 360) % 360;
+        const aosEl = Math.max(0, aosTop.elevation * 180 / Math.PI);
+        setPosition(aosAz, aosEl).catch(e => console.warn('Failed to send initial AOS position:', e));
+        lastSentAz = aosAz;
+        lastSentEl = aosEl;
+      }
+    }
+  } else {
+    // Satellite is above horizon - command current position immediately
+    computeAndSend(true);
+  }
+  
   trackingInterval = setInterval(() => { computeAndSend().catch(e => console.error("Tracking error:", e)); }, updateIntervalMs);
 }
 
@@ -1379,6 +1403,30 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
     elevation: elevation,    // radians
     range: rangeKm           // km
   };
+}
+
+// Find the next AOS time for a satellite
+function findNextAos(satrec, fromTime, minEl) {
+  const interval = 60 * 1000; // 1 minute
+  const searchEnd = new Date(fromTime.getTime() + 48 * 60 * 60 * 1000);
+  let lastElDeg = -90;
+  let t = new Date(fromTime);
+  
+  while (t < searchEnd) {
+    const top = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (top) {
+      const elDeg = top.elevation * 180 / Math.PI;
+      if (lastElDeg < minEl && elDeg >= minEl) {
+        // Interpolate AOS time
+        const dt = interval / (elDeg - lastElDeg);
+        return new Date(t.getTime() - (minEl - lastElDeg) * dt);
+      }
+      lastElDeg = elDeg;
+    }
+    t = new Date(t.getTime() + interval);
+  }
+  
+  return null;
 }
 
 async function computeAndSend(force) {
