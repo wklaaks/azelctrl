@@ -304,7 +304,7 @@ td.max-el-low { color: var(--muted); }
       <div class="aoslos-container">
         <div class="aoslos-row" id="aosLosTimer">AOS in: ---:--:--</div>
         <div class="aoslos-row" id="aosLosAz">AOS Az: ---</div>
-        <div class="aoslos-row" id="targetRange"> Range: --- km</div>
+        <div class="aoslos-row" id="targetRange">Range: --- km</div>
       </div>
     </div>
     <div class="pos-box">
@@ -1723,7 +1723,7 @@ setInterval(async () => {
         // Update target display with aligned decimal points
         document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
         document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
-        document.getElementById('targetRange').textContent = ' Range: ' + satRange.toFixed(0) + ' km';
+        document.getElementById('targetRange').textContent = 'Range: ' + satRange.toFixed(0) + ' km';
         
         // Update AOS/LOS timer
         updateAosLosTimer(satrec, now);
