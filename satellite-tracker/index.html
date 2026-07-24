@@ -1402,6 +1402,9 @@ async function computeAndSend(force) {
     // Convert satellite.js radians to degrees
     satAz = (satAz * 180 / Math.PI + 360) % 360;
     satEl = satEl * 180 / Math.PI;
+    
+    // Clamp elevation to 0 minimum when sending to rotator
+    const sendEl = Math.max(0, satEl);
 
     // Update target display with aligned decimal points
     document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
@@ -1417,9 +1420,9 @@ async function computeAndSend(force) {
     
     if (force || (satEl >= minElevation && (azChanged || elChanged))) {
       try {
-        await setPosition(satAz, satEl);
+        await setPosition(satAz, sendEl);
         lastSentAz = satAz;
-        lastSentEl = satEl;
+        lastSentEl = sendEl;
       } catch (err) {
         console.warn('Failed to send position:', err);
       }
