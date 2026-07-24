@@ -95,9 +95,10 @@ a:hover { text-decoration: underline; }
 /* Satellite info bar */
 .sat-info-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .aoslos-row { display: flex; align-items: center; font-family: "Courier New", monospace; font-size: 0.8rem; white-space: nowrap; }
-.aoslos-label { display: inline-block; width: 7ch; text-align: right; }
+.aoslos-label { display: inline-block; text-align: left; padding-right: 0.4ch; color: var(--accent); }
+.range-label { padding-left: 1ch; }
 .aoslos-value { text-align: left; }
-.aoslos-container { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.aoslos-container { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; }
 .sat-name { font-size: 1.1rem; font-weight: 600; }
 .tle-age { font-size: 0.75rem; }
 .tle-age.fresh { color: var(--green); }
@@ -186,8 +187,10 @@ td.max-el-low { color: var(--muted); }
 #satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.75rem; color: var(--muted); }
 #satPassTable td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
 #satPassTable tr:hover { background: rgba(88,166,255,0.05); }
-#satPassTable tr.selected-row { background: rgba(56,139,253,0.25); border-left: 4px solid #58a6ff; }
+#satPassTable tr.selected-row { background: rgba(255,165,0,0.25); border-left: 4px solid #ff8c00; }
 #satPassTable tr.selected-row td:first-child { font-weight: 600; }
+#satPassTable tr.overhead-row { color: #3fb950; }
+#satPassTable tr.pass-divider td { border-top: 2px solid var(--border); padding: 2px 0; }
 .btn-select { background: #238636; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
 .btn-select:hover { background: #2ea043; }
 .btn-select.selected { background: #6e7681; cursor: default; }
@@ -304,9 +307,9 @@ td.max-el-low { color: var(--muted); }
       </div>
       <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
       <div class="aoslos-container">
-        <div class="aoslos-row" id="aosLosTimer"><span class="aoslos-label">AOS in:</span><span class="aoslos-value"> ---:--:--</span></div>
-        <div class="aoslos-row" id="aosLosAz"><span class="aoslos-label">AOS Az:</span><span class="aoslos-value"> ---</span></div>
-        <div class="aoslos-row" id="targetRange"><span class="aoslos-label">Range:</span><span class="aoslos-value"> --- km</span></div>
+        <div class="aoslos-row" id="aosLosTimer"><span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ---:--:--</span></div>
+        <div class="aoslos-row" id="aosLosAz"><span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ---</span></div>
+        <div class="aoslos-row" id="targetRange"><span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> --- km</span></div>
       </div>
     </div>
     <div class="pos-box">
@@ -349,8 +352,6 @@ td.max-el-low { color: var(--muted); }
   <div class="card">
     <div class="card-title">Upcoming Passes</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
-      <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
-      <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
@@ -366,6 +367,11 @@ td.max-el-low { color: var(--muted); }
   <div class="card">
     <div class="manage-panel active" id="manage-remove">
       <div class="card-title">Manage Satellites</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
+        <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
+        <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCountManage">0 satellites</span>
+      </div>
       <div id="satList"></div>
     </div>
     <div class="manage-panel" id="manage-browse" style="display:none;">
@@ -547,6 +553,7 @@ td.max-el-low { color: var(--muted); }
 <!-- Footer -->
 <div class="footer">
   AZELCtrl Satellite Tracker — All orbital computation runs in your browser via satellite.js
+  <span id="appVersion" style="margin-left: 12px; font-family: monospace; font-size: 0.65rem; color: var(--muted);"></span>
 </div>
 
 <script>
@@ -567,7 +574,7 @@ document.getElementById('deviceIp').value = localStorage.getItem('deviceApiBase'
 
 // ==================== STATE ====================
 let satellites = JSON.parse(localStorage.getItem('satellites') || '[]');
-let selectedSatIndex = parseInt(localStorage.getItem('selectedSatIndex') || '-1');
+let selectedSatIndex = -1; // Don't restore selection on reload
 let tracking = false;
 let trackingInterval = null;
 let lastSentAz = null;
@@ -588,6 +595,12 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'passes') refreshPasses();
+    if (tab.dataset.tab === 'tracking') {
+      // Invalidate AOS/LOS cache when switching to Tracking tab
+      cachedTime = null;
+      cachedAosTime = null;
+      cachedLosTime = null;
+    }
   });
 });
 
@@ -680,6 +693,52 @@ document.getElementById('elfToggle').addEventListener('change', async (e) => {
 });
 
 // ==================== SATELLITE MANAGEMENT ====================
+// Check if a satellite is geostationary/never-sets from this location
+// Called once when satellite is added; result stored in sat.neverSets
+function checkNeverSets(satrec, minEl) {
+  const now = new Date();
+  
+  const currentPos = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+  if (!currentPos) return false;
+  
+  const currentElDeg = currentPos.elevation * 180 / Math.PI;
+  if (currentElDeg < minEl) return false;
+  
+  // Check if it's geostationary from orbital elements
+  const n = satrec.no; // mean motion (revolutions per day)
+  const inc = satrec.inclo; // inclination (radians)
+  const ecc = satrec.ecco; // eccentricity
+  
+  // Geostationary criteria:
+  // - Mean motion ~1 rev/day (0.999 to 1.001)
+  // - Near-zero inclination (< 1°)
+  // - Low eccentricity (< 0.001)
+  const isGeo = (n > 0.999 && n < 1.001) && 
+                (inc < Math.PI / 180) && 
+                (ecc < 0.001);
+  
+  if (isGeo) {
+    return true;
+  }
+  
+  // For non-geostationary satellites currently overhead, do a shorter scan
+  // to see if they're in a polar/high-inclination orbit that stays up
+  const interval = 60 * 1000;
+  const searchEnd = new Date(now.getTime() + 48 * 3600000); // 48 hours
+  let t = new Date(now.getTime() + interval);
+  while (t < searchEnd) {
+    const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (pos) {
+      const checkEl = pos.elevation * 180 / Math.PI;
+      if (checkEl < minEl - 0.5) {
+        return false;
+      }
+    }
+    t = new Date(t.getTime() + interval);
+  }
+  return true;
+}
+
 function saveSatellites() {
   localStorage.setItem('satellites', JSON.stringify(satellites));
   localStorage.setItem('selectedSatIndex', selectedSatIndex);
@@ -687,10 +746,34 @@ function saveSatellites() {
   updateTrackSatSelect();
 }
 
+// Migrate existing satellites: compute neverSets if missing (one-time)
+(function migrateNeverSets() {
+  const minEl = parseFloat(localStorage.getItem('minElevation') || '0');
+  let changed = false;
+  for (const sat of satellites) {
+    if (sat.neverSets === undefined) {
+      try {
+        const satrec = satellite.twoline2satrec(sat.line1, sat.line2);
+        sat.neverSets = checkNeverSets(satrec, minEl);
+        changed = true;
+      } catch (e) {
+        sat.neverSets = false;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    localStorage.setItem('satellites', JSON.stringify(satellites));
+  }
+})();
+
 function renderSatList() {
   const container = document.getElementById('satList');
   const countEl = document.getElementById('satCount');
-  countEl.textContent = satellites.length + ' satellite' + (satellites.length !== 1 ? 's' : '');
+  const countElManage = document.getElementById('satCountManage');
+  const countText = satellites.length + ' satellite' + (satellites.length !== 1 ? 's' : '');
+  if (countEl) countEl.textContent = countText;
+  if (countElManage) countElManage.textContent = countText;
   
   if (satellites.length === 0) {
     container.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.8rem;">No satellites stored yet. Browse the list below or add one manually.</div>';
@@ -730,86 +813,26 @@ function renderPassTable() {
   
   const now = new Date();
   const minEl = parseFloat(document.getElementById('minElevation').value);
-  
-  // Format time remaining as HH:MM:SS
-  function formatTimeRemaining(totalSeconds) {
-    if (totalSeconds < 0) totalSeconds = 0;
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = Math.floor(totalSeconds % 60);
-    
-    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-  }
-  
+
   const passes = [];
   
   for (const sat of satellites) {
     try {
       const satrec = satrecFromSat(sat);
+      const result = computeNextPass(satrec, now, minEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
       
-      // Search for next pass over next 48 hours
-      const searchEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-      let nextAos = null;
-      let nextLos = null;
-      let maxEl = 0;
-      let maxElAz = 0;
-      let inPass = false;
-      
-      // Check in 1-minute intervals
-      const interval = 60 * 1000;
-      let lastElDeg = -90;
-      let t = new Date(now);
-      
-      // Check current elevation
-      const currentPos = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-      if (currentPos) {
-        lastElDeg = currentPos.elevation * 180 / Math.PI;
-      }
-      
-      while (t < searchEnd) {
-        const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-        if (pos && pos.elevation !== null) {
-          const el = pos.elevation;
-          
-          // Convert elevation from radians to degrees
-          const elDeg = el * 180 / Math.PI;
-          
-          // Detect AOS (elevation crossing minEl going up)
-          if (!inPass && lastElDeg < minEl && elDeg >= minEl) {
-            // Interpolate AOS time
-            const dt = interval / (elDeg - lastElDeg);
-            nextAos = new Date(t.getTime() - (minEl - lastElDeg) * dt);
-            inPass = true;
-          }
-          
-          if (inPass && elDeg > maxEl) {
-            maxEl = elDeg;
-            maxElAz = pos.azimuth * 180 / Math.PI;
-          }
-          
-          // Detect LOS (elevation crossing minEl going down)
-          if (inPass && lastElDeg >= minEl && elDeg < minEl) {
-            // Interpolate LOS time
-            const dt = interval / (lastElDeg - elDeg);
-            nextLos = new Date(t.getTime() - (lastElDeg - minEl) * dt);
-            break;
-          }
-        }
-        lastElDeg = pos ? pos.elevation * 180 / Math.PI : -90;
-        t = new Date(t.getTime() + interval);
-      }
-      
-      if (nextAos && nextLos) {
-        const timeUntil = (nextAos - now) / 1000; // seconds
-        const minsUntil = Math.round(timeUntil / 60);
+      if (result) {
+        const neverSetsVal = sat.neverSets || result.neverSets || false;
         passes.push({
           sat,
-          aos: nextAos,
-          los: nextLos,
-          minsUntil,
-          timeUntil,
-          maxEl,
-          maxElAz
+          aos: result.aosTime,
+          los: result.losTime,
+          minsUntil: result.minsUntil,
+          timeUntil: result.timeUntilSeconds,
+          maxEl: result.maxEl,
+          maxElAz: result.maxElAz,
+          isOverhead: result.isOverhead,
+          neverSets: neverSetsVal
         });
       }
     } catch (e) {
@@ -817,8 +840,55 @@ function renderPassTable() {
     }
   }
   
-  // Sort by minutes until AOS
-  passes.sort((a, b) => a.minsUntil - b.minsUntil);
+  // Separate overhead from upcoming
+  const overhead = passes.filter(p => p.isOverhead);
+  const upcoming = passes.filter(p => !p.isOverhead);
+  
+  // Sort overhead by LOS time (earliest first), never-sets (geostationary) at bottom
+  overhead.sort((a, b) => {
+    if (a.neverSets && !b.neverSets) return 1;
+    if (!a.neverSets && b.neverSets) return -1;
+    return a.los.getTime() - b.los.getTime();
+  });
+  
+  // Sort upcoming by minutes until AOS
+  upcoming.sort((a, b) => a.minsUntil - b.minsUntil);
+
+  const makeRow = (p) => {
+    const aosStr = p.aos.toLocaleString('en-ZA', {
+      weekday: 'short', day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+    
+    // Recalculate time remaining at display time (not stale stored value)
+    const displayNow = new Date();
+    let minsStr;
+    if (p.isOverhead) {
+      // Satellite is currently overhead - show time until LOS
+      const losSeconds = (p.los - displayNow) / 1000;
+      if (p.neverSets) {
+        minsStr = '∞';
+      } else {
+        minsStr = formatTimeRemaining(losSeconds);
+      }
+    } else {
+      // Show time until AOS - recalculate from fixed AOS time
+      const aosSeconds = (p.aos - displayNow) / 1000;
+      minsStr = formatTimeRemaining(aosSeconds);
+    }
+    
+    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
+
+    const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
+    const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '').trim();
+    return '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '">' +
+      '<td>' + p.sat.name + '</td>' +
+      '<td class="num">' + aosStr + '</td>' +
+      '<td class="num" style="font-weight:600;font-family:monospace;" data-aos="' + p.aos.getTime() + '" data-los="' + p.los.getTime() + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '" data-neversets="' + (p.neverSets ? '1' : '0') + '">' + minsStr + '</td>' +
+      '<td class="num">' + maxElStr + '</td>' +
+      '<td><button class="btn-select' + (isSelected ? ' selected"' : '"') + (isSelected ? ' disabled' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
+      '</tr>';
+  };
   
   // Build table
   let html = '<table><thead><tr>' +
@@ -829,34 +899,19 @@ function renderPassTable() {
     '<th></th>' +
     '</tr></thead><tbody>';
   
-  for (const p of passes) {
-    const aosStr = p.aos.toLocaleString('en-ZA', {
-      weekday: 'short', day: '2-digit', month: '2-digit',
-      hour: '2-digit', minute: '2-digit'
-    });
-    
-    // Format time remaining
-    let minsStr;
-    if (p.minsUntil <= 0) {
-      // Satellite is currently overhead - show time until LOS
-      const losSeconds = (p.los - now) / 1000;
-      minsStr = formatTimeRemaining(losSeconds);
-    } else {
-      // Show time until AOS
-      minsStr = formatTimeRemaining(p.timeUntil);
-    }
-    
-    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
-    
-    const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
-    const rowClass = isSelected ? 'selected-row' : '';
-    html += '<tr class="' + rowClass + '" data-name="' + p.sat.name + '">' +
-      '<td>' + p.sat.name + '</td>' +
-      '<td class="num">' + aosStr + '</td>' +
-      '<td class="num" style="font-weight:600;font-family:monospace;">' + minsStr + '</td>' +
-      '<td class="num">' + maxElStr + '</td>' +
-      '<td><button class="btn-select' + (isSelected ? ' selected"' : '"') + (isSelected ? ' disabled' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
-      '</tr>';
+  // Overhead satellites first
+  for (const p of overhead) {
+    html += makeRow(p);
+  }
+  
+  // Divider if we have both overhead and upcoming
+  if (overhead.length > 0 && upcoming.length > 0) {
+    html += '<tr class="pass-divider"><td colspan="5"></td></tr>';
+  }
+  
+  // Upcoming passes
+  for (const p of upcoming) {
+    html += makeRow(p);
   }
   
   html += '</tbody></table>';
@@ -877,7 +932,23 @@ function renderPassTable() {
         saveSatellites();
         updateCurrentSatDisplay();
         updateTrackSatSelect();
-        renderPassTable(); // Re-render to update selection state
+        // Invalidate AOS/LOS cache so Tracking tab recomputes for new satellite
+        cachedTime = null;
+        cachedAosTime = null;
+        cachedLosTime = null;
+        // Update selection highlighting only (don't recompute passes)
+        passTableEl.querySelectorAll('tr').forEach(row => {
+          const isSel = row.dataset.name === name;
+          const isOverhead = row.dataset.overhead === '1';
+          row.classList.toggle('selected-row', isSel);
+          row.classList.toggle('overhead-row', isOverhead);
+        });
+        passTableEl.querySelectorAll('.btn-select').forEach(b => {
+          const isSel = b.dataset.name === name;
+          b.textContent = isSel ? 'Selected' : 'Select';
+          b.classList.toggle('selected', isSel);
+          b.disabled = isSel;
+        });
       }
     });
   });
@@ -934,15 +1005,14 @@ function removeSat(index) {
   updateCurrentSatDisplay(); updateTrackSatSelect();
 }
 
-// Sort by name
+// Sort by name (Manage tab)
 document.getElementById('sortByNameBtn').addEventListener('click', () => {
   satellites.sort((a, b) => a.name.localeCompare(b.name));
   saveSatellites();
   renderSatList();
+  renderPassTable();
   updateTrackSatSelect();
 });
-
-// Show next pass for each satellite
 
 // ==================== BROWSE SATELLITES ====================
 document.getElementById('browseSatListBtn').addEventListener('click', async () => {
@@ -1017,8 +1087,10 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
 // ==================== REFRESH ALL TLES ====================
 document.getElementById('refreshTlesBtn').addEventListener('click', async () => {
   const countEl = document.getElementById('satCount');
-  const origText = countEl.textContent;
-  countEl.textContent = 'Refreshing...';
+  const countElManage = document.getElementById('satCountManage');
+  const origText = countEl ? countEl.textContent : (countElManage ? countElManage.textContent : '');
+  if (countEl) countEl.textContent = 'Refreshing...';
+  if (countElManage) countElManage.textContent = 'Refreshing...';
   
   let success = 0;
   let failed = 0;
@@ -1027,10 +1099,10 @@ document.getElementById('refreshTlesBtn').addEventListener('click', async () => 
     const sat = satellites[i];
     try {
       const result = await fetchTleOrCsv(sat.norad);
-      if (result && result.length >= 2) {
-        // result is [line1, line2] from fetchTleOrCsv
-        sat.line1 = result[0];
-        sat.line2 = result[1];
+      if (result && result.length >= 3) {
+        // result is [name, line1, line2]
+        sat.line1 = result[1];
+        sat.line2 = result[2];
         delete sat.csvData;  // clear any cached CSV data
         sat.tleDate = new Date().toISOString();
         success++;
@@ -1044,8 +1116,13 @@ document.getElementById('refreshTlesBtn').addEventListener('click', async () => 
   
   saveSatellites();
   renderSatList();
-  countEl.textContent = `Done: ${success} updated${failed > 0 ? ', ' + failed + ' failed' : ''}`;
-  setTimeout(() => { countEl.textContent = origText; }, 5000);
+  const msg = `Done: ${success} updated${failed > 0 ? ', ' + failed + ' failed' : ''}`;
+  if (countEl) countEl.textContent = msg;
+  if (countElManage) countElManage.textContent = msg;
+  setTimeout(() => { 
+    if (countEl) countEl.textContent = origText; 
+    if (countElManage) countElManage.textContent = origText; 
+  }, 5000);
 });
 
 
@@ -1064,12 +1141,14 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
 
   try {
     const satrec = satellite.twoline2satrec(lines[0], lines[1]);
+    const minEl = parseFloat(document.getElementById('minElevation').value);
     const newSat = {
       name,
       norad: norad || lines[0].substring(2, 7).trim(),
       line1: lines[0],
       line2: lines[1],
-      tleDate: new Date().toISOString()
+      tleDate: new Date().toISOString(),
+      neverSets: checkNeverSets(satrec, minEl)
     };
     satellites.push(newSat);
     selectedSatIndex = satellites.length - 1;
@@ -1110,16 +1189,18 @@ async function fetchTleForNORAD(norad, preferredName) {
     const line2 = lines[2];
 
     // Validate
-    satellite.twoline2satrec(line1, line2);
+    const satrec = satellite.twoline2satrec(line1, line2);
 
     // Check if already stored
     const existingIdx = satellites.findIndex(s => s.norad === norad);
+    const minEl = parseFloat(document.getElementById('minElevation').value);
     const newSat = {
       name: preferredName || celesTrakName || 'SAT ' + norad,
       norad: norad,
       line1,
       line2,
-      tleDate: new Date().toISOString()
+      tleDate: new Date().toISOString(),
+      neverSets: checkNeverSets(satrec, minEl)
     };
     if (existingIdx >= 0) {
       satellites[existingIdx] = newSat;
@@ -1290,6 +1371,10 @@ document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   selectedSatIndex = idx;
   localStorage.setItem('selectedSatIndex', idx);
   updateCurrentSatDisplay();
+  // Invalidate AOS/LOS cache so Tracking tab recomputes for new satellite
+  cachedTime = null;
+  cachedAosTime = null;
+  cachedLosTime = null;
 });
 
 function startTracking() {
@@ -1307,6 +1392,11 @@ function startTracking() {
   tracking = true;
   document.getElementById('startTrackBtn').textContent = 'Tracking...';
   document.getElementById('startTrackBtn').disabled = true;
+  
+  // Invalidate AOS/LOS cache so tracking starts with fresh data
+  cachedTime = null;
+  cachedAosTime = null;
+  cachedLosTime = null;
   
   // If satellite is below horizon, compute position at AOS and command there
   const satrec = satrecFromSat(sat);
@@ -1458,13 +1548,21 @@ async function computeAndSend(force) {
     satAz = (satAz * 180 / Math.PI + 360) % 360;
     satEl = satEl * 180 / Math.PI;
     
+    // Auto-stop tracking if satellite has gone below minElevation (LOS)
+    // Only if we were previously tracking (lastSentEl was set and above minEl)
+    if (tracking && satEl < minElevation && lastSentEl !== null && lastSentEl >= minElevation) {
+      // Satellite has set - stop tracking
+      stopTracking();
+      return;
+    }
+    
     // Clamp elevation to 0 minimum when sending to rotator
     const sendEl = Math.max(0, satEl);
 
     // Update target display with aligned decimal points
     document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
     document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
-    document.getElementById('targetRange').innerHTML = '<span class="aoslos-label">Range:</span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
+    document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
 
 
 
@@ -1530,12 +1628,112 @@ document.getElementById('manualSetBtn').addEventListener('click', async () => {
 });
 
 // Cached AOS/LOS times (absolute timestamps)
-let cachedLosTime = null;
-let cachedAosTime = null;
-let cachedAosAz = null;
-let cachedLosAz = null;
-let cachedTime = null;
+// ==================== SHARED AOS/LOS COMPUTATION ====================
+// Returns { isOverhead, aosTime, losTime, aosAz, losAz, timeUntilSeconds, minsUntil }
+// Uses the SAME logic for both Satellites tab and Tracking tab
+function computeNextPass(satrec, now, minEl, stationLat, stationLon, stationAlt) {
+  const interval = 60 * 1000; // 1 minute
+  const searchEnd = new Date(now.getTime() + 48 * 3600000); // 48 hours
+  
+  let lastElDeg = -90;
+  let t = new Date(now);
+  let nextAos = null;
+  let nextLos = null;
+  let maxEl = 0;
+  let maxElAz = 0;
+  let inPass = false;
+  
+  // Check current elevation
+  const currentPos = computeTopo(satrec, now, stationLat, stationLon, stationAlt);
+  if (!currentPos) return null;
+  
+  const currentElDeg = currentPos.elevation * 180 / Math.PI;
+  
+  // If currently overhead
+  if (currentElDeg >= minEl) {
+    lastElDeg = currentElDeg;
+    inPass = true;
+    nextAos = now;
+    maxEl = currentElDeg;
+    maxElAz = currentPos.azimuth * 180 / Math.PI;
+  } else {
+    lastElDeg = currentElDeg;
+  }
+  
+  // Search for next pass (AOS → LOS)
+  while (t < searchEnd) {
+    const pos = computeTopo(satrec, t, stationLat, stationLon, stationAlt);
+    if (pos && pos.elevation !== null) {
+      const elDeg = pos.elevation * 180 / Math.PI;
+      
+      // Detect AOS (elevation crossing minEl going up)
+      if (!inPass && lastElDeg < minEl && elDeg >= minEl) {
+        const dt = interval / (elDeg - lastElDeg);
+        nextAos = new Date(t.getTime() - (minEl - lastElDeg) * dt);
+        inPass = true;
+      }
+      
+      if (inPass && elDeg > maxEl) {
+        maxEl = elDeg;
+        maxElAz = pos.azimuth * 180 / Math.PI;
+      }
+      
+      // Detect LOS (elevation crossing minEl going down)
+      if (inPass && lastElDeg >= minEl && elDeg < minEl) {
+        const dt = interval / (lastElDeg - elDeg);
+        nextLos = new Date(t.getTime() - (lastElDeg - minEl) * dt);
+        break;
+      }
+    }
+    lastElDeg = pos ? pos.elevation * 180 / Math.PI : -90;
+    t = new Date(t.getTime() + interval);
+  }
+  
+  // If overhead but no LOS found within search window (geostationary/never-sets)
+  if (nextAos && !nextLos && inPass) {
+    const farFuture = new Date(now.getTime() + 999 * 24 * 3600000);
+    return {
+      isOverhead: true,
+      aosTime: nextAos,
+      losTime: farFuture,
+      aosAz: 0,
+      losAz: 0,
+      timeUntilSeconds: (farFuture - now) / 1000,
+      minsUntil: 999 * 24 * 60,
+      maxEl,
+      maxElAz,
+      neverSets: true
+    };
+  }
+  
+  if (!nextAos || !nextLos) {
+    return null;
+  }
+  
+  const isOverhead = currentElDeg >= minEl;
+  
+  const timeUntil = isOverhead 
+    ? (nextLos - now) / 1000  // time until LOS
+    : (nextAos - now) / 1000; // time until AOS
+  
+  return {
+    isOverhead,
+    aosTime: nextAos,
+    losTime: nextLos,
+    aosAz: (nextAos && computeTopo(satrec, nextAos, stationLat, stationLon, stationAlt)) 
+      ? (computeTopo(satrec, nextAos, stationLat, stationLon, stationAlt).azimuth * 180 / Math.PI + 360) % 360
+      : 0,
+    losAz: (nextLos && computeTopo(satrec, nextLos, stationLat, stationLon, stationAlt)) 
+      ? (computeTopo(satrec, nextLos, stationLat, stationLon, stationAlt).azimuth * 180 / Math.PI + 360) % 360
+      : 0,
+    timeUntilSeconds: timeUntil,
+    minsUntil: Math.round(timeUntil / 60),
+    maxEl,
+    maxElAz
+  };
+}
 
+// ==================== TRACKING TAB AOS/LOS TIMER ====================
 function updateAosLosTimer(satrec, now) {
   const timerEl = document.getElementById('aosLosTimer');
   const azEl = document.getElementById('aosLosAz');
@@ -1546,83 +1744,84 @@ function updateAosLosTimer(satrec, now) {
   
   if (shouldRecompute) {
     cachedTime = now.getTime();
+    const pass = computeNextPass(satrec, now, minEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
     
-    // Compute elevation over next 12 hours
-    const points = [];
-    for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 60000)) {
-      const top = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-      if (!top) continue;
-      const elDeg = top.elevation * 180 / Math.PI;
-      const azDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
-      points.push({ time: t.getTime(), el: elDeg, az: azDeg });
-    }
-    
-    cachedLosTime = null;
-    cachedAosTime = null;
-    cachedAosAz = null;
-    cachedLosAz = null;
-    
-    const currentEl = points[0]?.el || 0;
-    
-    if (currentEl >= 0) {
-      // Satellite is above horizon - find LOS
-      for (let i = 1; i < points.length; i++) {
-        if (points[i].el < minEl && points[i-1].el >= minEl) {
-          cachedLosTime = points[i].time;
-          cachedLosAz = points[i].az;
-          break;
-        }
-      }
+    if (pass) {
+      cachedAosTime = pass.aosTime;
+      cachedLosTime = pass.losTime;
+      cachedAosAz = pass.aosAz;
+      cachedLosAz = pass.losAz;
+      cachedIsOverhead = pass.isOverhead;
+      cachedNeverSets = pass.neverSets;
     } else {
-      // Satellite is below horizon - find AOS
-      for (let i = 1; i < points.length; i++) {
-        if (points[i].el >= minEl && points[i-1].el < minEl) {
-          cachedAosTime = points[i].time;
-          cachedAosAz = points[i].az;
-          break;
-        }
-      }
+      cachedAosTime = null;
+      cachedLosTime = null;
+      cachedAosAz = null;
+      cachedLosAz = null;
+      cachedIsOverhead = false;
+      cachedNeverSets = false;
     }
   }
   
   // Display using cached times (seconds count down in real-time)
-  if (cachedLosTime !== null) {
-    const diff = cachedLosTime - now.getTime();
-    const hours = Math.floor(diff / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    const secs = Math.floor((diff % 60000) / 1000);
-    const label = 'LOS in:';
-    if (hours > 0) {
-      timerEl.innerHTML = '<span class="aoslos-label">LOS in:</span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+  if (cachedLosTime !== null && cachedIsOverhead) {
+    if (cachedNeverSets) {
+      timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ∞</span>';
+      azEl.innerHTML = '<span class="aoslos-label"></span><span class="aoslos-value"></span>';
     } else {
-      timerEl.innerHTML = '<span class="aoslos-label">LOS in:</span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      const diff = cachedLosTime - now.getTime();
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) {
+        timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      } else {
+        timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      }
+      if (cachedLosAz !== null) {
+        azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
+      } else {
+        azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
+      }
     }
-    if (cachedLosAz !== null) {
-      azEl.innerHTML = '<span class="aoslos-label">LOS Az:</span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
-    } else {
-      azEl.innerHTML = '<span class="aoslos-label">LOS Az:</span><span class="aoslos-value"></span>';
-    }
-  } else if (cachedAosTime !== null) {
+  } else if (cachedAosTime !== null && !cachedIsOverhead) {
     const diff = cachedAosTime - now.getTime();
     const hours = Math.floor(diff / 3600000);
     const mins = Math.floor((diff % 3600000) / 60000);
     const secs = Math.floor((diff % 60000) / 1000);
-    const label = 'AOS in:';
     if (hours > 0) {
-      timerEl.innerHTML = '<span class="aoslos-label">AOS in:</span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
     } else {
-      timerEl.innerHTML = '<span class="aoslos-label">AOS in:</span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
     }
     if (cachedAosAz !== null) {
-      azEl.innerHTML = '<span class="aoslos-label">AOS Az:</span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
+      azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
     } else {
-      azEl.innerHTML = '<span class="aoslos-label">AOS Az:</span><span class="aoslos-value"></span>';
+      azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"></span>';
     }
   } else {
-    // No AOS or LOS found - check if satellite is always up or always down
-    timerEl.innerHTML = '<span class="aoslos-label">LOS:</span><span class="aoslos-value"> Never</span>';
+    timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> Never</span>';
     azEl.innerHTML = '<span class="aoslos-label"></span><span class="aoslos-value"></span>';
   }
+}
+
+// Cache for AOS/LOS times
+let cachedLosTime = null;
+let cachedAosTime = null;
+let cachedAosAz = null;
+let cachedLosAz = null;
+let cachedIsOverhead = false;
+let cachedNeverSets = false;
+let cachedTime = null;
+
+// ==================== UTILITY FUNCTIONS ====================
+function formatTimeRemaining(totalSeconds) {
+  if (totalSeconds < 0) totalSeconds = 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  
+  return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
 }
 
 // ==================== ROTATOR STATUS POLLING ====================
@@ -1725,7 +1924,7 @@ setInterval(async () => {
         // Update target display with aligned decimal points
         document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
         document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
-        document.getElementById('targetRange').innerHTML = '<span class="aoslos-label">Range:</span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
+        document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
         
         // Update AOS/LOS timer
         updateAosLosTimer(satrec, now);
@@ -1737,12 +1936,37 @@ setInterval(async () => {
       console.error("Satellite position update error:", e);
     }
   }
+
+  // Real-time update for "Until" column in Satellites tab
+  const now = new Date();
+  document.querySelectorAll('#satPassTable tbody td[data-aos]').forEach(cell => {
+    const aosTime = parseInt(cell.dataset.aos);
+    const losTime = parseInt(cell.dataset.los);
+    const isOverhead = cell.dataset.overhead === '1';
+    const neverSets = cell.dataset.neversets === '1';
+    // Don't update never-sets satellites (keep the ∞ symbol)
+    if (neverSets) return;
+    let remainingSeconds;
+    if (isOverhead) {
+      remainingSeconds = (losTime - now.getTime()) / 1000;
+    } else {
+      remainingSeconds = (aosTime - now.getTime()) / 1000;
+    }
+    cell.textContent = formatTimeRemaining(remainingSeconds);
+  });
 }, 1000);
 
 // ==================== POLAR PLOT ====================
 function drawPolarPlot(top, sat) {
   const svg = document.getElementById('polarPlot');
   const cx = 230, cy = 230, r = 170;
+  
+  // Guard against invalid/missing top data
+  if (!top || typeof top.azimuth !== 'number' || typeof top.elevation !== 'number' || 
+      isNaN(top.azimuth) || isNaN(top.elevation)) {
+    return;
+  }
+  
   const satAzDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
   const satElDeg = top.elevation * 180 / Math.PI;
   
@@ -1765,32 +1989,45 @@ function drawPolarPlot(top, sat) {
       const now = new Date();
       const minEl = parseFloat(document.getElementById('minElevation').value);
       
-      // Find the next AOS time first
+      // Check current elevation first
+      const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      const currentEl = currentTop ? currentTop.elevation * 180 / Math.PI : -90;
+      
       let aosTime = null;
       let losTime = null;
-      let inPass = false;
-      let currentEl = 0;
       
-      for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
-        const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-        if (!top2) continue;
-        const prevEl = currentEl;
-        currentEl = top2.elevation * 180 / Math.PI;
-        
-        if (!inPass && currentEl >= minEl && prevEl < minEl) {
-          // AOS detected
-          aosTime = t;
-          inPass = true;
-        } else if (inPass && currentEl < minEl && prevEl >= minEl) {
-          // LOS detected
-          losTime = t;
-          break; // Only plot one pass
-        }
-      }
-      
-      // If satellite is currently above horizon, start from now
       if (currentEl >= minEl) {
+        // Satellite is currently overhead - find LOS of current pass
+        for (let t = now; t < new Date(now.getTime() + 2 * 3600000); t = new Date(t.getTime() + 30000)) {
+          const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+          if (!top2) continue;
+          const elDeg = top2.elevation * 180 / Math.PI;
+          if (elDeg < minEl) {
+            losTime = t;
+            break;
+          }
+        }
         aosTime = now;
+      } else {
+        // Satellite is below horizon - find next AOS and its LOS
+        let inPass = false;
+        let prevEl = currentEl;
+        for (let t = new Date(now.getTime() + 30000); t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 30000)) {
+          const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+          if (!top2) continue;
+          const elDeg = top2.elevation * 180 / Math.PI;
+          
+          if (!inPass && elDeg >= minEl && prevEl < minEl) {
+            // AOS detected
+            aosTime = t;
+            inPass = true;
+          } else if (inPass && elDeg < minEl && prevEl >= minEl) {
+            // LOS detected
+            losTime = t;
+            break; // Only plot one pass
+          }
+          prevEl = elDeg;
+        }
       }
       
       // If no AOS found (satellite never rises), skip trajectory
@@ -2422,8 +2659,8 @@ updateTrackSatSelect();
 updateCurrentSatDisplay();
 updateConnectionStatus();
 
-// Auto-refresh pass table every 5 seconds
-setInterval(renderPassTable, 5000);
+// Recompute passes every 60 seconds (matches Tracking tab cache interval)
+setInterval(renderPassTable, 60000);
 
 // Load settings
 document.getElementById('gridSquare').value = localStorage.getItem('gridSquare') || '';
@@ -2443,6 +2680,9 @@ getElfMode().then(data => {
 setTimeout(() => {
   drawPolarPlot({ azimuth: 0, elevation: 0 }, {});
 }, 500);
+
+// App version display (for cache-busting verification)
+document.getElementById('appVersion').textContent = 'v1.2.28';
 </script>
 </body>
 </html>
