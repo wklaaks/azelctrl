@@ -1300,7 +1300,8 @@ function startTracking() {
   tracking = true;
   document.getElementById('startTrackBtn').textContent = 'Tracking...';
   document.getElementById('startTrackBtn').disabled = true;
-  computeAndSend();
+  // Immediately command rotator to current satellite position (even if below horizon)
+  computeAndSend(true);
   trackingInterval = setInterval(() => { computeAndSend().catch(e => console.error("Tracking error:", e)); }, updateIntervalMs);
 }
 
@@ -1380,7 +1381,7 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
   };
 }
 
-async function computeAndSend() {
+async function computeAndSend(force) {
   if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
     stopTracking();
     return;
@@ -1414,7 +1415,7 @@ async function computeAndSend() {
     const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 1.0;
     const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 1.0;
     
-    if (satEl >= minElevation && (azChanged || elChanged)) {
+    if (force || (satEl >= minElevation && (azChanged || elChanged))) {
       try {
         await setPosition(satAz, satEl);
         lastSentAz = satAz;
