@@ -94,8 +94,9 @@ a:hover { text-decoration: underline; }
 
 /* Satellite info bar */
 .sat-info-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.aoslos-label { display: inline-block; width: 7em; text-align: right; font-family: monospace; }
-.aoslos-row { display: flex !important; align-items: center; justify-content: flex-start !important; width: fit-content; }
+.aoslos-row { display: grid; grid-template-columns: 60px 1fr; align-items: center; font-family: monospace; font-size: 0.8rem; text-align: right; }
+.aoslos-label { text-align: right; }
+.aoslos-row span:last-child { text-align: left; }
 .aoslos-container { display: flex; flex-direction: column; align-items: center; }
 .sat-name { font-size: 1.1rem; font-weight: 600; }
 .tle-age { font-size: 0.75rem; }
@@ -303,13 +304,13 @@ td.max-el-low { color: var(--muted); }
       </div>
       <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
       <div class="aoslos-container">
-        <div class="movement-indicator aoslos-row" id="aosLosTimer">
+        <div class="aoslos-row" id="aosLosTimer">
           <span class="aoslos-label">AOS in:</span><span>---:--:--</span>
         </div>
-        <div class="movement-indicator aoslos-row" id="aosLosAz">
+        <div class="aoslos-row" id="aosLosAz">
           <span class="aoslos-label">AOS Az:</span><span>---</span>
         </div>
-        <div class="movement-indicator aoslos-row" id="targetRange">
+        <div class="aoslos-row" id="targetRange">
           <span class="aoslos-label">Range:</span><span>--- km</span>
         </div>
       </div>
