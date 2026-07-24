@@ -300,6 +300,7 @@ td.max-el-low { color: var(--muted); }
       </div>
       <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
       <div class="movement-indicator" id="aosLosTimer" style="justify-content: center;">AOS in: ---:--:--</div>
+      <div class="movement-indicator" id="aosLosAz" style="justify-content: center; font-size: 0.8rem; color: var(--muted);">AOS Az: ---</div>
       <div class="movement-indicator" id="targetRange" style="justify-content: center;">Range: --- km</div>
     </div>
     <div class="pos-box">
@@ -1525,10 +1526,13 @@ document.getElementById('manualSetBtn').addEventListener('click', async () => {
 // Cached AOS/LOS times (absolute timestamps)
 let cachedLosTime = null;
 let cachedAosTime = null;
+let cachedAosAz = null;
+let cachedLosAz = null;
 let cachedTime = null;
 
 function updateAosLosTimer(satrec, now) {
   const timerEl = document.getElementById('aosLosTimer');
+  const azEl = document.getElementById('aosLosAz');
   const minEl = parseFloat(document.getElementById('minElevation').value);
   
   // Recompute pass prediction every 60 seconds (not every second)
@@ -1543,11 +1547,14 @@ function updateAosLosTimer(satrec, now) {
       const top = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
       if (!top) continue;
       const elDeg = top.elevation * 180 / Math.PI;
-      points.push({ time: t.getTime(), el: elDeg });
+      const azDeg = (top.azimuth * 180 / Math.PI + 360) % 360;
+      points.push({ time: t.getTime(), el: elDeg, az: azDeg });
     }
     
     cachedLosTime = null;
     cachedAosTime = null;
+    cachedAosAz = null;
+    cachedLosAz = null;
     
     const currentEl = points[0]?.el || 0;
     
@@ -1556,6 +1563,7 @@ function updateAosLosTimer(satrec, now) {
       for (let i = 1; i < points.length; i++) {
         if (points[i].el < minEl && points[i-1].el >= minEl) {
           cachedLosTime = points[i].time;
+          cachedLosAz = points[i].az;
           break;
         }
       }
@@ -1564,6 +1572,7 @@ function updateAosLosTimer(satrec, now) {
       for (let i = 1; i < points.length; i++) {
         if (points[i].el >= minEl && points[i-1].el < minEl) {
           cachedAosTime = points[i].time;
+          cachedAosAz = points[i].az;
           break;
         }
       }
@@ -1581,6 +1590,11 @@ function updateAosLosTimer(satrec, now) {
     } else {
       timerEl.textContent = 'LOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
     }
+    if (cachedLosAz !== null) {
+      azEl.textContent = 'LOS Az: ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°';
+    } else {
+      azEl.textContent = '';
+    }
   } else if (cachedAosTime !== null) {
     const diff = cachedAosTime - now.getTime();
     const hours = Math.floor(diff / 3600000);
@@ -1591,9 +1605,15 @@ function updateAosLosTimer(satrec, now) {
     } else {
       timerEl.textContent = 'AOS in: ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
     }
+    if (cachedAosAz !== null) {
+      azEl.textContent = 'AOS Az: ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°';
+    } else {
+      azEl.textContent = '';
+    }
   } else {
     // No AOS or LOS found - check if satellite is always up or always down
     timerEl.textContent = 'LOS: Never';
+    azEl.textContent = '';
   }
 }
 
