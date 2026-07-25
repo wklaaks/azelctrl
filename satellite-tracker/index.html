@@ -1352,6 +1352,10 @@ let elfMode = false;
 let currentPass = null;
 let upcomingPasses = [];
 
+// Cache for Satellites tab pass data (recompute every 60 seconds)
+let satPassCache = null;
+let satPassCacheTime = null;
+
 // ==================== TABS ====================
 // Main tab switching
 document.querySelectorAll('.tab[data-tab]').forEach(tab => {
@@ -1361,6 +1365,7 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'passes') refreshPasses();
+    if (tab.dataset.tab === 'satellites') renderPassTable();
     if (tab.dataset.tab === 'tracking') {
       // Invalidate AOS/LOS cache when switching to Tracking tab
       cachedTime = null;
@@ -1369,7 +1374,6 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
     }
   });
 });
-
 // Manage sub-tab switching
 document.querySelectorAll('.tab[data-manage-tab]').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1585,44 +1589,56 @@ function renderPassTable() {
     return;
   }
   
+  // Recompute pass data every 60 seconds, not on every render
   const now = new Date();
-  const minEl = parseFloat(document.getElementById('minElevation').value);
-
-  const passes = [];
+  const shouldRecompute = !satPassCacheTime || (now.getTime() - satPassCacheTime) > 60000 ||
+                          satPassCache.showActiveOnly !== showActiveOnly;
   
-  for (const sat of satellites) {
-    try {
-      const satrec = satrecFromSat(sat);
-      const result = computeNextPass(satrec, now, minEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-      
-      if (result) {
-        const neverSetsVal = sat.neverSets || result.neverSets || false;
-        passes.push({
-          sat,
-          aos: result.aosTime,
-          los: result.losTime,
-          minsUntil: result.minsUntil,
-          timeUntil: result.timeUntilSeconds,
-          maxEl: result.maxEl,
-          maxElAz: result.maxElAz,
-          isOverhead: result.isOverhead,
-          neverSets: neverSetsVal
-        });
+  if (shouldRecompute) {
+    satPassCacheTime = now.getTime();
+    // Use 0° (horizon) for AOS/LOS display, not the min elevation setting
+    const horizonEl = 0;
+    const passes = [];
+    
+    for (const sat of satellites) {
+      try {
+        const satrec = satrecFromSat(sat);
+        const result = computeNextPass(satrec, now, horizonEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        
+        if (result) {
+          const neverSetsVal = sat.neverSets || result.neverSets || false;
+          passes.push({
+            sat,
+            aos: result.aosTime,
+            los: result.losTime,
+            minsUntil: result.minsUntil,
+            timeUntil: result.timeUntilSeconds,
+            maxEl: result.maxEl,
+            maxElAz: result.maxElAz,
+            isOverhead: result.isOverhead,
+            neverSets: neverSetsVal
+          });
+        }
+      } catch (e) {
+        // Skip satellites with invalid TLE
       }
-    } catch (e) {
-      // Skip satellites with invalid TLE
     }
+    
+    // Apply active-only filter if enabled
+    let filteredPasses = passes;
+    if (showActiveOnly) {
+      filteredPasses = passes.filter(p => isSatelliteActive(p.sat.norad));
+    }
+    
+    // Separate overhead from upcoming
+    const overhead = filteredPasses.filter(p => p.isOverhead);
+    const upcoming = filteredPasses.filter(p => !p.isOverhead);
+    
+    satPassCache = { overhead, upcoming, filteredPasses };
+    satPassCache.showActiveOnly = showActiveOnly;
   }
   
-  // Apply active-only filter if enabled
-  let filteredPasses = passes;
-  if (showActiveOnly) {
-    filteredPasses = passes.filter(p => isSatelliteActive(p.sat.norad));
-  }
-  
-  // Separate overhead from upcoming
-  const overhead = filteredPasses.filter(p => p.isOverhead);
-  const upcoming = filteredPasses.filter(p => !p.isOverhead);
+  const { overhead, upcoming, filteredPasses } = satPassCache;
   
   // Sort overhead by LOS time (earliest first), never-sets (geostationary) at bottom
   overhead.sort((a, b) => {
@@ -2800,22 +2816,47 @@ function computeNextPass(satrec, now, minEl, stationLat, stationLon, stationAlt)
 function updateAosLosTimer(satrec, now) {
   const timerEl = document.getElementById('aosLosTimer');
   const azEl = document.getElementById('aosLosAz');
-  const minEl = parseFloat(document.getElementById('minElevation').value);
+  // Use 0° for AOS/LOS display (horizon), not the min elevation setting
+  const horizonEl = 0;
   
-  // Recompute pass prediction every 60 seconds (not every second)
-  const shouldRecompute = !cachedTime || (now.getTime() - cachedTime) > 60000;
+  // Recompute pass prediction more frequently when close to LOS/AOS
+  // Every second when within 30 seconds, every 10 seconds when within 2 minutes, otherwise every 60 seconds
+  const timeToLos = cachedLosTime ? cachedLosTime - now.getTime() : Infinity;
+  const timeToAos = cachedAosTime ? cachedAosTime - now.getTime() : Infinity;
+  const nearEvent = Math.min(timeToLos, timeToAos);
+  let recomputeInterval = 60000;
+  if (nearEvent < 30000) {
+    recomputeInterval = 1000; // every second when within 30 seconds
+  } else if (nearEvent < 120000) {
+    recomputeInterval = 10000; // every 10 seconds when within 2 minutes
+  }
+  const shouldRecompute = !cachedTime || (now.getTime() - cachedTime) > recomputeInterval;
   
   if (shouldRecompute) {
     cachedTime = now.getTime();
-    const pass = computeNextPass(satrec, now, minEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    const pass = computeNextPass(satrec, now, horizonEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
     
     if (pass) {
-      cachedAosTime = pass.aosTime;
-      cachedLosTime = pass.losTime;
-      cachedAosAz = pass.aosAz;
-      cachedLosAz = pass.losAz;
-      cachedIsOverhead = pass.isOverhead;
-      cachedNeverSets = pass.neverSets;
+      // If we were tracking a current pass and satellite just went below horizon,
+      // don't let this find the next orbit's pass — keep current cached LOS
+      if (cachedIsOverhead && !pass.isOverhead && pass.aosTime > now) {
+        // Satellite was overhead, now computeNextPass found a future pass = next orbit
+        // Keep the current cached LOS until it expires
+      if (pass) {
+        // If we were tracking a current pass and satellite just went below horizon,
+        // don't let this find the next orbit's pass — keep current cached LOS
+        if (cachedIsOverhead && !pass.isOverhead && pass.aosTime > now) {
+          // Satellite was overhead, now computeNextPass found a future pass = next orbit
+          // Keep the current cached LOS until it expires
+        } else {
+          cachedAosTime = pass.aosTime;
+          cachedLosTime = pass.losTime;
+          cachedAosAz = pass.aosAz;
+          cachedLosAz = pass.losAz;
+          cachedIsOverhead = pass.isOverhead;
+          cachedNeverSets = pass.neverSets;
+        }
+      } else {
     } else {
       cachedAosTime = null;
       cachedLosTime = null;
@@ -2827,40 +2868,59 @@ function updateAosLosTimer(satrec, now) {
   }
   
   // Display using cached times (seconds count down in real-time)
+  // Also check actual elevation — if satellite is below horizon, clear LOS immediately
+  const currentEl = top.elevation * 180 / Math.PI;
+  
   if (cachedLosTime !== null && cachedIsOverhead) {
     if (cachedNeverSets) {
       timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ∞</span>';
       azEl.innerHTML = '<span class="aoslos-label"></span><span class="aoslos-value"></span>';
     } else {
-      const diff = cachedLosTime - now.getTime();
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      const secs = Math.floor((diff % 60000) / 1000);
-      if (hours > 0) {
-        timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-      } else {
-        timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-      }
-      if (cachedLosAz !== null) {
-        azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
-      } else {
+      // If satellite is actually below horizon now, clear LOS
+      if (currentEl < 0) {
+        timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> ---:--:--</span>';
         azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
+      } else {
+        const diff = cachedLosTime - now.getTime();
+        if (diff <= 0) {
+          timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> ---:--:--</span>';
+          azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
+        } else {
+          const hours = Math.floor(diff / 3600000);
+          const mins = Math.floor((diff % 3600000) / 60000);
+          const secs = Math.floor((diff % 60000) / 1000);
+          if (hours > 0) {
+            timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+          } else {
+            timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+          }
+          if (cachedLosAz !== null) {
+            azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
+          } else {
+            azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
+          }
+        }
       }
     }
   } else if (cachedAosTime !== null && !cachedIsOverhead) {
     const diff = cachedAosTime - now.getTime();
-    const hours = Math.floor(diff / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    const secs = Math.floor((diff % 60000) / 1000);
-    if (hours > 0) {
-      timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-    } else {
-      timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-    }
-    if (cachedAosAz !== null) {
-      azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
-    } else {
+    if (diff <= 0) {
+      timerEl.innerHTML = '<span class="aoslos-label">AOS: </span><span class="aoslos-value"> ---:--:--</span>';
       azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"></span>';
+    } else {
+      const hours = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      if (hours > 0) {
+        timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      } else {
+        timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+      }
+      if (cachedAosAz !== null) {
+        azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
+      } else {
+        azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"></span>';
+      }
     }
   } else {
     timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> Never</span>';
@@ -3059,18 +3119,28 @@ function drawPolarPlot(top, sat) {
       let aosTime = null;
       let losTime = null;
       
-      if (currentEl >= minEl) {
-        // Satellite is currently overhead - find LOS of current pass
-        for (let t = now; t < new Date(now.getTime() + 2 * 3600000); t = new Date(t.getTime() + 30000)) {
+      if (currentEl >= 0) {
+        // Satellite is currently above horizon - find AOS (backward) and LOS (forward)
+        // Search backward from now for AOS (elevation crossing 0 going up)
+        for (let t = new Date(now.getTime() - 10000); t > new Date(now.getTime() - 12 * 3600000); t = new Date(t.getTime() - 10000)) {
           const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
           if (!top2) continue;
           const elDeg = top2.elevation * 180 / Math.PI;
-          if (elDeg < minEl) {
+          if (elDeg < 0) {
+            aosTime = t;
+            break;
+          }
+        }
+        // Search forward for LOS (elevation crossing 0 going down)
+        for (let t = now; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
+          const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+          if (!top2) continue;
+          const elDeg = top2.elevation * 180 / Math.PI;
+          if (elDeg < 0) {
             losTime = t;
             break;
           }
         }
-        aosTime = now;
       } else {
         // Satellite is below horizon - find next AOS and its LOS
         let inPass = false;
@@ -3080,12 +3150,12 @@ function drawPolarPlot(top, sat) {
           if (!top2) continue;
           const elDeg = top2.elevation * 180 / Math.PI;
           
-          if (!inPass && elDeg >= minEl && prevEl < minEl) {
-            // AOS detected
+          if (!inPass && elDeg >= 0 && prevEl < 0) {
+            // AOS detected (crossing 0° going up)
             aosTime = t;
             inPass = true;
-          } else if (inPass && elDeg < minEl && prevEl >= minEl) {
-            // LOS detected
+          } else if (inPass && elDeg < 0 && prevEl >= 0) {
+            // LOS detected (crossing 0° going down)
             losTime = t;
             break; // Only plot one pass
           }
@@ -3098,13 +3168,22 @@ function drawPolarPlot(top, sat) {
         pathSvg = '';
       } else {
         // Compute trajectory for this pass only at 10-second intervals
+        // Extend search to find full pass from horizon to horizon (0° elevation)
         const points = [];
-        for (let t = aosTime; losTime && t < losTime; t = new Date(t.getTime() + 10000)) {
+        
+        // Search for full pass from horizon (0°) to horizon (0°)
+        for (let t = aosTime; t < new Date(now.getTime() + 12 * 3600000); t = new Date(t.getTime() + 10000)) {
           const top2 = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
           if (!top2) continue;
           const elDeg = top2.elevation * 180 / Math.PI;
           const azDeg = (top2.azimuth * 180 / Math.PI + 360) % 360;
-          points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+          
+          if (elDeg >= 0) {
+            points.push({ time: t.getTime(), el: elDeg, az: azDeg });
+          } else if (losTime && t > losTime) {
+            // We've passed the LOS and gone below horizon, stop
+            break;
+          }
         }
         
         // Find current position index
@@ -3117,20 +3196,27 @@ function drawPolarPlot(top, sat) {
         }
         if (currentIdx < 0) currentIdx = points.length - 1;
         
-        // Build path segments (only for points above minimum elevation)
-        // Break segments when azimuth wraps around 0/360 or satellite goes below minEl
-        const pastSegments = [];
-        const futureSegments = [];
+        // Build path segments separated by:
+        // - Above minEl (normal colors: blue past, green future)
+        // - Below minEl but above 0° (orange)
+        // Break segments when azimuth wraps around 0/360
+        const pastSegments = [];      // above minEl, solid blue
+        const futureSegments = [];    // above minEl, dashed green
+        const belowMinSegments = [];  // below minEl but above 0°, orange
         let currentSegment = [];
         let inPast = true;
+        let inBelowMin = false;
         
         for (let i = 0; i < points.length; i++) {
           const pt = points[i];
+          const isBelowMin = pt.el < minEl;
           
-          // If satellite goes below minimum elevation, break current segment
-          if (pt.el < minEl) {
+          // If satellite goes below horizon, break current segment
+          if (pt.el < 0) {
             if (currentSegment.length > 0) {
-              if (inPast) {
+              if (inBelowMin) {
+                belowMinSegments.push([...currentSegment]);
+              } else if (inPast) {
                 pastSegments.push([...currentSegment]);
               } else {
                 futureSegments.push([...currentSegment]);
@@ -3140,14 +3226,28 @@ function drawPolarPlot(top, sat) {
             continue;
           }
           
-          // Satellite is above minimum elevation
+          // Check for elevation zone change (above/below minEl)
+          if (currentSegment.length > 0 && isBelowMin !== inBelowMin) {
+            if (inBelowMin) {
+              belowMinSegments.push([...currentSegment]);
+            } else if (inPast) {
+              pastSegments.push([...currentSegment]);
+            } else {
+              futureSegments.push([...currentSegment]);
+            }
+            currentSegment = [];
+            inBelowMin = isBelowMin;
+          }
+          
           // Check for azimuth wrap-around (jump > 120 degrees between consecutive points)
           if (currentSegment.length > 0) {
             const prev = currentSegment[currentSegment.length - 1];
             const azDiff = Math.abs(pt.az - prev.az);
             if (azDiff > 120) {
               // Azimuth wrap detected - end current segment
-              if (inPast) {
+              if (inBelowMin) {
+                belowMinSegments.push([...currentSegment]);
+              } else if (inPast) {
                 pastSegments.push([...currentSegment]);
               } else {
                 futureSegments.push([...currentSegment]);
@@ -3156,8 +3256,8 @@ function drawPolarPlot(top, sat) {
             }
           }
           
-          // Switch from past to future at currentIdx
-          if (i > currentIdx && inPast) {
+          // Switch from past to future at currentIdx (only applies to above-minEl segments)
+          if (!inBelowMin && i > currentIdx && inPast) {
             if (currentSegment.length > 0) {
               pastSegments.push([...currentSegment]);
               currentSegment = [];
@@ -3170,7 +3270,9 @@ function drawPolarPlot(top, sat) {
         
         // Flush remaining segment
         if (currentSegment.length > 0) {
-          if (inPast) {
+          if (inBelowMin) {
+            belowMinSegments.push(currentSegment);
+          } else if (inPast) {
             pastSegments.push(currentSegment);
           } else {
             futureSegments.push(currentSegment);
@@ -3196,6 +3298,17 @@ function drawPolarPlot(top, sat) {
               d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
             }
             pathSvg += `<path d="${d}" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="6,4" stroke-linecap="round" opacity="0.8"/>`;
+          }
+        }
+        
+        // Draw below-minEl segments (orange dashed line)
+        for (const seg of belowMinSegments) {
+          if (seg.length > 1) {
+            let d = 'M' + seg[0].x.toFixed(1) + ',' + seg[0].y.toFixed(1);
+            for (let i = 1; i < seg.length; i++) {
+              d += ' L' + seg[i].x.toFixed(1) + ',' + seg[i].y.toFixed(1);
+            }
+            pathSvg += `<path d="${d}" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="4,4" stroke-linecap="round" opacity="0.8"/>`;
           }
         }
       }
