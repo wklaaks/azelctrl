@@ -471,26 +471,30 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       
       <div style="margin-top:12px;">
-        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Selected satellite(s):</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
-          <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Frequencies</button>
-        </div>
-      </div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Selected satellite(s):</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
+                <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Frequencies</button>
+              </div>
+            </div>
       
-      <div style="margin-top:12px;">
-        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">All satellites:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Never Fetched</button>
-          <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Never Fetched</button>
-          <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Stale Only</button>
-          <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Stale Only</button>
-          <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
-        </div>
-      </div>
+            <div style="margin-top:12px;">
+              <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">All satellites:</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Never Fetched</button>
+                <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Never Fetched</button>
+                <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Stale Data</button>
+                <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Stale Data</button>
+                <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
+              </div>
+            </div>
       
       <div class="satnogs-status" id="satNOGSStatus"></div>
-      <div class="satnogs-progress" id="satNOGSProgress"></div>
+      
+      <div style="margin-top:8px;">
+        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:2px;">Activity log:</div>
+        <div id="satNOGSLog" style="font-size:0.7rem;color:var(--muted);max-height:80px;overflow-y:auto;padding:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-family:monospace;"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -941,13 +945,12 @@ async function refreshSatNOGSStatus(noradIds) {
   const estTime = formatDuration(estimateRefreshTime(noradIds.length));
   
   disableRefreshButtons();
+  clearSatNOGSLog();
   
   if (mode === 'esp' && noradIds.length > 0) {
-    document.getElementById('satNOGSStatus').textContent = 
-      `Refreshing status for ${noradIds.length} satellite(s). Estimated time: ${estTime}`;
+    logSatNOGS(`Starting status refresh for ${noradIds.length} satellite(s). Estimated time: ${estTime}`);
   } else {
-    document.getElementById('satNOGSStatus').textContent = 
-      `Refreshing status for ${noradIds.length} satellite(s)...`;
+    logSatNOGS(`Starting status refresh for ${noradIds.length} satellite(s)...`);
   }
   
   let completed = 0;
@@ -958,8 +961,7 @@ async function refreshSatNOGSStatus(noradIds) {
   for (const noradId of noradIds) {
     const sat = satellites.find(s => s.norad === noradId);
     const satName = sat ? sat.name : noradId;
-    document.getElementById('satNOGSProgress').textContent = 
-      `${completed + 1}/${noradIds.length}: ${satName}...`;
+    logSatNOGS(`${completed + 1}/${noradIds.length}: ${satName}...`);
     
     try {
       const result = await fetchSatelliteStatus(noradId);
@@ -977,6 +979,7 @@ async function refreshSatNOGSStatus(noradIds) {
         });
       }
       completed++;
+      logSatNOGS(`✓ ${satName}: status updated`);
     } catch (e) {
       console.warn(`[SatNOGS] Failed to refresh status ${noradId}:`, e);
       let userMessage = String(e.message || e);
@@ -989,12 +992,13 @@ async function refreshSatNOGSStatus(noradIds) {
       }
       errors.push(`${satName} (${noradId}): ${userMessage}`);
       failed++;
+      logSatNOGS(`✗ ${satName}: ${userMessage}`);
     }
   }
   
-  document.getElementById('satNOGSProgress').textContent = '';
-  document.getElementById('satNOGSStatus').textContent = 
-    `Status refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  const statusMsg = `Status refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  document.getElementById('satNOGSStatus').textContent = statusMsg;
+  logSatNOGS(statusMsg);
   
   if (failed > 0) {
     let errorMsg = `${failed} satellite(s) failed to refresh status:\n\n`;
@@ -1030,13 +1034,12 @@ async function refreshSatNOGSFrequencies(noradIds) {
   const estTime = formatDuration(estimateRefreshTime(noradIds.length));
   
   disableRefreshButtons();
+  clearSatNOGSLog();
   
   if (mode === 'esp' && noradIds.length > 0) {
-    document.getElementById('satNOGSStatus').textContent = 
-      `Refreshing frequencies for ${noradIds.length} satellite(s). Estimated time: ${estTime}`;
+    logSatNOGS(`Starting frequencies refresh for ${noradIds.length} satellite(s). Estimated time: ${estTime}`);
   } else {
-    document.getElementById('satNOGSStatus').textContent = 
-      `Refreshing frequencies for ${noradIds.length} satellite(s)...`;
+    logSatNOGS(`Starting frequencies refresh for ${noradIds.length} satellite(s)...`);
   }
   
   let completed = 0;
@@ -1047,8 +1050,7 @@ async function refreshSatNOGSFrequencies(noradIds) {
   for (const noradId of noradIds) {
     const sat = satellites.find(s => s.norad === noradId);
     const satName = sat ? sat.name : noradId;
-    document.getElementById('satNOGSProgress').textContent = 
-      `${completed + 1}/${noradIds.length}: ${satName}...`;
+    logSatNOGS(`${completed + 1}/${noradIds.length}: ${satName}...`);
     
     try {
       const txList = await fetchTransmitters(noradId);
@@ -1068,6 +1070,7 @@ async function refreshSatNOGSFrequencies(noradIds) {
         hasActiveTransmitters: txList.length > 0
       });
       completed++;
+      logSatNOGS(`✓ ${satName}: frequencies updated (${txList.length} transmitters)`);
     } catch (e) {
       console.warn(`[SatNOGS] Failed to refresh frequencies ${noradId}:`, e);
       let userMessage = String(e.message || e);
@@ -1080,12 +1083,13 @@ async function refreshSatNOGSFrequencies(noradIds) {
       }
       errors.push(`${satName} (${noradId}): ${userMessage}`);
       failed++;
+      logSatNOGS(`✗ ${satName}: ${userMessage}`);
     }
   }
   
-  document.getElementById('satNOGSProgress').textContent = '';
-  document.getElementById('satNOGSStatus').textContent = 
-    `Frequencies refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  const statusMsg = `Frequencies refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  document.getElementById('satNOGSStatus').textContent = statusMsg;
+  logSatNOGS(statusMsg);
   
   if (failed > 0) {
     let errorMsg = `${failed} satellite(s) failed to refresh frequencies:\n\n`;
@@ -1126,6 +1130,23 @@ function enableRefreshButtons() {
   document.getElementById('refreshNewFreqBtn').disabled = false;
   document.getElementById('refreshStaleStatusBtn').disabled = false;
   document.getElementById('refreshStaleFreqBtn').disabled = false;
+}
+
+// Log a message to the SatNOGS activity log
+function logSatNOGS(msg) {
+  const logEl = document.getElementById('satNOGSLog');
+  if (!logEl) return;
+  const timestamp = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.textContent = `[${timestamp}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Clear the activity log
+function clearSatNOGSLog() {
+  const logEl = document.getElementById('satNOGSLog');
+  if (logEl) logEl.textContent = '';
 }
 
 function getRefreshIntervalDays() {
