@@ -718,7 +718,7 @@ async function fetchSatelliteStatus(noradId) {
     const results = Array.isArray(data) ? data : (data.results || []);
     return results.length > 0 ? results[0] : null;
   } catch (e) {
-    console.error(`[SatNOGS] fetchSatelliteStatus('${noradId}') error:`, e.message);
+    console.error(`[SatNOGS] fetchSatelliteStatus('${noradId}') error:`, e);
     throw e;
   }
 }
@@ -873,16 +873,16 @@ function updateSatNOGSStats() {
     `${cached}/${total} cached, ${newSats} new, ${staleSats} stale`;
 }
 
-// Populate satellite selector dropdown
+// Populate satellite selector dropdown (use NORAD ID as value for stability)
 function populateSatNOGSSatSelect() {
   const select = document.getElementById('satNOGSSatSelect');
   const currentVal = select.value;
-  select.innerHTML = '<option value="0">— All satellites —</option>';
+  select.innerHTML = '<option value="">— All satellites —</option>';
   
-  satellites.forEach((sat, idx) => {
+  satellites.forEach((sat) => {
     if (sat.norad) {
       const opt = document.createElement('option');
-      opt.value = idx;
+      opt.value = sat.norad;
       opt.textContent = `${sat.name} (${sat.norad})`;
       select.appendChild(opt);
     }
@@ -931,6 +931,8 @@ async function refreshSatNOGSData(noradIds, label) {
   
   let completed = 0;
   let failed = 0;
+  let errors = [];
+  const proxyMode = localStorage.getItem('satNOGSProxyMode') || 'direct';
   
   for (const noradId of noradIds) {
     const sat = satellites.find(s => s.norad === noradId);
@@ -939,10 +941,21 @@ async function refreshSatNOGSData(noradIds, label) {
       `${completed + 1}/${noradIds.length}: ${satName}...`;
     
     try {
-      await fetchSatNOGSData(noradId);
+      const result = await fetchSatNOGSData(noradId);
+      console.log(`[SatNOGS] Refresh ${noradId} result:`, result);
       completed++;
     } catch (e) {
-      console.warn(`[SatNOGS] Failed to refresh ${noradId}:`, e.message);
+      console.warn(`[SatNOGS] Failed to refresh ${noradId}:`, e);
+      // Detect CORS/network failures
+      let userMessage = String(e.message || e);
+      if (userMessage.includes('Failed to fetch') || userMessage.includes('Load failed') || userMessage.includes('NetworkError')) {
+        if (proxyMode === 'direct') {
+          userMessage = 'Request blocked by browser (CORS). SatNOGS API does not currently support CORS headers. Direct mode will not work until SatNOGS adds CORS support.';
+        } else {
+          userMessage = 'Network error - check internet connection and proxy settings.';
+        }
+      }
+      errors.push(`${satName} (${noradId}): ${userMessage}`);
       failed++;
     }
   }
@@ -950,6 +963,23 @@ async function refreshSatNOGSData(noradIds, label) {
   document.getElementById('satNOGSProgress').textContent = '';
   document.getElementById('satNOGSStatus').textContent = 
     `Refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  
+  if (failed > 0) {
+    let errorMsg = `${failed} satellite(s) failed to refresh:\n\n`;
+    errors.forEach((err, i) => {
+      errorMsg += `${i + 1}. ${err}\n`;
+    });
+    if (proxyMode === 'direct') {
+      errorMsg += '\n\nSolution: Use a proxy:\n' +
+        '- "Use custom proxy URL" pointing to a CORS-enabled proxy server (recommended)\n' +
+        '- "Use ESP device proxy" for occasional small responses (limited by ESP RAM)';
+    } else if (proxyMode === 'esp') {
+      errorMsg += '\n\nTo fix this:\n' +
+        '- Some satellites have large responses that exceed ESP memory limits\n' +
+        '- Try switching to "Use custom proxy URL" for reliable operation';
+    }
+    alert(errorMsg);
+  }
   
   document.getElementById('refreshSatNOGSBtn').disabled = false;
   document.getElementById('refreshNewSatsBtn').disabled = false;
@@ -1774,17 +1804,17 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
 // Refresh Selected button
 document.getElementById('refreshSatNOGSBtn').addEventListener('click', () => {
   const selectVal = document.getElementById('satNOGSSatSelect').value;
+  console.log(`[SatNOGS] Refresh Selected clicked, dropdown value: "${selectVal}"`);
   
-  if (selectVal === '0') {
+  if (selectVal === '') {
     // Refresh all satellites
     const noradIds = satellites.filter(s => s.norad).map(s => s.norad);
+    console.log(`[SatNOGS] Refreshing ALL ${noradIds.length} satellites`);
     refreshSatNOGSData(noradIds, 'all');
   } else {
-    // Refresh selected satellite
-    const idx = parseInt(selectVal);
-    if (idx >= 0 && idx < satellites.length && satellites[idx].norad) {
-      refreshSatNOGSData([satellites[idx].norad], 'selected');
-    }
+    // Refresh selected satellite (value is NORAD ID)
+    console.log(`[SatNOGS] Refreshing satellite ${selectVal}`);
+    refreshSatNOGSData([selectVal], 'selected');
   }
 });
 
