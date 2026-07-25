@@ -712,6 +712,9 @@ async function fetchSatelliteStatus(noradId) {
     clearTimeout(timeout);
     if (!resp.ok) {
       if (resp.status === 404) return null;
+      if (resp.status === 503) {
+        throw new Error('Response too large for ESP proxy (>4KB). Use "Custom proxy URL" for reliable operation.');
+      }
       throw new Error(`SatNOGS satellites API error: ${resp.status}`);
     }
     const data = await resp.json();
@@ -733,6 +736,9 @@ async function fetchTransmitters(noradId) {
     clearTimeout(timeout);
     if (!resp.ok) {
       if (resp.status === 404) return [];
+      if (resp.status === 503) {
+        throw new Error('Response too large for ESP proxy (>4KB). Use "Custom proxy URL" for reliable operation.');
+      }
       throw new Error(`SatNOGS transmitters API error: ${resp.status}`);
     }
     const data = await resp.json();
