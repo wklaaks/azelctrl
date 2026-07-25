@@ -421,6 +421,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div class="card-title">Browse Amateur Radio Satellites</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
+        <button class="btn btn-sm btn-primary" id="addAllSatBtn" style="display:none;">Add ALL</button>
         <span style="font-size:0.75rem;color:var(--muted);" id="browseStatus"></span>
       </div>
       <div id="browseSatList" class="browse-sat-list" style="display:none;"></div>
@@ -485,8 +486,8 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
                 <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Never Fetched</button>
                 <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Stale Data</button>
                 <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Stale Data</button>
-                <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
               </div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-top:2px;" id="satNOGSStats"></div>
             </div>
       
       <div class="satnogs-status" id="satNOGSStatus"></div>
@@ -746,6 +747,7 @@ async function fetchSatelliteStatus(noradId) {
 async function fetchTransmitters(noradId) {
   try {
     const url = getSatNOGSProxyUrl(`/transmitters/?satellite__norad_cat_id=${noradId}&alive=true&status=active`);
+    console.log(`[SatNOGS] fetchTransmitters('${noradId}') URL:`, url);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 180000);  // 45s timeout for ESP proxy (HTTPS handshake is slow)
     const resp = await fetch(url, { signal: controller.signal });
@@ -758,6 +760,7 @@ async function fetchTransmitters(noradId) {
       throw new Error(`SatNOGS transmitters API error: ${resp.status}`);
     }
     const data = await resp.json();
+    console.log(`[SatNOGS] fetchTransmitters('${noradId}') response:`, Array.isArray(data) ? `${data.length} items` : data);
     const results = Array.isArray(data) ? data : (data.results || []);
     return results;
   } catch (e) {
@@ -860,9 +863,31 @@ function hasSatNOGSDataEver(noradId) {
   return getSatNOGSData(noradId) !== null;
 }
 
+// Check if a satellite has status data (not just frequencies)
+function hasSatNOGSStatus(noradId) {
+  const data = getSatNOGSData(noradId);
+  return data !== null && data.satellite != null;
+}
+
+// Check if a satellite has frequency data (not just status)
+function hasSatNOGSFrequencies(noradId) {
+  const data = getSatNOGSData(noradId);
+  return data !== null && data.transmitters && data.transmitters.length > 0;
+}
+
 // Get satellites that have never had SatNOGS data fetched
 function getNewSatellites() {
   return satellites.filter(s => s.norad && !hasSatNOGSDataEver(s.norad));
+}
+
+// Get satellites that have never had status fetched (even if frequencies exist)
+function getNewStatusSatellites() {
+  return satellites.filter(s => s.norad && !hasSatNOGSStatus(s.norad));
+}
+
+// Get satellites that have never had frequencies fetched (even if status exists)
+function getNewFreqSatellites() {
+  return satellites.filter(s => s.norad && !hasSatNOGSFrequencies(s.norad));
 }
 
 // Get satellites with stale data
@@ -895,9 +920,18 @@ function updateSatNOGSStats() {
   const cached = satellites.filter(s => s.norad && hasSatNOGSDataEver(s.norad)).length;
   const newSats = getNewSatellites().length;
   const staleSats = getStaleSatellites().length;
+  const missingStatus = getNewStatusSatellites().length;
+  const missingFreqs = getNewFreqSatellites().length;
   
-  document.getElementById('satNOGSStats').textContent = 
-    `${cached}/${total} cached, ${newSats} new, ${staleSats} stale`;
+  const line1 = `${cached}/${total} cached${newSats > 0 ? `, ${newSats} new` : ''}${staleSats > 0 ? `, ${staleSats} stale` : ''}`;
+  const line2 = `${missingStatus > 0 ? `${missingStatus} no status` : ''}${missingStatus > 0 && missingFreqs > 0 ? ', ' : ''}${missingFreqs > 0 ? `${missingFreqs} no freqs` : ''}`.trim();
+  
+  const statsEl = document.getElementById('satNOGSStats');
+  if (line2) {
+    statsEl.innerHTML = `${line1}<br>${line2}`;
+  } else {
+    statsEl.textContent = line1;
+  }
 }
 
 // Populate satellite selector dropdown (use NORAD ID as value for stability)
@@ -1054,6 +1088,12 @@ async function refreshSatNOGSFrequencies(noradIds) {
     
     try {
       const txList = await fetchTransmitters(noradId);
+      if (txList.length === 0) {
+        // No transmitters found — don't mark as fetched so it can be retried later
+        completed++;
+        logSatNOGS(`✓ ${satName}: no active transmitters found (will retry later)`);
+        continue;
+      }
       const existing = getSatNOGSData(noradId) || {};
       setSatNOGSData(noradId, {
         ...existing,
@@ -1067,7 +1107,7 @@ async function refreshSatNOGSFrequencies(noradIds) {
           status: tx.status
         })),
         lastUpdated: Date.now(),
-        hasActiveTransmitters: txList.length > 0
+        hasActiveTransmitters: true
       });
       completed++;
       logSatNOGS(`✓ ${satName}: frequencies updated (${txList.length} transmitters)`);
@@ -1887,10 +1927,12 @@ document.getElementById('sortByNameBtn').addEventListener('click', () => {
 document.getElementById('browseSatListBtn').addEventListener('click', async () => {
   const listEl = document.getElementById('browseSatList');
   const statusEl = document.getElementById('browseStatus');
+  const addAllBtn = document.getElementById('addAllSatBtn');
   
   statusEl.textContent = 'Loading...';
   listEl.style.display = 'block';
   listEl.innerHTML = '';
+  addAllBtn.style.display = 'none';
   
   try {
     const resp = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=csv');
@@ -1919,6 +1961,9 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
     // Sort alphabetically by name
     available.sort((a, b) => a.name.localeCompare(b.name));
     
+    // Store for Add ALL button
+    window.browseAvailableSats = available;
+    
     // Display sorted list
     for (const sat of available) {
       const item = document.createElement('div');
@@ -1945,12 +1990,53 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
       listEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All available amateur satellites are already in your list</div>';
       statusEl.textContent = 'All satellites already added';
     } else {
+      addAllBtn.style.display = 'inline-block';
       statusEl.textContent = `${available.length} satellites available to add`;
     }
   } catch (err) {
     statusEl.textContent = 'Error: ' + err.message;
     listEl.innerHTML = '';
   }
+});
+
+// Add ALL button - adds all available satellites sequentially
+document.getElementById('addAllSatBtn').addEventListener('click', async () => {
+  const addAllBtn = document.getElementById('addAllSatBtn');
+  const statusEl = document.getElementById('browseStatus');
+  
+  if (!window.browseAvailableSats || window.browseAvailableSats.length === 0) {
+    return;
+  }
+  
+  addAllBtn.disabled = true;
+  addAllBtn.textContent = 'Adding...';
+  const total = window.browseAvailableSats.length;
+  let added = 0;
+  
+  // Disable individual Add buttons
+  document.querySelectorAll('.browse-sat-btn').forEach(btn => {
+    btn.disabled = true;
+    btn.textContent = '...';
+  });
+  
+  for (const sat of window.browseAvailableSats) {
+    statusEl.textContent = `Adding ${sat.name} (${added + 1}/${total})...`;
+    try {
+      await fetchTleForNORAD(sat.norad, sat.name);
+      added++;
+    } catch (e) {
+      console.error('Failed to add', sat.name, e);
+    }
+    // Small delay to avoid overwhelming the API
+    await new Promise(r => setTimeout(r, 200));
+  }
+  
+  statusEl.textContent = `Added ${added}/${total} satellites`;
+  addAllBtn.textContent = 'Add ALL';
+  
+  // Clear the available list since they've been added
+  window.browseAvailableSats = [];
+  addAllBtn.style.display = 'none';
 });
 
 // ==================== SATNOGS MANAGE TAB ====================
@@ -1980,7 +2066,7 @@ document.getElementById('refreshFreqBtn').addEventListener('click', () => {
 
 // New Sats Status button
 document.getElementById('refreshNewStatusBtn').addEventListener('click', () => {
-  const newSats = getNewSatellites();
+  const newSats = getNewStatusSatellites();
   if (newSats.length === 0) {
     document.getElementById('satNOGSStatus').textContent = 'No new satellites to refresh';
     return;
@@ -1991,7 +2077,7 @@ document.getElementById('refreshNewStatusBtn').addEventListener('click', () => {
 
 // New Sats Frequencies button
 document.getElementById('refreshNewFreqBtn').addEventListener('click', () => {
-  const newSats = getNewSatellites();
+  const newSats = getNewFreqSatellites();
   if (newSats.length === 0) {
     document.getElementById('satNOGSStatus').textContent = 'No new satellites to refresh';
     return;

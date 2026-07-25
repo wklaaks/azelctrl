@@ -34,6 +34,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = urllib.parse.unquote(target)
 
         url = SATNOGS_BASE + target
+        print(f"[SatNOGS proxy] query_string: {query_string[:100]}...")
+        print(f"[SatNOGS proxy] target: {target}")
+        print(f"[SatNOGS proxy] url: {url}")
         try:
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=10) as resp:
