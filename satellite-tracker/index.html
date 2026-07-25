@@ -762,16 +762,13 @@ async function fetchSatNOGSData(noradId) {
       throw satInfo.reason;
     }
 
-    // Check if transmitter fetch failed (not just missing data)
+    // Also throw if transmitter fetch failed (not just missing data)
     if (transmitters.status === 'rejected') {
-      // Only throw if it was a real error (not 404/empty)
-      if (transmitters.reason.message && !transmitters.reason.message.includes('404')) {
-        throw transmitters.reason;
-      }
+      throw transmitters.reason;
     }
 
     const satellite = satInfo.value;
-    const txList = transmitters.status === 'fulfilled' ? transmitters.value : [];
+    const txList = transmitters.value || [];
 
     if (!satellite && txList.length === 0) {
       return null; // Satellite not in SatNOGS DB
