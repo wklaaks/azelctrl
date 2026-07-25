@@ -30,6 +30,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400, "Missing 'url' parameter")
             return
 
+        # Decode the URL-encoded path
+        target = urllib.parse.unquote(target)
+
         url = SATNOGS_BASE + target
         try:
             req = urllib.request.Request(url)

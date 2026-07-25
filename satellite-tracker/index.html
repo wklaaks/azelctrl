@@ -442,27 +442,41 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div class="card-title">SatNOGS Data</div>
       <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">
         Fetch satellite status and transmitter frequencies from <a href="https://db.satnogs.org" target="_blank">SatNOGS DB</a>.
-        Data is cached in your browser and auto-refreshed when stale.
+        Data is cached in your browser.
       </p>
+      
+      <div id="satNOGSProxyWarning" style="display:none;" class="banner warn" style="margin-bottom:10px;"></div>
+      
       <div class="setting-row">
         <div>
-          <div class="setting-label">Auto-refresh interval</div>
-          <div class="setting-desc">Days between automatic data refresh</div>
+          <div class="setting-label">Refresh stale data only</div>
+          <div class="setting-desc">Update data for satellites where last refresh was more than X days ago</div>
         </div>
         <div class="setting-control">
           <input type="number" id="satNOGSRefreshInterval" min="1" max="30" style="width:60px;" value="7">
           <span style="font-size:0.8rem;color:var(--muted);">days</span>
         </div>
       </div>
+      
       <div class="setting-row">
         <div>
-          <div class="setting-label">Last refresh</div>
-          <div class="setting-desc" id="satNOGSLastRefresh">Never</div>
+          <div class="setting-label">Select satellite</div>
+          <div class="setting-desc">Or refresh a specific satellite</div>
+        </div>
+        <div class="setting-control">
+          <select id="satNOGSSatSelect" style="min-width:180px;">
+            <option value="0">— All satellites —</option>
+          </select>
         </div>
       </div>
-      <div style="margin-top:10px;">
-        <button class="btn btn-primary" id="refreshSatNOGSBtn">Refresh SatNOGS Data</button>
+      
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-primary" id="refreshSatNOGSBtn">Refresh Selected</button>
+        <button class="btn btn-sm" id="refreshNewSatsBtn">New Sats Only</button>
+        <button class="btn btn-sm" id="refreshStaleSatsBtn">Stale Sats Only</button>
+        <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
       </div>
+      
       <div class="satnogs-status" id="satNOGSStatus"></div>
       <div class="satnogs-progress" id="satNOGSProgress"></div>
     </div>
@@ -619,6 +633,35 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <button class="btn btn-primary" id="savePrefsBtn">Save Preferences</button>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-title">SatNOGS Proxy</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Proxy Mode</div>
+        <div class="setting-desc">How to bypass CORS when fetching SatNOGS data</div>
+      </div>
+      <div class="setting-control">
+        <select id="satNOGSProxyMode">
+          <option value="esp">Use ESP device proxy</option>
+          <option value="custom">Use custom proxy URL</option>
+          <option value="direct">Direct (no proxy)</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row" id="satNOGSProxyUrlRow" style="display:none;">
+      <div>
+        <div class="setting-label">Custom Proxy URL</div>
+        <div class="setting-desc">Base URL of your SatNOGS proxy (e.g. http://localhost:8088/satnogs-proxy)</div>
+      </div>
+      <div class="setting-control">
+        <input type="text" id="satNOGSProxyUrl" style="width:280px;" placeholder="http://localhost:8088/satnogs-proxy">
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-primary" id="saveSatNOGSProxyBtn">Save Proxy Settings</button>
+    </div>
+  </div>
 </div>
 
 <!-- Footer -->
@@ -631,13 +674,42 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 // ==================== SATNOGS INTEGRATION ====================
 // SatNOGS API doesn't support CORS. We proxy through our local dev server.
 // When served from the device itself, the device handles the proxy.
-const SATNOGS_API = '/satnogs-proxy?url=';
+// When using a device IP, proxy through that device.
+// Proxy modes: 'esp' (device proxy), 'custom' (user-specified URL), 'direct' (no proxy)
+function getSatNOGSProxyUrl(apiPath) {
+  const mode = localStorage.getItem('satNOGSProxyMode') || 'direct';
+  
+  if (mode === 'direct') {
+    // Direct access to SatNOGS API (requires CORS support from SatNOGS)
+    return 'https://db.satnogs.org/api' + apiPath;
+  }
+  
+  if (mode === 'custom') {
+    const customUrl = (localStorage.getItem('satNOGSProxyUrl') || '').trim();
+    if (customUrl) {
+      return customUrl + '?url=' + encodeURIComponent(apiPath);
+    }
+    // Fallback to relative URL if custom URL not set
+    return '/satnogs-proxy?url=' + encodeURIComponent(apiPath);
+  }
+  
+  // Default: 'esp' mode — use device proxy when device IP is set
+  const base = getApiBase();
+  if (base) {
+    return base + '/satnogs-proxy?url=' + encodeURIComponent(apiPath);
+  }
+  // No device IP set — use relative URL (works when served from device or dev server)
+  return '/satnogs-proxy?url=' + encodeURIComponent(apiPath);
+}
 
 // Fetch satellite info from SatNOGS
 async function fetchSatelliteStatus(noradId) {
   try {
-    const url = `${SATNOGS_API}/satellites/?norad_cat_id=${noradId}`;
-    const resp = await fetch(url);
+    const url = getSatNOGSProxyUrl(`/satellites/?norad_cat_id=${noradId}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180000);  // 45s timeout for ESP proxy (HTTPS handshake is slow)
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!resp.ok) {
       if (resp.status === 404) return null;
       throw new Error(`SatNOGS satellites API error: ${resp.status}`);
@@ -654,8 +726,11 @@ async function fetchSatelliteStatus(noradId) {
 // Fetch active transmitters from SatNOGS
 async function fetchTransmitters(noradId) {
   try {
-    const url = `${SATNOGS_API}/transmitters/?satellite__norad_cat_id=${noradId}&alive=true&status=active`;
-    const resp = await fetch(url);
+    const url = getSatNOGSProxyUrl(`/transmitters/?satellite__norad_cat_id=${noradId}&alive=true&status=active`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180000);  // 45s timeout for ESP proxy (HTTPS handshake is slow)
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!resp.ok) {
       if (resp.status === 404) return [];
       throw new Error(`SatNOGS transmitters API error: ${resp.status}`);
@@ -750,6 +825,142 @@ function getAllCachedSatellites() {
     return Object.keys(all);
   } catch {
     return [];
+  }
+}
+
+// Check if a satellite has ever had SatNOGS data fetched
+function hasSatNOGSDataEver(noradId) {
+  return getSatNOGSData(noradId) !== null;
+}
+
+// Get satellites that have never had SatNOGS data fetched
+function getNewSatellites() {
+  return satellites.filter(s => s.norad && !hasSatNOGSDataEver(s.norad));
+}
+
+// Get satellites with stale data
+function getStaleSatellites() {
+  return satellites.filter(s => s.norad && isDataStale(s.norad));
+}
+
+// Calculate estimated time for refreshing N satellites (seconds per satellite based on proxy mode)
+function estimateRefreshTime(count) {
+  const mode = localStorage.getItem('satNOGSProxyMode') || 'direct';
+  let secondsPerSat = 10;  // Default: Python proxy (fast)
+  if (mode === 'esp') {
+    secondsPerSat = 60;  // ESP proxy is slow (~30s per request, 2 requests per sat)
+  }
+  return count * secondsPerSat;
+}
+
+// Format seconds to human-readable time
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (secs === 0) return `${mins}m`;
+  return `${mins}m ${secs}s`;
+}
+
+// Update SatNOGS stats display
+function updateSatNOGSStats() {
+  const total = satellites.filter(s => s.norad).length;
+  const cached = satellites.filter(s => s.norad && hasSatNOGSDataEver(s.norad)).length;
+  const newSats = getNewSatellites().length;
+  const staleSats = getStaleSatellites().length;
+  
+  document.getElementById('satNOGSStats').textContent = 
+    `${cached}/${total} cached, ${newSats} new, ${staleSats} stale`;
+}
+
+// Populate satellite selector dropdown
+function populateSatNOGSSatSelect() {
+  const select = document.getElementById('satNOGSSatSelect');
+  const currentVal = select.value;
+  select.innerHTML = '<option value="0">— All satellites —</option>';
+  
+  satellites.forEach((sat, idx) => {
+    if (sat.norad) {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = `${sat.name} (${sat.norad})`;
+      select.appendChild(opt);
+    }
+  });
+  
+  // Restore selection if possible
+  if (currentVal && select.querySelector(`option[value="${currentVal}"]`)) {
+    select.value = currentVal;
+  }
+}
+
+// Show proxy warning if using ESP proxy
+function showProxyWarning() {
+  const mode = localStorage.getItem('satNOGSProxyMode') || 'direct';
+  const warningEl = document.getElementById('satNOGSProxyWarning');
+  
+  if (mode === 'esp') {
+    warningEl.style.display = 'block';
+    warningEl.textContent = `⚠ ESP proxy is unreliable: limited RAM causes requests to fail after the first one. Switch to "Direct" mode (recommended when using ESP device) or "Custom proxy" for reliable operation.`;
+  } else {
+    warningEl.style.display = 'none';
+  }
+}
+
+// Refresh SatNOGS data for specific satellites
+async function refreshSatNOGSData(noradIds, label) {
+  if (noradIds.length === 0) {
+    document.getElementById('satNOGSStatus').textContent = 'No satellites to refresh';
+    return;
+  }
+  
+  const mode = localStorage.getItem('satNOGSProxyMode') || 'direct';
+  const estTime = formatDuration(estimateRefreshTime(noradIds.length));
+  
+  document.getElementById('refreshSatNOGSBtn').disabled = true;
+  document.getElementById('refreshNewSatsBtn').disabled = true;
+  document.getElementById('refreshStaleSatsBtn').disabled = true;
+  
+  if (mode === 'esp' && noradIds.length > 0) {
+    document.getElementById('satNOGSStatus').textContent = 
+      `Starting refresh of ${noradIds.length} satellite(s). Estimated time: ${estTime}`;
+  } else {
+    document.getElementById('satNOGSStatus').textContent = 
+      `Refreshing ${noradIds.length} satellite(s)...`;
+  }
+  
+  let completed = 0;
+  let failed = 0;
+  
+  for (const noradId of noradIds) {
+    const sat = satellites.find(s => s.norad === noradId);
+    const satName = sat ? sat.name : noradId;
+    document.getElementById('satNOGSProgress').textContent = 
+      `${completed + 1}/${noradIds.length}: ${satName}...`;
+    
+    try {
+      await fetchSatNOGSData(noradId);
+      completed++;
+    } catch (e) {
+      console.warn(`[SatNOGS] Failed to refresh ${noradId}:`, e.message);
+      failed++;
+    }
+  }
+  
+  document.getElementById('satNOGSProgress').textContent = '';
+  document.getElementById('satNOGSStatus').textContent = 
+    `Refresh complete: ${completed} updated${failed > 0 ? `, ${failed} failed` : ''}`;
+  
+  document.getElementById('refreshSatNOGSBtn').disabled = false;
+  document.getElementById('refreshNewSatsBtn').disabled = false;
+  document.getElementById('refreshStaleSatsBtn').disabled = false;
+  
+  updateSatNOGSStats();
+  renderPassTable();
+  
+  // Update tracking freq info if selected satellite was refreshed
+  if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
+    updateTrackingFreqInfo(satellites[selectedSatIndex]);
   }
 }
 
@@ -936,6 +1147,12 @@ document.querySelectorAll('.tab[data-manage-tab]').forEach(tab => {
     manageContent.querySelectorAll('.manage-panel').forEach(p => p.style.display = 'none');
     tab.classList.add('active');
     document.getElementById('manage-' + tab.dataset.manageTab).style.display = 'block';
+    // Refresh SatNOGS Data tab when opened
+    if (tab.dataset.manageTab === 'satnogs') {
+      updateSatNOGSStats();
+      populateSatNOGSSatSelect();
+      showProxyWarning();
+    }
   });
 });
 
@@ -1553,96 +1770,44 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
 
 // ==================== SATNOGS MANAGE TAB ====================
 // Update SatNOGS status display
-function updateSatNOGSStatusDisplay() {
-  const statusEl = document.getElementById('satNOGSStatus');
-  const lastRefreshEl = document.getElementById('satNOGSLastRefresh');
+
+// Refresh Selected button
+document.getElementById('refreshSatNOGSBtn').addEventListener('click', () => {
+  const selectVal = document.getElementById('satNOGSSatSelect').value;
   
-  if (!statusEl) return;
-  
-  // Count satellites with data
-  let withData = 0;
-  let stale = 0;
-  let lastUpdated = null;
-  
-  for (const sat of satellites) {
-    if (!sat.norad) continue;
-    const data = getSatNOGSData(sat.norad);
-    if (data) {
-      withData++;
-      if (isDataStale(sat.norad)) stale++;
-      if (!lastUpdated || data.lastUpdated > lastUpdated) {
-        lastUpdated = data.lastUpdated;
-      }
+  if (selectVal === '0') {
+    // Refresh all satellites
+    const noradIds = satellites.filter(s => s.norad).map(s => s.norad);
+    refreshSatNOGSData(noradIds, 'all');
+  } else {
+    // Refresh selected satellite
+    const idx = parseInt(selectVal);
+    if (idx >= 0 && idx < satellites.length && satellites[idx].norad) {
+      refreshSatNOGSData([satellites[idx].norad], 'selected');
     }
   }
-  
-  if (lastUpdated) {
-    const d = new Date(lastUpdated);
-    lastRefreshEl.textContent = d.toLocaleString('en-ZA');
-  } else {
-    lastRefreshEl.textContent = 'Never';
-  }
-  
-  if (satellites.length === 0) {
-    statusEl.textContent = 'No satellites added yet';
-  } else if (withData === 0) {
-    statusEl.textContent = 'No SatNOGS data cached. Click Refresh to fetch.';
-  } else {
-    statusEl.textContent = `Data cached for ${withData}/${satellites.length} satellites${stale > 0 ? ` (${stale} stale)` : ''}`;
-  }
-}
+});
 
-// Refresh button handler
-document.getElementById('refreshSatNOGSBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('refreshSatNOGSBtn');
-  const progressEl = document.getElementById('satNOGSProgress');
-  const statusEl = document.getElementById('satNOGSStatus');
-  
-  const toRefresh = satellites.filter(s => s.norad);
-  if (toRefresh.length === 0) {
-    statusEl.textContent = 'No satellites with NORAD IDs to refresh';
+// New Sats Only button
+document.getElementById('refreshNewSatsBtn').addEventListener('click', () => {
+  const newSats = getNewSatellites();
+  if (newSats.length === 0) {
+    document.getElementById('satNOGSStatus').textContent = 'No new satellites to refresh';
     return;
   }
-  
-  // Show confirmation if many satellites
-  if (toRefresh.length > 5) {
-    const estimatedTime = Math.ceil(toRefresh.length * 0.2);
-    const msg = `Refreshing SatNOGS data for ${toRefresh.length} satellites. This may take ${estimatedTime}-${estimatedTime * 2} seconds. Continue?`;
-    if (!confirm(msg)) return;
+  const noradIds = newSats.map(s => s.norad);
+  refreshSatNOGSData(noradIds, 'new');
+});
+
+// Stale Sats Only button
+document.getElementById('refreshStaleSatsBtn').addEventListener('click', () => {
+  const staleSats = getStaleSatellites();
+  if (staleSats.length === 0) {
+    document.getElementById('satNOGSStatus').textContent = 'No stale satellites to refresh';
+    return;
   }
-  
-  btn.disabled = true;
-  btn.textContent = 'Refreshing...';
-  progressEl.textContent = `Refreshing: 0/${toRefresh.length}...`;
-  
-  let success = 0;
-  let failed = 0;
-  
-  for (let i = 0; i < toRefresh.length; i++) {
-    const sat = toRefresh[i];
-    try {
-      const data = await fetchSatNOGSData(sat.norad);
-      if (data) {
-        setSatNOGSData(sat.norad, data);
-      }
-      success++;
-    } catch (e) {
-      failed++;
-    }
-    progressEl.textContent = `Refreshing: ${i + 1}/${toRefresh.length}...`;
-    await new Promise(r => setTimeout(r, 100));
-  }
-  
-  btn.disabled = false;
-  btn.textContent = 'Refresh SatNOGS Data';
-  progressEl.textContent = '';
-  updateSatNOGSStatusDisplay();
-  renderPassTable(); // Refresh table to show updated data
-  
-  // Update tracking tab if showing a satellite
-  if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
-    updateTrackingFreqInfo(satellites[selectedSatIndex]);
-  }
+  const noradIds = staleSats.map(s => s.norad);
+  refreshSatNOGSData(noradIds, 'stale');
 });
 
 // Refresh interval setting
@@ -1730,14 +1895,6 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
     document.getElementById('newSatNORAD').value = '';
     document.getElementById('tleInput').value = '';
     showBanner(statusEl, 'Added ' + name, 'info');
-    
-    // Fetch SatNOGS data for new satellite
-    if (newSat.norad) {
-      getOrFetchSatNOGSData(newSat.norad, true).then(() => {
-        renderPassTable();
-        updateTrackingFreqInfo(newSat);
-      }).catch(() => {});
-    }
   } catch (e) {
     showBanner(statusEl, 'Invalid TLE: ' + e.message, 'error');
   }
@@ -1799,14 +1956,6 @@ async function fetchTleForNORAD(norad, preferredName) {
     document.getElementById('newSatNORAD').value = norad;
     document.getElementById('tleInput').value = line1 + '\n' + line2;
     console.log('fetchTleForNORAD: done');
-    
-    // Fetch SatNOGS data for new/updated satellite
-    if (newSat.norad) {
-      getOrFetchSatNOGSData(newSat.norad, true).then(() => {
-        renderPassTable();
-        updateTrackingFreqInfo(newSat);
-      }).catch(() => {});
-    }
   } catch (e) {
     console.error('fetchTleForNORAD error:', e);
     showBanner(statusEl, 'Failed to fetch TLE: ' + e.message, 'error');
@@ -3238,6 +3387,31 @@ document.getElementById('savePrefsBtn').addEventListener('click', () => {
   alert('Preferences saved');
 });
 
+// ==================== SATNOGS PROXY SETTINGS ====================
+const satNOGSProxyModeSelect = document.getElementById('satNOGSProxyMode');
+const satNOGSProxyUrlRow = document.getElementById('satNOGSProxyUrlRow');
+const satNOGSProxyUrlInput = document.getElementById('satNOGSProxyUrl');
+
+// Show/hide custom URL field based on proxy mode
+function updateSatNOGSProxyUI() {
+  const mode = satNOGSProxyModeSelect.value;
+  satNOGSProxyUrlRow.style.display = (mode === 'custom') ? 'flex' : 'none';
+}
+
+// Toggle custom URL visibility on mode change
+satNOGSProxyModeSelect.addEventListener('change', updateSatNOGSProxyUI);
+
+// Save proxy settings
+document.getElementById('saveSatNOGSProxyBtn').addEventListener('click', () => {
+  const mode = satNOGSProxyModeSelect.value;
+  const customUrl = satNOGSProxyUrlInput.value.trim();
+  
+  localStorage.setItem('satNOGSProxyMode', mode);
+  localStorage.setItem('satNOGSProxyUrl', customUrl);
+  
+  alert('SatNOGS proxy settings saved');
+});
+
 // ==================== INITIALIZATION ====================
 renderSatList();
 renderPassTable();
@@ -3254,30 +3428,18 @@ const refreshInterval = getRefreshIntervalDays();
 document.getElementById('satNOGSRefreshInterval').value = refreshInterval;
 
 // Update SatNOGS status display
-updateSatNOGSStatusDisplay();
+updateSatNOGSStats();
 
-// Auto-refresh stale SatNOGS data on load
-(async () => {
-  const staleSats = satellites.filter(s => s.norad && isDataStale(s.norad));
-  if (staleSats.length === 0) return;
-  
-  console.log(`Auto-refreshing SatNOGS data for ${staleSats.length} stale satellites...`);
-  
-  for (const sat of staleSats) {
-    try {
-      const data = await fetchSatNOGSData(sat.norad);
-      if (data) {
-        setSatNOGSData(sat.norad, data);
-      }
-    } catch (e) {
-      // Silent on auto-refresh
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-  
-  updateSatNOGSStatusDisplay();
-  renderPassTable();
-})();
+// Load SatNOGS proxy settings
+const savedProxyMode = localStorage.getItem('satNOGSProxyMode') || 'direct';
+satNOGSProxyModeSelect.value = savedProxyMode;
+satNOGSProxyUrlInput.value = localStorage.getItem('satNOGSProxyUrl') || '';
+updateSatNOGSProxyUI();
+
+// Initialize SatNOGS Data tab on load
+updateSatNOGSStats();
+populateSatNOGSSatSelect();
+showProxyWarning();
 
 // Recompute passes every 60 seconds (matches Tracking tab cache interval)
 setInterval(renderPassTable, 60000);
