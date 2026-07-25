@@ -901,7 +901,7 @@ function showProxyWarning() {
   
   if (mode === 'esp') {
     warningEl.style.display = 'block';
-    warningEl.textContent = `⚠ ESP proxy is unreliable: limited RAM causes requests to fail after the first one. Switch to "Direct" mode (recommended when using ESP device) or "Custom proxy" for reliable operation.`;
+    warningEl.textContent = '⚠ ESP proxy has limited RAM: large satellite responses (>4KB) will be rejected. Use "Custom proxy URL" for reliable operation with all satellites.';
   } else {
     warningEl.style.display = 'none';
   }
