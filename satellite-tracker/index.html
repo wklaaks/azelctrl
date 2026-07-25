@@ -471,10 +471,14 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-primary" id="refreshStatusBtn">Refresh Status</button>
-        <button class="btn btn-primary" id="refreshFreqBtn">Refresh Frequencies</button>
-        <button class="btn btn-sm" id="refreshNewSatsBtn">New Sats Only</button>
-        <button class="btn btn-sm" id="refreshStaleSatsBtn">Stale Sats Only</button>
+        <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
+        <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Freqs</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">New Sats Status</button>
+        <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">New Sats Freqs</button>
+        <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Stale Status</button>
+        <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Stale Freqs</button>
         <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
       </div>
       
@@ -1102,15 +1106,19 @@ async function refreshSatNOGSFrequencies(noradIds) {
 function disableRefreshButtons() {
   document.getElementById('refreshStatusBtn').disabled = true;
   document.getElementById('refreshFreqBtn').disabled = true;
-  document.getElementById('refreshNewSatsBtn').disabled = true;
-  document.getElementById('refreshStaleSatsBtn').disabled = true;
+  document.getElementById('refreshNewStatusBtn').disabled = true;
+  document.getElementById('refreshNewFreqBtn').disabled = true;
+  document.getElementById('refreshStaleStatusBtn').disabled = true;
+  document.getElementById('refreshStaleFreqBtn').disabled = true;
 }
 
 function enableRefreshButtons() {
   document.getElementById('refreshStatusBtn').disabled = false;
   document.getElementById('refreshFreqBtn').disabled = false;
-  document.getElementById('refreshNewSatsBtn').disabled = false;
-  document.getElementById('refreshStaleSatsBtn').disabled = false;
+  document.getElementById('refreshNewStatusBtn').disabled = false;
+  document.getElementById('refreshNewFreqBtn').disabled = false;
+  document.getElementById('refreshStaleStatusBtn').disabled = false;
+  document.getElementById('refreshStaleFreqBtn').disabled = false;
 }
 
 function getRefreshIntervalDays() {
@@ -1942,8 +1950,8 @@ document.getElementById('refreshFreqBtn').addEventListener('click', () => {
   refreshSatNOGSFrequencies(noradIds);
 });
 
-// New Sats Only button (both status and frequencies)
-document.getElementById('refreshNewSatsBtn').addEventListener('click', () => {
+// New Sats Status button
+document.getElementById('refreshNewStatusBtn').addEventListener('click', () => {
   const newSats = getNewSatellites();
   if (newSats.length === 0) {
     document.getElementById('satNOGSStatus').textContent = 'No new satellites to refresh';
@@ -1953,8 +1961,19 @@ document.getElementById('refreshNewSatsBtn').addEventListener('click', () => {
   refreshSatNOGSStatus(noradIds);
 });
 
-// Stale Sats Only button (both status and frequencies)
-document.getElementById('refreshStaleSatsBtn').addEventListener('click', () => {
+// New Sats Frequencies button
+document.getElementById('refreshNewFreqBtn').addEventListener('click', () => {
+  const newSats = getNewSatellites();
+  if (newSats.length === 0) {
+    document.getElementById('satNOGSStatus').textContent = 'No new satellites to refresh';
+    return;
+  }
+  const noradIds = newSats.map(s => s.norad);
+  refreshSatNOGSFrequencies(noradIds);
+});
+
+// Stale Sats Status button
+document.getElementById('refreshStaleStatusBtn').addEventListener('click', () => {
   const staleSats = getStaleSatellites();
   if (staleSats.length === 0) {
     document.getElementById('satNOGSStatus').textContent = 'No stale satellites to refresh';
@@ -1962,6 +1981,17 @@ document.getElementById('refreshStaleSatsBtn').addEventListener('click', () => {
   }
   const noradIds = staleSats.map(s => s.norad);
   refreshSatNOGSStatus(noradIds);
+});
+
+// Stale Sats Frequencies button
+document.getElementById('refreshStaleFreqBtn').addEventListener('click', () => {
+  const staleSats = getStaleSatellites();
+  if (staleSats.length === 0) {
+    document.getElementById('satNOGSStatus').textContent = 'No stale satellites to refresh';
+    return;
+  }
+  const noradIds = staleSats.map(s => s.norad);
+  refreshSatNOGSFrequencies(noradIds);
 });
 
 // Refresh interval setting
