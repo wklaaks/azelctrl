@@ -190,7 +190,9 @@ td.max-el-low { color: var(--muted); }
 #satPassTable tr.selected-row { background: rgba(255,165,0,0.25); border-left: 4px solid #ff8c00; }
 #satPassTable tr.selected-row td:first-child { font-weight: 600; }
 #satPassTable tr.overhead-row { color: #3fb950; }
-#satPassTable tr.pass-divider td { border-top: 2px solid var(--border); padding: 2px 0; }
+#satPassTable tr.pass-divider td { border-top: 3px solid #f85149; padding: 4px 0; }
+/* Alternating background per satellite group (all rows for same satellite share color) */
+/* Colors are applied inline in renderPassTable() */
 .btn-select { background: #238636; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
 .btn-select:hover { background: #2ea043; }
 .btn-select.selected { background: #6e7681; cursor: default; }
@@ -394,6 +396,11 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Show only active satellites</span>
+      <label class="toggle-switch" style="transform:scale(0.9);">
+        <input type="checkbox" id="satShowFreqs">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="satnogs-filter-label">Freq/Modes</span>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
@@ -1571,6 +1578,7 @@ function renderSatList() {
 function renderPassTable() {
   const passTableEl = document.getElementById('satPassTable');
   const showActiveOnly = document.getElementById('satNOGSFilterActive').checked;
+  const showFreqs = document.getElementById('satShowFreqs').checked;
   
   if (satellites.length === 0) {
     passTableEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No satellites stored yet</div>';
@@ -1630,7 +1638,7 @@ function renderPassTable() {
   const uniqueSats = new Set(filteredPasses.map(p => p.sat.name));
   document.getElementById('satCount').textContent = uniqueSats.size + ' satellite' + (uniqueSats.size !== 1 ? 's' : '');
 
-  const makeRow = (p, isFirstRow, txIndex, totalTx) => {
+  const makeRow = (p, isFirstRow, txIndex, totalTx, satGroupIndex) => {
     const aosStr = p.aos.toLocaleString('en-ZA', {
       weekday: 'short', day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit'
@@ -1656,7 +1664,7 @@ function renderPassTable() {
     const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
 
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
-    const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '').trim();
+    const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '') + (satGroupIndex % 2 === 0 ? ' sat-even' : ' sat-odd').trim();
     
     // Get SatNOGS data for this satellite
     const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
@@ -1668,7 +1676,7 @@ function renderPassTable() {
     let ulFreq = '<span class="no-data">—</span>';
     let modeCell = '<span class="no-data">—</span>';
     
-    if (satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
+    if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
       // If multi-transmitter and this is a specific row, use that transmitter
       const tx = (totalTx > 1 && txIndex < satNOGS.transmitters.length) 
         ? satNOGS.transmitters[txIndex] 
@@ -1691,53 +1699,69 @@ function renderPassTable() {
     const aosCell = isFirstRow ? aosStr : '';
     const minsCell = isFirstRow 
       ? `<td class="num" style="font-weight:600;font-family:monospace;" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}">${minsStr}</td>` 
-      : '';
+      : '<td></td>';
     const maxElCell = isFirstRow ? maxElStr : '';
     const selectCell = isFirstRow 
       ? `<td><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
-      : '';
+      : '<td></td>';
     
-    return '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '">' +
+    const bgColor = satGroupIndex % 2 === 0 ? 'rgba(30,58,138,0.45)' : 'rgba(22,101,52,0.35)';
+    
+    // Build row with conditional frequency columns
+    let row = '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '" style="background-color:' + bgColor + ';">' +
       '<td>' + satNameCell + '</td>' +
-      '<td style="width:40px;text-align:center;">' + statusDot + '</td>' +
-      '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
-      '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
-      '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>' +
-      '<td>' + aosCell + '</td>' +
+      '<td style="width:40px;text-align:center;">' + statusDot + '</td>';
+    
+    if (showFreqs) {
+      row += '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
+        '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
+        '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>';
+    }
+    
+    row += '<td>' + aosCell + '</td>' +
       minsCell +
       '<td>' + maxElCell + '</td>' +
       selectCell +
       '</tr>';
+    
+    return row;
   };
   
-  // Build table
+  // Build table header with conditional frequency columns
   let html = '<table><thead><tr>' +
     '<th>Satellite</th>' +
-    '<th style="width:40px;text-align:center;" title="Satellite status">●</th>' +
-    '<th style="width:100px;">DL Freq</th>' +
-    '<th style="width:100px;">UL Freq</th>' +
-    '<th style="width:70px;">Mode</th>' +
-    '<th>AOS Time</th>' +
+    '<th style="width:40px;text-align:center;" title="Satellite status">●</th>';
+  
+  if (showFreqs) {
+    html += '<th style="width:100px;">DL Freq</th>' +
+      '<th style="width:100px;">UL Freq</th>' +
+      '<th style="width:70px;">Mode</th>';
+  }
+  
+  html += '<th>AOS Time</th>' +
     '<th>Until</th>' +
     '<th>Max El</th>' +
     '<th></th>' +
     '</tr></thead><tbody>';
   
   // Render passes with multi-row support for multiple transmitters
+  let satGroupIndex = 0;
   const renderPasses = (passList) => {
     for (const p of passList) {
       const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
-      const txCount = (satNOGS && satNOGS.transmitters) ? satNOGS.transmitters.length : 0;
+      // When freqs are hidden, always show single row; when shown, use transmitter count
+      const txCount = showFreqs && satNOGS && satNOGS.transmitters ? satNOGS.transmitters.length : 1;
       
       if (txCount > 1) {
-        // Multi-row: one row per transmitter
+        // Multi-row: one row per transmitter, all with same group index
         for (let i = 0; i < txCount; i++) {
-          html += makeRow(p, i === 0, i, txCount);
+          html += makeRow(p, i === 0, i, txCount, satGroupIndex);
         }
       } else {
         // Single row
-        html += makeRow(p, true, 0, 1);
+        html += makeRow(p, true, 0, 1, satGroupIndex);
       }
+      satGroupIndex++;
     }
   };
   
@@ -1911,6 +1935,12 @@ function removeSat(index) {
 // Active satellites filter toggle
 document.getElementById('satNOGSFilterActive').addEventListener('change', (e) => {
   localStorage.setItem('satNOGSFilterActive', e.target.checked);
+  renderPassTable();
+});
+
+// Freq/Modes toggle
+document.getElementById('satShowFreqs').addEventListener('change', (e) => {
+  localStorage.setItem('satShowFreqs', e.target.checked);
   renderPassTable();
 });
 
@@ -3711,19 +3741,23 @@ document.getElementById('saveSatNOGSProxyBtn').addEventListener('click', () => {
 });
 
 // ==================== INITIALIZATION ====================
+
+// Load settings first before rendering
+const satNOGSFilterActive = localStorage.getItem('satNOGSFilterActive') === 'true';
+document.getElementById('satNOGSFilterActive').checked = satNOGSFilterActive;
+const satShowFreqs = localStorage.getItem('satShowFreqs') !== 'false';
+document.getElementById('satShowFreqs').checked = satShowFreqs;
+
+// Load SatNOGS refresh interval setting
+const refreshInterval = getRefreshIntervalDays();
+document.getElementById('satNOGSRefreshInterval').value = refreshInterval;
+
+// Render tables after settings are loaded
 renderSatList();
 renderPassTable();
 updateTrackSatSelect();
 updateCurrentSatDisplay();
 updateConnectionStatus();
-
-// Load SatNOGS filter setting
-const satNOGSFilterActive = localStorage.getItem('satNOGSFilterActive') === 'true';
-document.getElementById('satNOGSFilterActive').checked = satNOGSFilterActive;
-
-// Load SatNOGS refresh interval setting
-const refreshInterval = getRefreshIntervalDays();
-document.getElementById('satNOGSRefreshInterval').value = refreshInterval;
 
 // Update SatNOGS status display
 updateSatNOGSStats();
