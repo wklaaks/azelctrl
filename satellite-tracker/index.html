@@ -255,6 +255,38 @@ td.max-el-low { color: var(--muted); }
 .modal-close:hover { color: var(--text); }
 .modal .card { margin-bottom: 12px; }
 
+
+/* SatNOGS status dots */
+.sat-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.sat-status-dot.active { background: var(--green); }
+.sat-status-dot.no-signals { background: var(--orange); }
+.sat-status-dot.re-entered { background: var(--red); }
+.sat-status-dot.unknown { background: var(--muted); }
+
+/* Frequency columns */
+td.freq-cell { font-family: monospace; font-size: 0.8rem; }
+
+/* SatNOGS filter toggle */
+.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.satnogs-filter-label { font-size: 0.8rem; color: var(--muted); }
+
+/* SatNOGS data section */
+.satnogs-section { margin-top: 16px; }
+.satnogs-status { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.satnogs-progress { font-size: 0.8rem; color: var(--accent); margin-top: 4px; }
+
+/* Tracking tab frequency display */
+.tracking-freq-info { font-size: 0.8rem; color: var(--muted); margin-top: 4px; font-family: monospace; }
+.tracking-freq-expand { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.75rem; }
+.tracking-freq-list { margin-top: 2px; font-size: 0.75rem; color: var(--muted); }
+.tracking-freq-list li { margin: 1px 0; list-style: none; padding-left: 1em; }
+.tracking-freq-list li::before { content: "• "; color: var(--accent); }
+
+/* No data indicator */
+.no-data { color: var(--muted); font-style: italic; font-size: 0.75rem; }
+
+/* Manage tab SatNOGS panel */
+.manage-panel .card-title { margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -292,6 +324,11 @@ td.max-el-low { color: var(--muted); }
       </select>
       <div class="tle-age" id="currentTleAge"></div>
     </div>
+  </div>
+
+  <!-- SatNOGS frequency info (shown below sat selector) -->
+  <div class="card" id="trackingFreqCard" style="display:none;">
+    <div id="trackingFreqInfo"></div>
   </div>
 
   <div class="tracking-top">
@@ -351,7 +388,12 @@ td.max-el-low { color: var(--muted); }
 <div class="tab-content" id="tab-satellites">
   <div class="card">
     <div class="card-title">Upcoming Passes</div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
+    <div class="satnogs-filter-row">
+      <label class="toggle-switch" style="transform:scale(0.9);">
+        <input type="checkbox" id="satNOGSFilterActive">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="satnogs-filter-label">Show only active satellites</span>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
@@ -363,6 +405,7 @@ td.max-el-low { color: var(--muted); }
     <div class="tab active" data-manage-tab="remove">Remove</div>
     <div class="tab" data-manage-tab="browse">CelesTrak Add</div>
     <div class="tab" data-manage-tab="paste">Paste Add</div>
+    <div class="tab" data-manage-tab="satnogs">SatNOGS Data</div>
   </div>
   <div class="card">
     <div class="manage-panel active" id="manage-remove">
@@ -394,6 +437,34 @@ td.max-el-low { color: var(--muted); }
         <button class="btn btn-sm btn-fetch" id="fetchTleBtn">Fetch from CelesTrak</button>
       </div>
       <div id="tleStatus"></div>
+    </div>
+    <div class="manage-panel" id="manage-satnogs" style="display:none;">
+      <div class="card-title">SatNOGS Data</div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">
+        Fetch satellite status and transmitter frequencies from <a href="https://db.satnogs.org" target="_blank">SatNOGS DB</a>.
+        Data is cached in your browser and auto-refreshed when stale.
+      </p>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Auto-refresh interval</div>
+          <div class="setting-desc">Days between automatic data refresh</div>
+        </div>
+        <div class="setting-control">
+          <input type="number" id="satNOGSRefreshInterval" min="1" max="30" style="width:60px;" value="7">
+          <span style="font-size:0.8rem;color:var(--muted);">days</span>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-label">Last refresh</div>
+          <div class="setting-desc" id="satNOGSLastRefresh">Never</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-primary" id="refreshSatNOGSBtn">Refresh SatNOGS Data</button>
+      </div>
+      <div class="satnogs-status" id="satNOGSStatus"></div>
+      <div class="satnogs-progress" id="satNOGSProgress"></div>
     </div>
   </div>
 </div>
@@ -557,6 +628,258 @@ td.max-el-low { color: var(--muted); }
 </div>
 
 <script>
+// ==================== SATNOGS INTEGRATION ====================
+// SatNOGS API doesn't support CORS. We proxy through our local dev server.
+// When served from the device itself, the device handles the proxy.
+const SATNOGS_API = '/satnogs-proxy?url=';
+
+// Fetch satellite info from SatNOGS
+async function fetchSatelliteStatus(noradId) {
+  try {
+    const url = `${SATNOGS_API}/satellites/?norad_cat_id=${noradId}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      if (resp.status === 404) return null;
+      throw new Error(`SatNOGS satellites API error: ${resp.status}`);
+    }
+    const data = await resp.json();
+    const results = Array.isArray(data) ? data : (data.results || []);
+    return results.length > 0 ? results[0] : null;
+  } catch (e) {
+    console.error(`[SatNOGS] fetchSatelliteStatus('${noradId}') error:`, e.message);
+    throw e;
+  }
+}
+
+// Fetch active transmitters from SatNOGS
+async function fetchTransmitters(noradId) {
+  try {
+    const url = `${SATNOGS_API}/transmitters/?satellite__norad_cat_id=${noradId}&alive=true&status=active`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      if (resp.status === 404) return [];
+      throw new Error(`SatNOGS transmitters API error: ${resp.status}`);
+    }
+    const data = await resp.json();
+    const results = Array.isArray(data) ? data : (data.results || []);
+    return results;
+  } catch (e) {
+    console.error(`[SatNOGS] fetchTransmitters('${noradId}') error:`, e.message);
+    throw e;
+  }
+}
+
+// Combined fetch: returns structured SatNOGS data for a satellite
+async function fetchSatNOGSData(noradId) {
+  try {
+    const [satInfo, transmitters] = await Promise.allSettled([
+      fetchSatelliteStatus(noradId),
+      fetchTransmitters(noradId)
+    ]);
+
+    if (satInfo.status === 'rejected') {
+      throw satInfo.reason;
+    }
+
+    const satellite = satInfo.value;
+    const txList = transmitters.status === 'fulfilled' ? transmitters.value : [];
+
+    if (!satellite && txList.length === 0) {
+      return null; // Satellite not in SatNOGS DB
+    }
+
+    return {
+      satellite: satellite ? {
+        status: satellite.status,
+        decayed: satellite.decayed,
+        name: satellite.name,
+        names: satellite.names || ''
+      } : null,
+      transmitters: txList.map(tx => ({
+        uplink_low: tx.uplink_low,
+        uplink_high: tx.uplink_high,
+        downlink_low: tx.downlink_low,
+        downlink_high: tx.downlink_high,
+        mode: tx.mode,
+        alive: tx.alive,
+        status: tx.status
+      })),
+      lastUpdated: Date.now(),
+      hasActiveTransmitters: txList.length > 0
+    };
+  } catch (e) {
+    console.error(`[SatNOGS] fetchSatNOGSData('${noradId}') error:`, e.message);
+    throw e;
+  }
+}
+
+// localStorage management for SatNOGS data
+function getSatNOGSData(noradId) {
+  try {
+    const all = JSON.parse(localStorage.getItem('satNOGSData') || '{}');
+    return all[noradId] || null;
+  } catch (e) {
+    console.warn('[SatNOGS] getSatNOGSData error:', e);
+    return null;
+  }
+}
+
+function setSatNOGSData(noradId, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem('satNOGSData') || '{}');
+    all[noradId] = data;
+    localStorage.setItem('satNOGSData', JSON.stringify(all));
+  } catch (e) {
+    console.warn('[SatNOGS] setSatNOGSData error:', e);
+  }
+}
+
+function removeSatNOGSData(noradId) {
+  try {
+    const all = JSON.parse(localStorage.getItem('satNOGSData') || '{}');
+    delete all[noradId];
+    localStorage.setItem('satNOGSData', JSON.stringify(all));
+  } catch {
+    // ignore
+  }
+}
+
+function getAllCachedSatellites() {
+  try {
+    const all = JSON.parse(localStorage.getItem('satNOGSData') || '{}');
+    return Object.keys(all);
+  } catch {
+    return [];
+  }
+}
+
+function getRefreshIntervalDays() {
+  return parseInt(localStorage.getItem('satNOGSRefreshInterval') || '7');
+}
+
+function isDataStale(noradId) {
+  const data = getSatNOGSData(noradId);
+  if (!data) return true;
+  const intervalDays = getRefreshIntervalDays();
+  const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+  return (Date.now() - data.lastUpdated) > intervalMs;
+}
+
+// Helper: fetch or return cached SatNOGS data
+async function getOrFetchSatNOGSData(noradId, forceRefresh = false) {
+  const cached = getSatNOGSData(noradId);
+  if (cached && !forceRefresh && !isDataStale(noradId)) {
+    return cached;
+  }
+  try {
+    const data = await fetchSatNOGSData(noradId);
+    if (data) {
+      setSatNOGSData(noradId, data);
+    }
+    return data || cached; // Return cached if fetch returned null (not in DB)
+  } catch (e) {
+    console.warn(`[SatNOGS] getOrFetchSatNOGSData failed for ${noradId}:`, e.message);
+    return cached; // Return cached on error
+  }
+}
+
+// Helper: format frequency from Hz to MHz
+function formatFrequency(hz) {
+  if (hz === null || hz === undefined || isNaN(hz)) return null;
+  return (hz / 1000000).toFixed(3);
+}
+
+// Helper: format frequency range
+function formatFreqRange(lowHz, highHz) {
+  const low = formatFrequency(lowHz);
+  const high = formatFrequency(highHz);
+  if (!low) return null;
+  if (high && high !== low) return `${low}-${high}`;
+  return low;
+}
+
+// Helper: get satellite activity classification
+function getSatelliteActivity(noradId) {
+  const data = getSatNOGSData(noradId);
+  if (!data) return 'unknown';
+  if (data.satellite && (data.satellite.status === 're-entered' || data.satellite.decayed)) {
+    return 're-entered';
+  }
+  if (data.hasActiveTransmitters) {
+    return 'active';
+  }
+  if (data.satellite && data.satellite.status === 'alive') {
+    return 'no-signals';
+  }
+  return 'unknown';
+}
+
+// Helper: HTML for status dot
+function getActivityDot(activity) {
+  const cls = activity || 'unknown';
+  const label = {
+    'active': 'Active',
+    'no-signals': 'No signals',
+    're-entered': 'Re-entered',
+    'unknown': 'Unknown'
+  }[cls] || '';
+  return `<span class="sat-status-dot ${cls}" title="${label}"></span>`;
+}
+
+// Helper: check if satellite should be shown when "active only" filter is on
+function isSatelliteActive(noradId) {
+  const activity = getSatelliteActivity(noradId);
+  return activity === 'active';
+}
+
+// Helper: get primary transmitter info (first active transmitter)
+function getPrimaryTransmitter(noradId) {
+  const data = getSatNOGSData(noradId);
+  if (!data || !data.transmitters || data.transmitters.length === 0) return null;
+  return data.transmitters[0];
+}
+
+// Helper: format transmitter info for display
+function formatTransmitterInfo(tx) {
+  const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
+  const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
+  const mode = tx.mode || '';
+  let parts = [];
+  if (dl) parts.push(`DL: ${dl} MHz`);
+  if (ul) parts.push(`UL: ${ul} MHz`);
+  if (mode) parts.push(mode);
+  return parts.join(' | ');
+}
+
+// Refresh SatNOGS data for all satellites
+async function refreshAllSatNOGSData() {
+  const count = satellites.length;
+  let success = 0;
+  let failed = 0;
+
+  for (let i = 0; i < satellites.length; i++) {
+    const sat = satellites[i];
+    if (!sat.norad) continue;
+    try {
+      const data = await fetchSatNOGSData(sat.norad);
+      if (data) {
+        setSatNOGSData(sat.norad, data);
+        success++;
+      } else {
+        // Not in SatNOGS DB - not a failure
+        success++;
+      }
+    } catch (e) {
+      console.warn(`SatNOGS refresh failed for ${sat.name}:`, e);
+      failed++;
+    }
+    // Small delay to be respectful of the API
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  return { total: count, success, failed };
+}
+
 // ==================== CONFIGURATION ====================
 function normalizeApiBase(raw) {
   raw = (raw || '').trim();
@@ -805,6 +1128,7 @@ function renderSatList() {
 
 function renderPassTable() {
   const passTableEl = document.getElementById('satPassTable');
+  const showActiveOnly = document.getElementById('satNOGSFilterActive').checked;
   
   if (satellites.length === 0) {
     passTableEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No satellites stored yet</div>';
@@ -840,9 +1164,15 @@ function renderPassTable() {
     }
   }
   
+  // Apply active-only filter if enabled
+  let filteredPasses = passes;
+  if (showActiveOnly) {
+    filteredPasses = passes.filter(p => isSatelliteActive(p.sat.norad));
+  }
+  
   // Separate overhead from upcoming
-  const overhead = passes.filter(p => p.isOverhead);
-  const upcoming = passes.filter(p => !p.isOverhead);
+  const overhead = filteredPasses.filter(p => p.isOverhead);
+  const upcoming = filteredPasses.filter(p => !p.isOverhead);
   
   // Sort overhead by LOS time (earliest first), never-sets (geostationary) at bottom
   overhead.sort((a, b) => {
@@ -854,7 +1184,11 @@ function renderPassTable() {
   // Sort upcoming by minutes until AOS
   upcoming.sort((a, b) => a.minsUntil - b.minsUntil);
 
-  const makeRow = (p) => {
+  // Update satellite count display
+  const uniqueSats = new Set(filteredPasses.map(p => p.sat.name));
+  document.getElementById('satCount').textContent = uniqueSats.size + ' satellite' + (uniqueSats.size !== 1 ? 's' : '');
+
+  const makeRow = (p, isFirstRow, txIndex, totalTx) => {
     const aosStr = p.aos.toLocaleString('en-ZA', {
       weekday: 'short', day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit'
@@ -881,43 +1215,109 @@ function renderPassTable() {
 
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
     const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '').trim();
+    
+    // Get SatNOGS data for this satellite
+    const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
+    const activity = p.sat.norad ? getSatelliteActivity(p.sat.norad) : 'unknown';
+    const statusDot = getActivityDot(activity);
+    
+    // Frequency/mode info for this transmitter row
+    let dlFreq = '<span class="no-data">—</span>';
+    let ulFreq = '<span class="no-data">—</span>';
+    let modeCell = '<span class="no-data">—</span>';
+    
+    if (satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
+      // If multi-transmitter and this is a specific row, use that transmitter
+      const tx = (totalTx > 1 && txIndex < satNOGS.transmitters.length) 
+        ? satNOGS.transmitters[txIndex] 
+        : satNOGS.transmitters[0];
+      
+      const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
+      const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
+      
+      dlFreq = dl ? `<span style="font-family:monospace;">${dl}</span>` : '<span class="no-data">—</span>';
+      ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
+      modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
+    }
+    
+    // Satellite name (only on first row for multi-transmitter)
+    const satNameCell = isFirstRow 
+      ? `<div style="display:flex;align-items:center;gap:6px;">${p.sat.name}</div>` 
+      : '<div style="padding-left:4px;"></div>';
+    
+    // AOS/LOS info (only on first row)
+    const aosCell = isFirstRow ? aosStr : '';
+    const minsCell = isFirstRow 
+      ? `<td class="num" style="font-weight:600;font-family:monospace;" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}">${minsStr}</td>` 
+      : '';
+    const maxElCell = isFirstRow ? maxElStr : '';
+    const selectCell = isFirstRow 
+      ? `<td><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
+      : '';
+    
     return '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '">' +
-      '<td>' + p.sat.name + '</td>' +
-      '<td class="num">' + aosStr + '</td>' +
-      '<td class="num" style="font-weight:600;font-family:monospace;" data-aos="' + p.aos.getTime() + '" data-los="' + p.los.getTime() + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '" data-neversets="' + (p.neverSets ? '1' : '0') + '">' + minsStr + '</td>' +
-      '<td class="num">' + maxElStr + '</td>' +
-      '<td><button class="btn-select' + (isSelected ? ' selected"' : '"') + (isSelected ? ' disabled' : '') + ' data-name="' + p.sat.name + '">' + (isSelected ? 'Selected' : 'Select') + '</button></td>' +
+      '<td>' + satNameCell + '</td>' +
+      '<td style="width:40px;text-align:center;">' + statusDot + '</td>' +
+      '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
+      '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
+      '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>' +
+      '<td>' + aosCell + '</td>' +
+      minsCell +
+      '<td>' + maxElCell + '</td>' +
+      selectCell +
       '</tr>';
   };
   
   // Build table
   let html = '<table><thead><tr>' +
     '<th>Satellite</th>' +
+    '<th style="width:40px;text-align:center;" title="Satellite status">●</th>' +
+    '<th style="width:100px;">DL Freq</th>' +
+    '<th style="width:100px;">UL Freq</th>' +
+    '<th style="width:70px;">Mode</th>' +
     '<th>AOS Time</th>' +
     '<th>Until</th>' +
     '<th>Max El</th>' +
     '<th></th>' +
     '</tr></thead><tbody>';
   
+  // Render passes with multi-row support for multiple transmitters
+  const renderPasses = (passList) => {
+    for (const p of passList) {
+      const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
+      const txCount = (satNOGS && satNOGS.transmitters) ? satNOGS.transmitters.length : 0;
+      
+      if (txCount > 1) {
+        // Multi-row: one row per transmitter
+        for (let i = 0; i < txCount; i++) {
+          html += makeRow(p, i === 0, i, txCount);
+        }
+      } else {
+        // Single row
+        html += makeRow(p, true, 0, 1);
+      }
+    }
+  };
+  
   // Overhead satellites first
-  for (const p of overhead) {
-    html += makeRow(p);
-  }
+  renderPasses(overhead);
   
   // Divider if we have both overhead and upcoming
   if (overhead.length > 0 && upcoming.length > 0) {
-    html += '<tr class="pass-divider"><td colspan="5"></td></tr>';
+    html += '<tr class="pass-divider"><td colspan="9"></td></tr>';
   }
   
   // Upcoming passes
-  for (const p of upcoming) {
-    html += makeRow(p);
-  }
+  renderPasses(upcoming);
   
   html += '</tbody></table>';
   
-  if (passes.length === 0) {
-    html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No upcoming passes found in next 48 hours</div>';
+  if (filteredPasses.length === 0) {
+    if (showActiveOnly) {
+      html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No active satellites with upcoming passes. Toggle filter to see all.</div>';
+    } else {
+      html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No upcoming passes found in next 48 hours</div>';
+    }
   }
   
   passTableEl.innerHTML = html;
@@ -979,6 +1379,62 @@ function updateCurrentSatDisplay() {
   const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
   ageEl.className = 'tle-age ' + ageClass;
   ageEl.textContent = 'TLE: ' + formatAge(age);
+  
+  // Update SatNOGS frequency info display
+  updateTrackingFreqInfo(sat);
+}
+
+// Update frequency/mode info in Tracking tab
+function updateTrackingFreqInfo(sat) {
+  const card = document.getElementById('trackingFreqCard');
+  const infoEl = document.getElementById('trackingFreqInfo');
+  
+  if (!sat || !sat.norad) {
+    card.style.display = 'none';
+    return;
+  }
+  
+  const data = getSatNOGSData(sat.norad);
+  if (!data || !data.transmitters || data.transmitters.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  
+  card.style.display = 'block';
+  const txList = data.transmitters;
+  const primary = txList[0];
+  const primaryInfo = formatTransmitterInfo(primary);
+  
+  let html = `<div style="display:flex;align-items:center;gap:8px;">`;
+  html += `<span style="font-size:0.8rem;color:var(--muted);">Freq:</span>`;
+  html += `<span class="tracking-freq-info">${primaryInfo}</span>`;
+  
+  if (txList.length > 1) {
+    html += `<span class="tracking-freq-expand" id="trackingFreqExpand">(+${txList.length - 1} more)</span>`;
+  }
+  html += `</div>`;
+  
+  // Collapsible list of additional transmitters
+  html += `<ul class="tracking-freq-list" id="trackingFreqList" style="display:none;">`;
+  for (let i = 1; i < txList.length; i++) {
+    const tx = txList[i];
+    const info = formatTransmitterInfo(tx);
+    html += `<li>${info}</li>`;
+  }
+  html += `</ul>`;
+  
+  infoEl.innerHTML = html;
+  
+  // Expand/collapse handler
+  const expandBtn = document.getElementById('trackingFreqExpand');
+  const freqList = document.getElementById('trackingFreqList');
+  if (expandBtn && freqList) {
+    expandBtn.addEventListener('click', () => {
+      const isHidden = freqList.style.display === 'none';
+      freqList.style.display = isHidden ? 'block' : 'none';
+      expandBtn.textContent = isHidden ? '(- hide)' : `(+${txList.length - 1} more)`;
+    });
+  }
 }
 
 function updateTrackSatSelect() {
@@ -996,6 +1452,11 @@ function updateTrackSatSelect() {
 }
 
 function removeSat(index) {
+  const sat = satellites[index];
+  // Clean up cached SatNOGS data
+  if (sat && sat.norad) {
+    removeSatNOGSData(sat.norad);
+  }
   satellites.splice(index, 1);
   if (selectedSatIndex === index) {
     selectedSatIndex = -1;
@@ -1004,6 +1465,12 @@ function removeSat(index) {
   saveSatellites();
   updateCurrentSatDisplay(); updateTrackSatSelect();
 }
+
+// Active satellites filter toggle
+document.getElementById('satNOGSFilterActive').addEventListener('change', (e) => {
+  localStorage.setItem('satNOGSFilterActive', e.target.checked);
+  renderPassTable();
+});
 
 // Sort by name (Manage tab)
 document.getElementById('sortByNameBtn').addEventListener('click', () => {
@@ -1084,6 +1551,109 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
   }
 });
 
+// ==================== SATNOGS MANAGE TAB ====================
+// Update SatNOGS status display
+function updateSatNOGSStatusDisplay() {
+  const statusEl = document.getElementById('satNOGSStatus');
+  const lastRefreshEl = document.getElementById('satNOGSLastRefresh');
+  
+  if (!statusEl) return;
+  
+  // Count satellites with data
+  let withData = 0;
+  let stale = 0;
+  let lastUpdated = null;
+  
+  for (const sat of satellites) {
+    if (!sat.norad) continue;
+    const data = getSatNOGSData(sat.norad);
+    if (data) {
+      withData++;
+      if (isDataStale(sat.norad)) stale++;
+      if (!lastUpdated || data.lastUpdated > lastUpdated) {
+        lastUpdated = data.lastUpdated;
+      }
+    }
+  }
+  
+  if (lastUpdated) {
+    const d = new Date(lastUpdated);
+    lastRefreshEl.textContent = d.toLocaleString('en-ZA');
+  } else {
+    lastRefreshEl.textContent = 'Never';
+  }
+  
+  if (satellites.length === 0) {
+    statusEl.textContent = 'No satellites added yet';
+  } else if (withData === 0) {
+    statusEl.textContent = 'No SatNOGS data cached. Click Refresh to fetch.';
+  } else {
+    statusEl.textContent = `Data cached for ${withData}/${satellites.length} satellites${stale > 0 ? ` (${stale} stale)` : ''}`;
+  }
+}
+
+// Refresh button handler
+document.getElementById('refreshSatNOGSBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshSatNOGSBtn');
+  const progressEl = document.getElementById('satNOGSProgress');
+  const statusEl = document.getElementById('satNOGSStatus');
+  
+  const toRefresh = satellites.filter(s => s.norad);
+  if (toRefresh.length === 0) {
+    statusEl.textContent = 'No satellites with NORAD IDs to refresh';
+    return;
+  }
+  
+  // Show confirmation if many satellites
+  if (toRefresh.length > 5) {
+    const estimatedTime = Math.ceil(toRefresh.length * 0.2);
+    const msg = `Refreshing SatNOGS data for ${toRefresh.length} satellites. This may take ${estimatedTime}-${estimatedTime * 2} seconds. Continue?`;
+    if (!confirm(msg)) return;
+  }
+  
+  btn.disabled = true;
+  btn.textContent = 'Refreshing...';
+  progressEl.textContent = `Refreshing: 0/${toRefresh.length}...`;
+  
+  let success = 0;
+  let failed = 0;
+  
+  for (let i = 0; i < toRefresh.length; i++) {
+    const sat = toRefresh[i];
+    try {
+      const data = await fetchSatNOGSData(sat.norad);
+      if (data) {
+        setSatNOGSData(sat.norad, data);
+      }
+      success++;
+    } catch (e) {
+      failed++;
+    }
+    progressEl.textContent = `Refreshing: ${i + 1}/${toRefresh.length}...`;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  
+  btn.disabled = false;
+  btn.textContent = 'Refresh SatNOGS Data';
+  progressEl.textContent = '';
+  updateSatNOGSStatusDisplay();
+  renderPassTable(); // Refresh table to show updated data
+  
+  // Update tracking tab if showing a satellite
+  if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
+    updateTrackingFreqInfo(satellites[selectedSatIndex]);
+  }
+});
+
+// Refresh interval setting
+document.getElementById('satNOGSRefreshInterval').addEventListener('change', (e) => {
+  let val = parseInt(e.target.value);
+  if (isNaN(val) || val < 1) val = 1;
+  if (val > 30) val = 30;
+  e.target.value = val;
+  localStorage.setItem('satNOGSRefreshInterval', val);
+});
+
 // ==================== REFRESH ALL TLES ====================
 document.getElementById('refreshTlesBtn').addEventListener('click', async () => {
   const countEl = document.getElementById('satCount');
@@ -1160,6 +1730,14 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
     document.getElementById('newSatNORAD').value = '';
     document.getElementById('tleInput').value = '';
     showBanner(statusEl, 'Added ' + name, 'info');
+    
+    // Fetch SatNOGS data for new satellite
+    if (newSat.norad) {
+      getOrFetchSatNOGSData(newSat.norad, true).then(() => {
+        renderPassTable();
+        updateTrackingFreqInfo(newSat);
+      }).catch(() => {});
+    }
   } catch (e) {
     showBanner(statusEl, 'Invalid TLE: ' + e.message, 'error');
   }
@@ -1221,6 +1799,14 @@ async function fetchTleForNORAD(norad, preferredName) {
     document.getElementById('newSatNORAD').value = norad;
     document.getElementById('tleInput').value = line1 + '\n' + line2;
     console.log('fetchTleForNORAD: done');
+    
+    // Fetch SatNOGS data for new/updated satellite
+    if (newSat.norad) {
+      getOrFetchSatNOGSData(newSat.norad, true).then(() => {
+        renderPassTable();
+        updateTrackingFreqInfo(newSat);
+      }).catch(() => {});
+    }
   } catch (e) {
     console.error('fetchTleForNORAD error:', e);
     showBanner(statusEl, 'Failed to fetch TLE: ' + e.message, 'error');
@@ -2659,6 +3245,40 @@ updateTrackSatSelect();
 updateCurrentSatDisplay();
 updateConnectionStatus();
 
+// Load SatNOGS filter setting
+const satNOGSFilterActive = localStorage.getItem('satNOGSFilterActive') === 'true';
+document.getElementById('satNOGSFilterActive').checked = satNOGSFilterActive;
+
+// Load SatNOGS refresh interval setting
+const refreshInterval = getRefreshIntervalDays();
+document.getElementById('satNOGSRefreshInterval').value = refreshInterval;
+
+// Update SatNOGS status display
+updateSatNOGSStatusDisplay();
+
+// Auto-refresh stale SatNOGS data on load
+(async () => {
+  const staleSats = satellites.filter(s => s.norad && isDataStale(s.norad));
+  if (staleSats.length === 0) return;
+  
+  console.log(`Auto-refreshing SatNOGS data for ${staleSats.length} stale satellites...`);
+  
+  for (const sat of staleSats) {
+    try {
+      const data = await fetchSatNOGSData(sat.norad);
+      if (data) {
+        setSatNOGSData(sat.norad, data);
+      }
+    } catch (e) {
+      // Silent on auto-refresh
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  
+  updateSatNOGSStatusDisplay();
+  renderPassTable();
+})();
+
 // Recompute passes every 60 seconds (matches Tracking tab cache interval)
 setInterval(renderPassTable, 60000);
 
@@ -2682,7 +3302,7 @@ setTimeout(() => {
 }, 500);
 
 // App version display (for cache-busting verification)
-document.getElementById('appVersion').textContent = 'v1.2.28';
+document.getElementById('appVersion').textContent = 'v1.3.0';
 </script>
 </body>
 </html>
