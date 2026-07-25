@@ -461,25 +461,32 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div class="setting-row">
         <div>
           <div class="setting-label">Select satellite</div>
-          <div class="setting-desc">Or refresh a specific satellite</div>
+          <div class="setting-desc">Choose which satellite(s) to refresh below</div>
         </div>
         <div class="setting-control">
           <select id="satNOGSSatSelect" style="min-width:180px;">
-            <option value="0">— All satellites —</option>
+            <option value="">— All satellites —</option>
           </select>
         </div>
       </div>
       
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
-        <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Freqs</button>
+      <div style="margin-top:12px;">
+        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Selected satellite(s):</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
+          <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Frequencies</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">New Sats Status</button>
-        <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">New Sats Freqs</button>
-        <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Stale Status</button>
-        <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Stale Freqs</button>
-        <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
+      
+      <div style="margin-top:12px;">
+        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">All satellites:</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Never Fetched</button>
+          <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Never Fetched</button>
+          <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Stale Only</button>
+          <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Stale Only</button>
+          <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satNOGSStats"></span>
+        </div>
       </div>
       
       <div class="satnogs-status" id="satNOGSStatus"></div>
