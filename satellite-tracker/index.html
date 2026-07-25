@@ -2813,50 +2813,50 @@ function computeNextPass(satrec, now, minEl, stationLat, stationLon, stationAlt)
 }
 
 // ==================== TRACKING TAB AOS/LOS TIMER ====================
+// Cache for AOS/LOS times
+let cachedLosTime = null;
+let cachedAosTime = null;
+let cachedAosAz = null;
+let cachedLosAz = null;
+let cachedIsOverhead = false;
+let cachedNeverSets = false;
+let cachedTime = null;
+
 function updateAosLosTimer(satrec, now) {
   const timerEl = document.getElementById('aosLosTimer');
   const azEl = document.getElementById('aosLosAz');
   // Use 0° for AOS/LOS display (horizon), not the min elevation setting
   const horizonEl = 0;
-  
+
   // Recompute pass prediction more frequently when close to LOS/AOS
-  // Every second when within 30 seconds, every 10 seconds when within 2 minutes, otherwise every 60 seconds
   const timeToLos = cachedLosTime ? cachedLosTime - now.getTime() : Infinity;
   const timeToAos = cachedAosTime ? cachedAosTime - now.getTime() : Infinity;
   const nearEvent = Math.min(timeToLos, timeToAos);
   let recomputeInterval = 60000;
   if (nearEvent < 30000) {
-    recomputeInterval = 1000; // every second when within 30 seconds
+    recomputeInterval = 1000;
   } else if (nearEvent < 120000) {
-    recomputeInterval = 10000; // every 10 seconds when within 2 minutes
+    recomputeInterval = 10000;
   }
   const shouldRecompute = !cachedTime || (now.getTime() - cachedTime) > recomputeInterval;
-  
+
   if (shouldRecompute) {
     cachedTime = now.getTime();
     const pass = computeNextPass(satrec, now, horizonEl, stationLocation.lat, stationLocation.lon, stationLocation.alt);
-    
+
     if (pass) {
       // If we were tracking a current pass and satellite just went below horizon,
       // don't let this find the next orbit's pass — keep current cached LOS
       if (cachedIsOverhead && !pass.isOverhead && pass.aosTime > now) {
-        // Satellite was overhead, now computeNextPass found a future pass = next orbit
         // Keep the current cached LOS until it expires
-      if (pass) {
-        // If we were tracking a current pass and satellite just went below horizon,
-        // don't let this find the next orbit's pass — keep current cached LOS
-        if (cachedIsOverhead && !pass.isOverhead && pass.aosTime > now) {
-          // Satellite was overhead, now computeNextPass found a future pass = next orbit
-          // Keep the current cached LOS until it expires
-        } else {
-          cachedAosTime = pass.aosTime;
-          cachedLosTime = pass.losTime;
-          cachedAosAz = pass.aosAz;
-          cachedLosAz = pass.losAz;
-          cachedIsOverhead = pass.isOverhead;
-          cachedNeverSets = pass.neverSets;
-        }
       } else {
+        cachedAosTime = pass.aosTime;
+        cachedLosTime = pass.losTime;
+        cachedAosAz = pass.aosAz;
+        cachedLosAz = pass.losAz;
+        cachedIsOverhead = pass.isOverhead;
+        cachedNeverSets = pass.neverSets;
+      }
     } else {
       cachedAosTime = null;
       cachedLosTime = null;
@@ -2866,39 +2866,34 @@ function updateAosLosTimer(satrec, now) {
       cachedNeverSets = false;
     }
   }
-  
-  // Display using cached times (seconds count down in real-time)
-  // Also check actual elevation — if satellite is below horizon, clear LOS immediately
-  const currentEl = top.elevation * 180 / Math.PI;
-  
+
+  // Check actual elevation every second
+  const top = satellite.propagate(satrec, now);
+  const currentEl = top && top.position ? computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt).elevation * 180 / Math.PI : -90;
+
   if (cachedLosTime !== null && cachedIsOverhead) {
     if (cachedNeverSets) {
-      timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ∞</span>';
+      timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> \u221e</span>';
       azEl.innerHTML = '<span class="aoslos-label"></span><span class="aoslos-value"></span>';
     } else {
-      // If satellite is actually below horizon now, clear LOS
-      if (currentEl < 0) {
+      // If satellite is actually below horizon now, or cached time passed, clear LOS
+      if (currentEl < 0 || cachedLosTime - now.getTime() <= 0) {
         timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> ---:--:--</span>';
         azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
       } else {
         const diff = cachedLosTime - now.getTime();
-        if (diff <= 0) {
-          timerEl.innerHTML = '<span class="aoslos-label">LOS: </span><span class="aoslos-value"> ---:--:--</span>';
-          azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
+        const hours = Math.floor(diff / 3600000);
+        const mins = Math.floor((diff % 3600000) / 60000);
+        const secs = Math.floor((diff % 60000) / 1000);
+        if (hours > 0) {
+          timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
         } else {
-          const hours = Math.floor(diff / 3600000);
-          const mins = Math.floor((diff % 3600000) / 60000);
-          const secs = Math.floor((diff % 60000) / 1000);
-          if (hours > 0) {
-            timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-          } else {
-            timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
-          }
-          if (cachedLosAz !== null) {
-            azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '°</span>';
-          } else {
-            azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
-          }
+          timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
+        }
+        if (cachedLosAz !== null) {
+          azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedLosAz)).padStart(3, '0') + '\u00B0</span>';
+        } else {
+          azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value"></span>';
         }
       }
     }
@@ -2917,7 +2912,7 @@ function updateAosLosTimer(satrec, now) {
         timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
       }
       if (cachedAosAz !== null) {
-        azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '°</span>';
+        azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ' + String(Math.round(cachedAosAz)).padStart(3, '0') + '\u00B0</span>';
       } else {
         azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value"></span>';
       }
@@ -2928,14 +2923,6 @@ function updateAosLosTimer(satrec, now) {
   }
 }
 
-// Cache for AOS/LOS times
-let cachedLosTime = null;
-let cachedAosTime = null;
-let cachedAosAz = null;
-let cachedLosAz = null;
-let cachedIsOverhead = false;
-let cachedNeverSets = false;
-let cachedTime = null;
 
 // ==================== UTILITY FUNCTIONS ====================
 function formatTimeRemaining(totalSeconds) {
