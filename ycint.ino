@@ -35,6 +35,7 @@
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 #include <EEPROM.h>
+#include <ESP8266HTTPClient.h>
 
 // ==================== EEPROM LAYOUT ====================
 // All settings in one contiguous block. Using 512 bytes = one full flash sector
@@ -115,17 +116,17 @@ bool rotctlServerStarted = false;  // Guard against double init
 #define PROTOCOL_BUF_SIZE 64
 
 // ==================== PIN DEFINITIONS ====================
-const int AZ_ENABLE  = D2;   // GPIO4
-const int AZ_DIR_CW  = D3;   // GPIO0
-const int EL_ENABLE  = D1;   // GPIO5
-const int EL_DIR_UP  = D4;   // GPIO2
+const int AZ_ENABLE  = 4;   // GPIO4
+const int AZ_DIR_CW  = 0;   // GPIO0
+const int EL_ENABLE  = 5;   // GPIO5
+const int EL_DIR_UP  = 2;   // GPIO2
 
-const int SDA_PIN = D6;      // GPIO12
-const int SCL_PIN = D7;      // GPIO13
+const int SDA_PIN = 12;     // GPIO12
 
-const int BTN1 = D8;         // GPIO15 - active HIGH
-const int BTN2 = D5;         // GPIO14 - active LOW
+const int SCL_PIN = 13;     // GPIO13
 
+const int BTN1 = 15;         // GPIO15 - active HIGH
+const int BTN2 = 14;         // GPIO14 - active LOW
 // ==================== BUTTON TIMING ====================
 const unsigned long BTN_DEBOUNCE_MS = 200;   // Debounce between presses
 const unsigned long BTN_LONG_MS = 800;       // Long press threshold for menu select
@@ -5391,6 +5392,69 @@ void handleButtons() {
 }
 
 // ====================== WEB SERVER ======================
+// SatNOGS proxy: persistent client to avoid memory leaks
+static WiFiClientSecure satNOGSClient;
+static bool satNOGSClientInit = false;
+
+void handleSatNOGSProxy() {
+  String urlParam = server.arg("url");
+  if (urlParam.isEmpty()) {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(400, "application/json", "{\"error\":\"Missing 'url' parameter\"}");
+    return;
+  }
+
+  String targetUrl = "https://db.satnogs.org/api" + urlParam;
+
+  if (!satNOGSClientInit) {
+    satNOGSClient.setInsecure();
+    satNOGSClient.setBufferSizes(1024, 1024);
+    satNOGSClientInit = true;
+  }
+  satNOGSClient.stop();
+
+  HTTPClient http;
+  http.begin(satNOGSClient, targetUrl);
+  http.setTimeout(30000);
+
+  int httpCode = http.GET();
+  if (httpCode <= 0) {
+    String error = http.errorToString(httpCode);
+    http.end();
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(502, "application/json", "{\"error\":\"Request failed: " + error + "\"}");
+    return;
+  }
+
+  int contentLength = http.getSize();
+  Serial.print("[SATPROXY] Status: ");
+  Serial.print(httpCode);
+  Serial.print(", Size: ");
+  Serial.println(contentLength);
+
+  // Limit to small responses - ESP8266 has very limited RAM
+  if (contentLength > 4096) {
+    http.end();
+    Serial.print("[SATPROXY] Response too large: ");
+    Serial.println(contentLength);
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(503, "application/json", "{\"error\":\"Response too large for ESP proxy. Use Direct or Custom proxy mode.\"}");
+    return;
+  }
+
+  WiFiClient* stream = http.getStreamPtr();
+  stream->setTimeout(30000);
+  String body = stream->readString();
+  http.end();
+
+  Serial.print("[SATPROXY] Read ");
+  Serial.print(body.length());
+  Serial.println(" bytes");
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(httpCode, "application/json", body);
+}
+
 String webLastMove = "";
 unsigned long webMoveTime = 0;
 
@@ -5629,7 +5693,10 @@ void setupWebServer() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
   });
-  
+
+  // SatNOGS proxy endpoint
+  server.on("/satnogs-proxy", HTTP_GET, handleSatNOGSProxy);
+
   server.begin();
   Serial.println("HTTP server started on port 80");
 }
