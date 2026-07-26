@@ -1642,11 +1642,22 @@ document.getElementById('elfToggle').addEventListener('change', async (e) => {
   }
 });
 
+// Hard stop angles by model — direction-dependent
+// Clockwise = increasing azimuth, Counter-clockwise = decreasing azimuth
+const HARD_STOPS = {
+  N360: { cw: 180, ccw: 180 },  // Single stop — same both directions
+  S360: { cw: 0, ccw: 0 },      // Single stop — same both directions
+  N450: { cw: 225, ccw: 135 },  // CW stops at SW, CCW stops at SE
+  S450: { cw: 45, ccw: 315 }    // CW stops at NE, CCW stops at NW
+};
+
 // Check if a satellite pass crosses a rotator hard stop boundary
+// Direction of azimuth movement determines which stop is the active constraint
 // Returns: null (no crossing) or the stop angle that's crossed
 function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLon, stationAlt) {
-  if (!rotatorModel || !rotatorModel.stops) return null;
-  const stops = rotatorModel.stops;
+  if (!rotatorModel || !rotatorModel.model) return null;
+  const stops = HARD_STOPS[rotatorModel.model];
+  if (!stops) return null;
 
   const interval = 15000; // 15-second samples
   let t = new Date(aosTime);
@@ -1660,17 +1671,22 @@ function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLo
       const az = (pos.azimuth * 180 / Math.PI + 360) % 360;
       
       if (prevAz !== null) {
-        // Check each stop to see if the pass crossed it
-        for (const stop of stops) {
-          // Check if azimuth crossed through this stop
-          const cross = ((prevAz > stop && az < stop) || (prevAz < stop && az > stop));
-          if (cross) {
-            // Verify genuine crossing (not a 360° wrap artifact)
-            const diff = Math.abs(az - prevAz);
-            const circularDiff = Math.min(diff, 360 - diff);
-            if (circularDiff < 170) {
-              return stop;
-            }
+        // Determine direction of azimuth movement
+        const diff = az - prevAz;
+        const normalizedDiff = diff > 180 ? diff - 360 : (diff < -180 ? diff + 360 : diff);
+        const isClockwise = normalizedDiff > 0;
+        
+        // Only check the stop that applies to this direction
+        const activeStop = isClockwise ? stops.cw : stops.ccw;
+        
+        // Check if azimuth crossed through this stop
+        const cross = ((prevAz > activeStop && az < activeStop) || 
+                       (prevAz < activeStop && az > activeStop));
+        if (cross) {
+          // Verify genuine crossing (not a 360° wrap artifact)
+          const circularDiff = Math.min(Math.abs(az - prevAz), 360 - Math.abs(az - prevAz));
+          if (circularDiff < 170) {
+            return activeStop;
           }
         }
       }

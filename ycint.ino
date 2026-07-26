@@ -5694,34 +5694,11 @@ void setupWebServer() {
     server.send(200, "application/json", json);
   });
 
-  // GET /api/rotator — rotator model and hard stop angles
-  // Response: {"model":"N360","stops":[180]}
-  // N360/S360: single stop (360° range, one wrap point)
-  // N450/S450: two stops (450° range, two hard limits)
+  // GET /api/rotator — rotator model (hard stops are direction-dependent, defined in UI)
   server.on("/api/rotator", []() {
     const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
-    switch (rotModel) {
-      case ROT_N360:
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(200, "application/json", "{\"model\":\"N360\",\"stops\":[180]}");
-        break;
-      case ROT_S360:
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(200, "application/json", "{\"model\":\"S360\",\"stops\":[0]}");
-        break;
-      case ROT_N450:
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(200, "application/json", "{\"model\":\"N450\",\"stops\":[135,225]}");
-        break;
-      case ROT_S450:
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(200, "application/json", "{\"model\":\"S450\",\"stops\":[315,45]}");
-        break;
-      default:
-        server.sendHeader("Access-Control-Allow-Origin", "*");
-        server.send(200, "application/json", "{\"model\":\"N360\",\"stops\":[180]}");
-        break;
-    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"model\":\"" + String(modelNames[rotModel]) + "\"}");
   });
 
   // SatNOGS proxy endpoint
