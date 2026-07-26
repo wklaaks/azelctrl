@@ -2068,6 +2068,7 @@ function renderPassTable() {
     let dlFreq = '<span class="no-data">—</span>';
     let ulFreq = '<span class="no-data">—</span>';
     let modeCell = '<span class="no-data">—</span>';
+    let freqHideCell = '<td></td>';
     
     if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
       // When Freq-Hide is ON, show only visible (non-hidden) transmitters
@@ -2094,7 +2095,7 @@ function renderPassTable() {
         modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
       }
       
-      // Add freq-hide toggle button when Freq-Hide is OFF (so user can mark frequencies to hide)
+      // Freq-hide toggle button
       if (!freqHideOn && visTx.length > 0) {
         const tx = (totalTx > 1 && txIndex < visTx.length) 
           ? visTx[txIndex] 
@@ -2103,7 +2104,9 @@ function renderPassTable() {
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
         const btnText = hidden ? '☐' : '☑';
         const key = freqKey(p.sat.norad, tx);
-        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-key="${key}" title="${hidden ? 'Show this frequency' : 'Hide this frequency'}">${btnText}</button></span>`;
+        freqHideCell = `<td style="text-align:center;"><button class="${btnClass}" data-key="${key}" title="${hidden ? 'Show this frequency' : 'Hide this frequency'}">${btnText}</button></td>`;
+      } else {
+        freqHideCell = '<td></td>';
       }
     }
     
@@ -2142,7 +2145,10 @@ function renderPassTable() {
     if (showFreqs) {
       row += '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
         '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
-        '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>';
+        '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>' +
+        freqHideCell;
+    } else {
+      row += '<td></td>';
     }
     
     row += '<td>' + aosCell + '</td>' +
@@ -2163,7 +2169,10 @@ function renderPassTable() {
   if (showFreqs) {
     html += '<th style="width:100px;">DL Freq</th>' +
       '<th style="width:100px;">UL Freq</th>' +
-      '<th style="width:70px;">Mode</th>';
+      '<th style="width:70px;">Mode</th>' +
+      '<th style="width:28px;"></th>';
+  } else {
+    html += '<th style="width:28px;"></th>';
   }
   
   html += '<th>AOS Time</th>' +
