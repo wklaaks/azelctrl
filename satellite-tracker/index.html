@@ -300,12 +300,12 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 /* Hide toggle buttons */
 .hide-toggle { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
 .hide-toggle-btn {
-  background: none; border: 1px solid var(--border); color: var(--muted);
-  font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; cursor: pointer;
-  transition: all 0.15s;
+  background: #22c55e; border: 1px solid #22c55e; color: #000;
+  font-size: 0.9rem; padding: 0px 2px; border-radius: 2px; cursor: pointer;
+  transition: all 0.15s; line-height: 1;
 }
 .hide-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-.hide-toggle-btn.hidden { background: var(--orange); border-color: var(--orange); color: #000; }
+.hide-toggle-btn.hidden { background: var(--red); border-color: var(--red); color: #fff; }
 .freq-hide-toggle { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; margin-left: 4px; }
 .freq-hide-btn {
   background: var(--orange); border: 1px solid var(--orange); color: #000;
@@ -2126,12 +2126,12 @@ function renderPassTable() {
       : '<td></td>';
     
     // Sat-Hide toggle (only on first row, when Sat-Hide is OFF so user can configure)
-    const hideCell = isFirstRow && !satHideOn
+    const satHideCell = isFirstRow && !satHideOn
       ? (() => {
           const hidden = hiddenSats.has(p.sat.norad);
           const btnClass = hidden ? 'hide-toggle-btn hidden' : 'hide-toggle-btn';
-          const btnText = hidden ? 'Unhide' : 'Hide';
-          return `<td><button class="${btnClass}" data-norad="${p.sat.norad}" title="${hidden ? 'Unhide this satellite' : 'Hide this satellite'}">${btnText}</button></td>`;
+          const btnText = hidden ? '☐' : '☑';
+          return `<td style="text-align:center;"><button class="${btnClass}" data-norad="${p.sat.norad}" title="${hidden ? 'Show this satellite' : 'Hide this satellite'}">${btnText}</button></td>`;
         })()
       : (isFirstRow ? '<td></td>' : '<td></td>');
     
@@ -2155,7 +2155,7 @@ function renderPassTable() {
       minsCell +
       '<td>' + maxElCell + '</td>' +
       selectCell +
-      hideCell +
+      satHideCell +
       '</tr>';
     
     return row;
@@ -2170,16 +2170,16 @@ function renderPassTable() {
     html += '<th style="width:100px;">DL Freq</th>' +
       '<th style="width:100px;">UL Freq</th>' +
       '<th style="width:70px;">Mode</th>' +
-      '<th style="width:28px;">FH</th>';
+      (!freqHideOn ? '<th style="width:28px;">FH</th>' : '<th style="width:28px;"></th>');
   } else {
     html += '<th style="width:28px;"></th>';
   }
   
-  html += '<th>AOS Time</th>' +
+  html += (!satHideOn ? '<th style="width:28px;">SH</th>' : '<th style="width:28px;"></th>') +
+    '<th>AOS Time</th>' +
     '<th>Until</th>' +
     '<th>Max El</th>' +
     '<th></th>' +
-    (!satHideOn ? '<th style="width:60px;">Hide</th>' : '') +
     '</tr></thead><tbody>';
   
   // Render passes with multi-row support for multiple transmitters
