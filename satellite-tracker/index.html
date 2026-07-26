@@ -74,14 +74,14 @@ a:hover { text-decoration: underline; }
 
 /* Cards */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px; }
-.card-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.card-title { font-size: 0.9rem; color: var(--text); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 
 /* Tracking view */
 .tracking-top { display: grid; grid-template-columns: auto auto; gap: 12px; margin-bottom: 12px; justify-content: center; }
 @media (max-width: 420px) { .tracking-top { grid-template-columns: 1fr; } }
 .pos-box { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; text-align: center; }
 .pos-divider { height: 1px; background: var(--border); margin: 8px 0; }
-.pos-label { font-size: 0.9rem; font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+.pos-label { font-size: 0.9rem; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
 .pos-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; justify-content: center; }
 .pos-value { font-size: 1.2rem; font-weight: 700; font-family: monospace; }
 .pos-unit { font-size: 1rem; color: var(--muted); }
@@ -172,7 +172,7 @@ a:hover { text-decoration: underline; }
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+th { color: var(--text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
 tr:hover td { background: rgba(88,166,255,0.05); }
 td.num { font-variant-numeric: tabular-nums; }
 td.max-el-high { color: var(--green); font-weight: 600; }
@@ -185,7 +185,7 @@ td.max-el-low { color: var(--muted); }
 /* Next Pass table */
 #satPassTable table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 #satPassTable thead { position: sticky; top: 0; z-index: 2; }
-#satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.75rem; color: var(--muted); background: var(--card); }
+#satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.8rem; color: var(--text); font-weight: 600; background: var(--card); }
 #satPassTable td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
 #satPassTable tr:hover { background: rgba(88,166,255,0.05); }
 #satPassTable tr.selected-row { background: rgba(255,165,0,0.25); border-left: 4px solid #ff8c00; }
@@ -277,7 +277,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 #tab-satellites .card-title { flex-shrink: 0; }
 .satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
 #satPassTable { flex: 1; overflow-y: auto; overflow-x: auto; }
-.satnogs-filter-label { font-size: 0.8rem; color: var(--muted); }
+.satnogs-filter-label { font-size: 0.8rem; color: var(--text); }
 
 /* SatNOGS data section */
 .satnogs-section { margin-top: 16px; }
@@ -2118,8 +2118,8 @@ function renderPassTable() {
     
     // AOS/LOS info (only on first row)
     const aosCell = isFirstRow ? aosStr : '';
-    const minsCell = isFirstRow 
-      ? `<td class="num" style="font-weight:600;font-family:monospace;" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}">${minsStr}</td>` 
+    const minsCell = isFirstRow
+      ? `<td class="num" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}">${minsStr}</td>`
       : '<td></td>';
     const maxElCell = isFirstRow ? maxElStr : '';
     const selectCell = isFirstRow 
