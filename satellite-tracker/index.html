@@ -1623,6 +1623,110 @@ document.getElementById('elfToggle').addEventListener('change', async (e) => {
   }
 });
 
+// Check if a satellite pass crosses the rotator's wrap boundary
+// Returns: null (no crossing), '180' (crosses 180°), or '0' (crosses 0°/360°)
+function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLon, stationAlt) {
+  const interval = 15000; // 15-second samples for accuracy
+  let t = new Date(aosTime);
+  const los = new Date(losTime);
+  
+  let prevAz = null;
+  
+  while (t < los) {
+    const pos = computeTopo(satrec, t, stationLat, stationLon, stationAlt);
+    if (pos) {
+      const az = (pos.azimuth * 180 / Math.PI + 360) % 360;
+      
+      if (prevAz !== null) {
+        // Check if azimuth crosses through 180° (N360 boundary)
+        if ((prevAz > 180 && az < 180) || (prevAz < 180 && az > 180)) {
+          // Verify it's a genuine crossing, not a wrap-around artifact
+          const diff = Math.abs(az - prevAz);
+          if (diff < 170) { // Only flag if the jump is reasonable (< 170°)
+            return '180';
+          }
+        }
+        
+        // Check if azimuth crosses through 0°/360° (S360 boundary)
+        if ((prevAz > 350 && az < 10) || (prevAz < 10 && az > 350)) {
+          const diff = Math.min(Math.abs(az - prevAz), 360 - Math.abs(az - prevAz));
+          if (diff < 170) {
+            return '0';
+          }
+        }
+      }
+      
+      prevAz = az;
+    }
+    
+    t = new Date(t.getTime() + interval);
+  }
+  
+  return null;
+}
+
+// Get the current or next pass for the selected satellite
+function getCurrentOrNextPass(satrec, now, minEl) {
+  // Check if currently overhead
+  const currentPos = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+  if (currentPos) {
+    const currentEl = currentPos.elevation * 180 / Math.PI;
+    if (currentEl >= minEl) {
+      // Currently overhead - find LOS
+      const interval = 60000;
+      let t = new Date(now);
+      let lastEl = currentEl;
+      while (t < new Date(now.getTime() + 48 * 3600000)) {
+        const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+        if (pos) {
+          const el = pos.elevation * 180 / Math.PI;
+          if (lastEl >= minEl && el < minEl) {
+            return {
+              isOverhead: true,
+              aosTime: now,
+              losTime: t
+            };
+          }
+          lastEl = el;
+        }
+        t = new Date(t.getTime() + interval);
+      }
+      // Never sets (geostationary)
+      return {
+        isOverhead: true,
+        aosTime: now,
+        losTime: new Date(now.getTime() + 999 * 24 * 3600000)
+      };
+    }
+  }
+  
+  // Find next AOS
+  const aosTime = findNextAos(satrec, now, minEl);
+  if (!aosTime) return null;
+  
+  // Find LOS from AOS
+  const interval = 60000;
+  let t = new Date(aosTime);
+  let lastEl = minEl;
+  while (t < new Date(now.getTime() + 48 * 3600000)) {
+    const pos = computeTopo(satrec, t, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (pos) {
+      const el = pos.elevation * 180 / Math.PI;
+      if (lastEl >= minEl && el < minEl) {
+        return {
+          isOverhead: false,
+          aosTime: aosTime,
+          losTime: t
+        };
+      }
+      lastEl = el;
+    }
+    t = new Date(t.getTime() + interval);
+  }
+  
+  return null;
+}
+
 // ==================== SATELLITE MANAGEMENT ====================
 // Check if a satellite is geostationary/never-sets from this location
 // Called once when satellite is added; result stored in sat.neverSets
@@ -2629,6 +2733,60 @@ function startTracking() {
     alert('Invalid TLE for ' + sat.name);
     return;
   }
+  
+  const satrec = satrecFromSat(sat);
+  const now = new Date();
+  const minEl = parseFloat(document.getElementById('minElevation').value);
+  
+  // Check if pass crosses wrap boundary (before starting tracking)
+  if (!elfMode) {
+    const pass = getCurrentOrNextPass(satrec, now, minEl);
+    if (pass) {
+      const boundary = passCrossesWrapBoundary(satrec, pass.aosTime, pass.losTime,
+        stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      
+      if (boundary) {
+        const boundaryLabel = boundary === '180' ? '180°' : '0°/360°';
+        const aosStr = pass.aosTime.toLocaleString('en-ZA', {
+          weekday: 'short', day: '2-digit', month: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        });
+        const losStr = pass.losTime.toLocaleString('en-ZA', {
+          weekday: 'short', day: '2-digit', month: '2-digit',
+          hour: '2-digit', minute: '2-digit'
+        });
+        
+        const confirmed = confirm(
+          `ELF Mode Required for Continuous Tracking\n\n` +
+          `The satellite pass (${aosStr} → ${losStr}) crosses the ${boundaryLabel} wrap boundary.\n\n` +
+          `Without ELF mode, the rotator will need to perform a full 360° rotation during the pass, losing the satellite.\n\n` +
+          `Enable ELF mode now?`
+        );
+        
+        if (confirmed) {
+          // Enable ELF mode on device
+          setElfMode(true).then(() => {
+            elfMode = true;
+            document.getElementById('elfToggle').checked = true;
+            // Start tracking after ELF mode is set
+            beginTracking(sat, satrec, now, minEl);
+          }).catch(err => {
+            alert('Failed to enable ELF mode: ' + err.message);
+          });
+          return;
+        } else {
+          // User declined — don't start tracking
+          return;
+        }
+      }
+    }
+  }
+  
+  // No wrap boundary issue or ELF already enabled — start tracking normally
+  beginTracking(sat, satrec, now, minEl);
+}
+
+function beginTracking(sat, satrec, now, minEl) {
   tracking = true;
   document.getElementById('startTrackBtn').textContent = 'Tracking...';
   document.getElementById('startTrackBtn').disabled = true;
@@ -2639,9 +2797,6 @@ function startTracking() {
   cachedLosTime = null;
   
   // If satellite is below horizon, compute position at AOS and command there
-  const satrec = satrecFromSat(sat);
-  const now = new Date();
-  const minEl = parseFloat(document.getElementById('minElevation').value);
   const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
   const currentEl = currentTop ? currentTop.elevation * 180 / Math.PI : -90;
   
