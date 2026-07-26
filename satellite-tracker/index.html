@@ -305,7 +305,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   transition: all 0.15s; line-height: 1;
 }
 .hide-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-.hide-toggle-btn.hidden { background: var(--red); border-color: var(--red); color: #fff; }
+.hide-toggle-btn.hidden { background: #22c55e; border-color: #22c55e; color: #000; }
 .freq-hide-toggle { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; margin-left: 4px; }
 .freq-hide-btn {
   background: var(--orange); border: 1px solid var(--orange); color: #000;
@@ -313,7 +313,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   transition: all 0.15s; line-height: 1;
 }
 .freq-hide-btn:hover { border-color: var(--accent); color: var(--accent); }
-.freq-hide-btn.hidden { background: var(--red); border-color: var(--red); color: #fff; }
+.freq-hide-btn.hidden { background: var(--orange); border-color: var(--orange); color: #000; }
 </style>
 </head>
 <body>
@@ -2102,7 +2102,7 @@ function renderPassTable() {
           : visTx[0];
         const hidden = isFreqHidden(p.sat.norad, tx);
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
-        const btnText = hidden ? '☐' : '☑';
+        const btnText = hidden ? '✗' : '☑';
         const key = freqKey(p.sat.norad, tx);
         freqHideCell = `<td style="text-align:center;"><button class="${btnClass}" data-key="${key}" title="${hidden ? 'Show this frequency' : 'Hide this frequency'}">${btnText}</button></td>`;
       } else {
@@ -2130,7 +2130,7 @@ function renderPassTable() {
       ? (() => {
           const hidden = hiddenSats.has(p.sat.norad);
           const btnClass = hidden ? 'hide-toggle-btn hidden' : 'hide-toggle-btn';
-          const btnText = hidden ? '☐' : '☑';
+          const btnText = hidden ? '✗' : '☑';
           return `<td style="text-align:center;"><button class="${btnClass}" data-norad="${p.sat.norad}" title="${hidden ? 'Show this satellite' : 'Hide this satellite'}">${btnText}</button></td>`;
         })()
       : (isFirstRow ? '<td></td>' : '<td></td>');
