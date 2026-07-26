@@ -1578,9 +1578,9 @@ function toggleFreqHidden(norad, tx) {
 }
 
 // Filter transmitters by hidden state
-function visibleTransmitters(satNOGS) {
+function visibleTransmitters(norad, satNOGS) {
   if (!satNOGS || !satNOGS.transmitters) return [];
-  return satNOGS.transmitters.filter(tx => !isFreqHidden(satNOGS.satellite_norad || '', tx));
+  return satNOGS.transmitters.filter(tx => !isFreqHidden(norad, tx));
 }
 
 // ==================== TABS ====================
@@ -2073,7 +2073,7 @@ function renderPassTable() {
       // When Freq-Hide is ON, show only visible (non-hidden) transmitters
       // When Freq-Hide is OFF, show all transmitters
       const allTx = satNOGS.transmitters;
-      const visTx = freqHideOn ? visibleTransmitters(satNOGS) : allTx;
+      const visTx = freqHideOn ? visibleTransmitters(p.sat.norad, satNOGS) : allTx;
       
       if (visTx.length === 0) {
         // All frequencies hidden — show dashes
@@ -2180,7 +2180,7 @@ function renderPassTable() {
       const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
       // When freqs are hidden, use visible count; when shown, use visible (filtered) count
       const visTx = showFreqs && satNOGS && satNOGS.transmitters
-        ? (freqHideOn ? visibleTransmitters(satNOGS) : satNOGS.transmitters)
+        ? (freqHideOn ? visibleTransmitters(p.sat.norad, satNOGS) : satNOGS.transmitters)
         : [];
       const txCount = showFreqs && visTx.length > 0 ? visTx.length : 1;
       
@@ -2331,7 +2331,7 @@ function updateTrackingFreqInfo(sat) {
   }
   
   // Filter out hidden frequencies
-  const visTx = freqHideFilter ? visibleTransmitters(data) : data.transmitters;
+  const visTx = freqHideFilter ? visibleTransmitters(sat.norad, data) : data.transmitters;
   if (visTx.length === 0) {
     card.style.display = 'none';
     return;
