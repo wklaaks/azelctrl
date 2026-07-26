@@ -163,6 +163,13 @@ a:hover { text-decoration: underline; }
 }
 .control-card .manual-entry input::placeholder { color: #484f58; opacity: 0.6; }
 
+/* Global placeholder styling — make hint text clearly distinguishable from user input */
+input::placeholder, textarea::placeholder {
+  color: #484f58 !important;
+  opacity: 0.5 !important;
+  font-style: italic;
+}
+
 /* Pass countdown */
 .pass-status { text-align: center; padding: 10px; font-size: 0.9rem; }
 .pass-status.in-progress { color: var(--green); }
