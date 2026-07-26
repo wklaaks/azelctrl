@@ -1451,6 +1451,7 @@ async function altSyncFrequencies() {
       const data = {
         ...existing,
         transmitters,
+        hasActiveTransmitters: transmitters.some(tx => tx.alive === true),
         lastUpdated: Date.now(),
         lastUpdatedSource: 'alt-sync',
         altSyncGenerated: ''
