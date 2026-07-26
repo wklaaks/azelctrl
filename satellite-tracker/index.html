@@ -29,7 +29,7 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* Header */
-.header { background: var(--card); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.header { background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border-bottom: 1px solid #1e4d8c; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .header h1 { font-size: 1.1rem; font-weight: 600; }
 .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .device-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; width: 150px; }
@@ -46,6 +46,9 @@ a:hover { text-decoration: underline; }
 .btn-sm { padding: 3px 8px; font-size: 0.75rem; }
 .btn-refresh { background: #d29922; color: #fff; border-color: #d29922; }
 .btn-refresh:hover { background: #e3b341; }
+.btn-refresh-tle { background: #2563eb; color: #fff; border-color: #2563eb; }
+.btn-refresh-tle:hover { background: #3b82f6; }
+.btn-refresh-tle:disabled { background: #484f58; color: #8b949e; border-color: #484f58; cursor: not-allowed; }
 .btn-sort { background: #238636; color: #fff; border-color: #238636; }
 .btn-sort:hover { background: #2ea043; }
 .btn-manage { background: #1f6feb; color: #fff; border-color: #1f6feb; }
@@ -63,7 +66,7 @@ a:hover { text-decoration: underline; }
 .conn-dot.error { background: var(--red); }
 
 /* Tabs */
-.tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs { display: flex; background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border-bottom: 1px solid #1e4d8c; overflow-x: auto; }
 .tab { padding: 10px 16px; font-size: 0.85rem; cursor: pointer; border-bottom: 2px solid transparent; color: var(--tab-inactive); white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--tab-active); border-bottom-color: var(--accent); }
@@ -73,19 +76,19 @@ a:hover { text-decoration: underline; }
 .tab-content.active { display: flex; flex-direction: column; }
 
 /* Cards */
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px; }
+.card { background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border: 1px solid #1e4d8c; border-radius: 6px; padding: 14px; margin-bottom: 12px; }
 .card-title { font-size: 0.9rem; color: var(--text); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 
 /* Tracking view */
 .tracking-top { display: grid; grid-template-columns: auto auto; gap: 12px; margin-bottom: 12px; justify-content: center; }
 @media (max-width: 420px) { .tracking-top { grid-template-columns: 1fr; } }
-.pos-box { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; text-align: center; }
-.pos-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.pos-box { background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border: 1px solid #1e4d8c; border-radius: 6px; padding: 10px 14px; text-align: center; }
+.pos-divider { height: 1px; background: #1e4d8c; margin: 8px 0; }
 .pos-label { font-size: 0.9rem; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
 .pos-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; justify-content: center; }
-.pos-value { font-size: 1.2rem; font-weight: 700; font-family: monospace; }
-.pos-unit { font-size: 1rem; color: var(--muted); }
-.pos-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.pos-value { font-size: 1.2rem; font-weight: 700; font-family: monospace; color: #e6edf3; }
+.pos-unit { font-size: 1rem; color: #58a6ff; }
+.pos-sub { font-size: 0.75rem; color: #58a6ff; margin-top: 2px; }
 
 /* Movement indicators */
 .movement-indicator { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; margin-top: 4px; }
@@ -93,7 +96,7 @@ a:hover { text-decoration: underline; }
 .mv-arrow.idle { color: var(--muted); }
 
 /* Satellite info bar */
-.sat-info-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.sat-info-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .aoslos-row { display: flex; align-items: center; font-family: "Courier New", monospace; font-size: 0.8rem; white-space: nowrap; }
 .aoslos-label { display: inline-block; text-align: left; padding-right: 0.4ch; color: var(--accent); }
 .range-label { padding-left: 1ch; }
@@ -111,6 +114,8 @@ a:hover { text-decoration: underline; }
 
 /* Tracking controls */
 .tracking-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; justify-content: center; }
+.track-btn { width: 60px; height: 80px; padding: 8px 4px; font-size: 0.8rem; font-weight: 600; border-radius: 8px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; line-height: 1.2; }
+.track-status { font-size: 0.65rem; color: var(--muted); text-align: center; min-height: 1em; }
 .elf-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; }
 .toggle-switch { position: relative; width: 40px; height: 20px; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -129,12 +134,12 @@ a:hover { text-decoration: underline; }
 .control-pad { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 16px 0; }
 .control-row { display: flex; gap: 6px; }
 .control-row > div { width: 70px; height: 48px; }
-.dir-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid var(--accent); background: rgba(88,166,255,0.12); color: var(--accent); cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
-.dir-btn:hover { background: rgba(88,166,255,0.25); }
-.dir-btn:active, .dir-btn.active { background: var(--accent); color: #000; transform: scale(0.96); }
-.stop-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid var(--red); background: var(--red); color: #fff; cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
-.stop-btn:hover { background: #ff6b6b; }
-.stop-btn:active { background: #cc0000; transform: scale(0.96); }
+.dir-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid #2d5a8e; background: linear-gradient(135deg, #0f2040 0%, #1a3a5c 100%); color: #58a6ff; cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
+.dir-btn:hover { background: linear-gradient(135deg, #1a3a5c 0%, #2563eb 100%); color: #fff; border-color: #2563eb; }
+.dir-btn:active, .dir-btn.active { background: #2563eb; color: #fff; border-color: #3b82f6; transform: scale(0.96); box-shadow: 0 0 12px rgba(37,99,235,0.4); }
+.stop-btn { width: 70px; height: 48px; border-radius: 8px; border: 1px solid #f85149; background: linear-gradient(135deg, #7f1d1d 0%, #dc2626 100%); color: #fff; cursor: pointer; font-size: 0.95rem; font-weight: 700; transition: all 0.1s ease; }
+.stop-btn:hover { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border-color: #f87171; box-shadow: 0 0 12px rgba(248,81,73,0.4); }
+.stop-btn:active { background: #991b1b; border-color: #f85149; transform: scale(0.96); }
 .control-status { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 8px; }
 .control-status.moving { color: var(--accent); font-weight: 600; }
 
@@ -199,11 +204,12 @@ td.max-el-low { color: var(--muted); }
 #satPassTable tr.selected-row td:first-child { font-weight: 600; }
 #satPassTable tr.overhead-row { }
 #satPassTable tr.pass-divider td { border-top: 3px solid #f85149; padding: 4px 0; }
+#satPassTable tr.pass-section-header td { background: linear-gradient(90deg, rgba(88,166,255,0.2) 0%, rgba(88,166,255,0.05) 100%); color: #58a6ff; font-weight: 600; font-size: 0.8rem; padding: 6px 10px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid rgba(88,166,255,0.4); }
 /* Alternating background per satellite group (all rows for same satellite share color) */
 /* Colors are applied inline in renderPassTable() */
 .btn-select { background: #238636; color: white; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
 .btn-select:hover { background: #2ea043; }
-.btn-select.selected { background: #6e7681; cursor: default; }
+.btn-select.selected { background: #2563eb; cursor: default; }
 .sat-list-item:hover { background: rgba(88,166,255,0.08); }
 .sat-list-item.selected { background: rgba(56,139,253,0.25); border-left: 4px solid #58a6ff; font-weight: 600; }
 .sat-list-name { font-size: 0.9rem; }
@@ -245,7 +251,7 @@ td.max-el-low { color: var(--muted); }
 .banner.error { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); color: var(--red); }
 
 /* Footer */
-.footer { padding: 8px 16px; font-size: 0.7rem; color: var(--muted); text-align: center; border-top: 1px solid var(--border); }
+.footer { padding: 8px 16px; font-size: 0.7rem; color: #58a6ff; text-align: center; border-top: 1px solid #1e4d8c; background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); }
 .modal-title {
   font-size: 1rem;
   font-weight: 600;
@@ -282,7 +288,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 #tab-satellites.active { display: flex; }
 #tab-satellites .card { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 14px; margin: 12px; }
 #tab-satellites .card-title { flex-shrink: 0; }
-.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+.satnogs-filter-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-shrink: 0; }
 #satPassTable { flex: 1; overflow-y: auto; overflow-x: auto; }
 .satnogs-filter-label { font-size: 0.8rem; color: var(--text); }
 
@@ -292,12 +298,24 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 .satnogs-progress { font-size: 0.8rem; color: var(--accent); margin-top: 4px; }
 
 /* Tracking tab frequency display */
-.tracking-freq-info { font-size: 0.8rem; color: var(--muted); margin-top: 4px; font-family: monospace; }
-#trackingFreqCard { text-align: center; }
-.tracking-freq-expand { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.75rem; }
-.tracking-freq-list { margin-top: 2px; font-size: 0.75rem; color: var(--muted); }
-.tracking-freq-list li { margin: 1px 0; list-style: none; padding-left: 1em; }
-.tracking-freq-list li::before { content: "• "; color: var(--accent); }
+#trackingFreqCard { text-align: left; }
+#trackingFreqCard .card-title { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 6px; }
+.freq-table { border-collapse: collapse; font-size: 0.78rem; font-family: "Courier New", monospace; }
+.freq-table th { text-align: left; padding: 3px 6px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap; }
+.freq-table td { padding: 3px 6px; border-bottom: 1px solid rgba(48,54,61,0.3); white-space: nowrap; }
+.freq-table tr:last-child td { border-bottom: none; }
+.freq-table .freq-val { color: var(--text); }
+.freq-table .freq-mode { color: var(--accent); font-weight: 600; text-align: right; }
+.doppler-positive { color: var(--green); font-weight: 600; }
+.doppler-negative { color: var(--red); font-weight: 600; }
+.doppler-neutral { color: var(--muted); }
+.freq-no-doppler { color: var(--muted); font-style: italic; font-size: 0.7rem; }
+.freq-table .freq-dl-col { min-width: 100px; padding-right: 4px; }
+.freq-table .freq-rx-col { min-width: 85px; padding-left: 4px; }
+.freq-table .freq-gap { width: 40px; min-width: 40px; }
+.freq-table .freq-ul-col { min-width: 100px; padding-right: 4px; }
+.freq-table .freq-tx-col { min-width: 85px; padding-left: 4px; }
+.freq-table .freq-mode-col { min-width: 60px; text-align: right; }
 
 /* No data indicator */
 .no-data { color: var(--muted); font-style: italic; font-size: 0.75rem; }
@@ -353,8 +371,8 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <div class="tab-content active" id="tab-tracking">
   <div class="sat-info-bar">
     <div style="display:flex;align-items:center;gap:8px;">
-      <label style="font-size:0.85rem;color:var(--muted);">Satellite:</label>
-      <select id="trackSatSelect" class="input-sm" style="min-width:160px;">
+      <label style="font-size:1rem;color:var(--text);font-weight:600;text-transform:uppercase;">Satellite:</label>
+      <select id="trackSatSelect" class="input-sm" style="min-width:160px;background:#0f2040;border:1px solid #1e4d8c;color:#e6edf3;font-size:1rem;font-weight:600;padding:6px 10px;">
         <option value="-1">— select satellite —</option>
       </select>
       <div class="tle-age" id="currentTleAge"></div>
@@ -366,7 +384,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     <div id="trackingFreqInfo"></div>
   </div>
 
-  <div class="tracking-top">
+  <div class="tracking-top" style="grid-template-columns: 1fr 1fr auto; align-items: start;">
     <div class="pos-box">
       <div class="pos-label" style="color: #58a6ff;">SATELLITE</div>
       <div class="pos-row" style="font-family: monospace;">
@@ -378,7 +396,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <span id="targetEl" class="pos-value">---</span>
       </div>
       <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
-      <div class="aoslos-container">
+      <div class="aoslos-container" style="align-items: center;">
         <div class="aoslos-row" id="aosLosTimer"><span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ---:--:--</span></div>
         <div class="aoslos-row" id="aosLosAz"><span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ---</span></div>
         <div class="aoslos-row" id="targetRange"><span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> --- km</span></div>
@@ -397,7 +415,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <span class="mv-arrow idle" id="mvEl">●</span>
       </div>
       <div class="pos-divider"></div>
-      <div class="elf-toggle">
+      <div class="elf-toggle" style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; justify-content: center;">
         <span>ELF Mode</span>
         <label class="toggle-switch">
           <input type="checkbox" id="elfToggle">
@@ -405,11 +423,10 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         </label>
       </div>
     </div>
-  </div>
-
-  <div class="tracking-controls">
-    <button class="btn btn-success" id="startTrackBtn">Start Tracking</button>
-    <button class="btn btn-danger" id="stopTrackBtn">Stop</button>
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; height: 100%;">
+      <button class="btn btn-success track-btn" id="startTrackBtn">Start</button>
+      <span class="track-status" id="trackStatus"></span>
+    </div>
   </div>
 
   <div class="card">
@@ -422,43 +439,45 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <!-- Tab: Satellites -->
 <div class="tab-content" id="tab-satellites">
   <div class="card">
-    <div class="card-title">Upcoming Passes</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Satellite Passes</span>
+      <span style="font-size:0.75rem;color:var(--muted);text-transform:none;letter-spacing:0;" id="satCount">0 satellites</span>
+    </div>
     <div class="satnogs-filter-row">
-      <label class="toggle-switch" style="transform:scale(0.9);">
+      <label class="toggle-switch">
         <input type="checkbox" id="satNOGSFilterActive">
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Show only active satellites</span>
-      <label class="toggle-switch" style="transform:scale(0.9);">
+      <label class="toggle-switch">
         <input type="checkbox" id="satShowFreqs">
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Freq/Modes</span>
-      <label class="toggle-switch" style="transform:scale(0.9);">
+      <label class="toggle-switch">
         <input type="checkbox" id="freqHideToggle">
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Freq-Hide</span>
-      <label class="toggle-switch" style="transform:scale(0.9);">
+      <label class="toggle-switch">
         <input type="checkbox" id="satHideToggle">
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Sat-Hide</span>
-      <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
   </div>
 </div>
 
 <div class="tab-content" id="tab-manage">
-  <div class="tabs" style="margin-bottom:10px;">
-    <div class="tab active" data-manage-tab="remove">Remove</div>
+  <div class="tabs manage-tabs" style="margin-bottom:10px; flex-shrink: 0;">
+    <div class="tab active" data-manage-tab="remove">Manage</div>
     <div class="tab" data-manage-tab="browse">CelesTrak Add</div>
     <div class="tab" data-manage-tab="paste">Paste Add</div>
     <div class="tab" data-manage-tab="satnogs">SatNOGS Data</div>
   </div>
-  <div class="card">
-    <div class="manage-panel active" id="manage-remove">
+  <div class="card manage-card" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+    <div class="manage-panel active" id="manage-remove" style="border-radius: 6px; padding: 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column;">
       <div class="card-title">Manage Satellites</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
         <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
@@ -467,7 +486,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div id="satList"></div>
     </div>
-    <div class="manage-panel" id="manage-browse" style="display:none;">
+    <div class="manage-panel" id="manage-browse" style="display:none; flex: 1; overflow-y: auto;">
       <div class="card-title">Browse Amateur Radio Satellites</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <button class="btn btn-sm btn-browse" id="browseSatListBtn">Load List from CelesTrak</button>
@@ -489,19 +508,20 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div id="tleStatus"></div>
     </div>
-    <div class="manage-panel" id="manage-satnogs" style="display:none;">
+    <div class="manage-panel" id="manage-satnogs" style="display:none; flex: 1; flex-direction: column; overflow: hidden;">
       <div class="card-title">SatNOGS Data</div>
-      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;flex-shrink:0;">
         Fetch satellite status and transmitter frequencies from <a href="https://db.satnogs.org" target="_blank">SatNOGS DB</a>.
         Data is cached in your browser.
       </p>
       
-      <div id="satNOGSProxyWarning" style="display:none;" class="banner warn" style="margin-bottom:10px;"></div>
+      <div id="satNOGSProxyWarning" style="display:none;" class="banner warn" style="margin-bottom:10px;flex-shrink:0;"></div>
       
+      <div class="satnogs-content" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column;">
       <div class="setting-row">
         <div>
-          <div class="setting-label">Refresh stale data only</div>
-          <div class="setting-desc">Update data for satellites where last refresh was more than X days ago</div>
+          <div class="setting-label">Staleness threshold</div>
+          <div class="setting-desc">Data older than this many days is considered stale</div>
         </div>
         <div class="setting-control">
           <input type="number" id="satNOGSRefreshInterval" min="1" max="30" style="width:60px;" value="7">
@@ -509,35 +529,36 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         </div>
       </div>
       
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">Select satellite</div>
-          <div class="setting-desc">Choose which satellite(s) to refresh below</div>
+      <div style="margin-top:12px;padding:10px;background:rgba(88,166,255,0.05);border:1px solid rgba(88,166,255,0.2);border-radius:6px;">
+        <div style="font-size:0.75rem;color:var(--accent);margin-bottom:4px;font-weight:600;">Selected satellite(s)</div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Select satellite</div>
+            <div class="setting-desc">Choose which satellite(s) to refresh below</div>
+          </div>
+          <div class="setting-control">
+            <select id="satNOGSSatSelect" style="min-width:180px;">
+              <option value="">— All satellites —</option>
+            </select>
+          </div>
         </div>
-        <div class="setting-control">
-          <select id="satNOGSSatSelect" style="min-width:180px;">
-            <option value="">— All satellites —</option>
-          </select>
+        <div style="margin-top:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
+            <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Frequencies</button>
+          </div>
         </div>
       </div>
       
-      <div style="margin-top:12px;">
-              <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">Selected satellite(s):</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn btn-primary" id="refreshStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Refresh Status</button>
-                <button class="btn btn-primary" id="refreshFreqBtn" style="background:#059669;color:#fff;border-color:#047857;">Refresh Frequencies</button>
-              </div>
-            </div>
-      
-            <div style="margin-top:12px;">
-              <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;">All satellites:</div>
+            <div style="margin-top:12px;padding:10px;background:rgba(88,166,255,0.05);border:1px solid rgba(88,166,255,0.2);border-radius:6px;">
+              <div style="font-size:0.75rem;color:var(--accent);margin-bottom:4px;font-weight:600;">All satellites</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <button class="btn btn-sm" id="refreshNewStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Never Fetched</button>
                 <button class="btn btn-sm" id="refreshNewFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Never Fetched</button>
                 <button class="btn btn-sm" id="refreshStaleStatusBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;font-size:0.7rem;">Status: Stale Data</button>
                 <button class="btn btn-sm" id="refreshStaleFreqBtn" style="background:#059669;color:#fff;border-color:#047857;font-size:0.7rem;">Freqs: Stale Data</button>
               </div>
-              <div style="font-size:0.75rem;color:var(--muted);margin-top:2px;" id="satNOGSStats"></div>
+              <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;" id="satNOGSStats"></div>
             </div>
 
             <div style="margin-top:12px;padding:10px;background:rgba(88,166,255,0.05);border:1px solid rgba(88,166,255,0.2);border-radius:6px;">
@@ -554,9 +575,10 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       
       <div class="satnogs-status" id="satNOGSStatus"></div>
       
-      <div style="margin-top:8px;">
+      <div style="margin-top:8px; flex: 1; display: flex; flex-direction: column; min-height: 0;">
         <div style="font-size:0.7rem;color:var(--muted);margin-bottom:2px;">Activity log:</div>
-        <div id="satNOGSLog" style="font-size:0.7rem;color:var(--muted);max-height:80px;overflow-y:auto;padding:4px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-family:monospace;"></div>
+        <div id="satNOGSLog" style="flex: 1; overflow-y: auto; padding: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-family: monospace; font-size: 0.7rem; color: var(--muted); min-height: 80px;"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -740,6 +762,17 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     <div style="margin-top:10px;">
       <button class="btn btn-primary" id="saveSatNOGSProxyBtn">Save Proxy Settings</button>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Configuration</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <button class="btn btn-sm" id="saveConfigBtn" style="background:#2563eb;color:#fff;border-color:#1d4ed8;">Save Configuration</button>
+      <button class="btn btn-sm" id="loadConfigBtn" style="background:#059669;color:#fff;border-color:#047857;">Load Configuration</button>
+      <input type="file" id="loadConfigFile" accept=".json" style="display:none;">
+    </div>
+    <div style="font-size:0.75rem;color:var(--muted);margin-bottom:4px;" id="lastSaveTime"></div>
+    <div style="font-size:0.75rem;color:var(--muted);" id="configStatus"></div>
   </div>
 </div>
 
@@ -1041,7 +1074,6 @@ async function refreshSatNOGSStatus(noradIds) {
   const estTime = formatDuration(estimateRefreshTime(noradIds.length));
   
   disableRefreshButtons();
-  clearSatNOGSLog();
   
   if (mode === 'esp' && noradIds.length > 0) {
     logSatNOGS(`Starting status refresh for ${noradIds.length} satellite(s). Estimated time: ${estTime}`);
@@ -1130,7 +1162,6 @@ async function refreshSatNOGSFrequencies(noradIds) {
   const estTime = formatDuration(estimateRefreshTime(noradIds.length));
   
   disableRefreshButtons();
-  clearSatNOGSLog();
   
   if (mode === 'esp' && noradIds.length > 0) {
     logSatNOGS(`Starting frequencies refresh for ${noradIds.length} satellite(s). Estimated time: ${estTime}`);
@@ -1538,11 +1569,16 @@ document.getElementById('deviceIp').value = localStorage.getItem('deviceApiBase'
 
 // ==================== STATE ====================
 let satellites = JSON.parse(localStorage.getItem('satellites') || '[]');
-let selectedSatIndex = -1; // Don't restore selection on reload
+let selectedSatIndex = parseInt(localStorage.getItem('selectedSatIndex') || '-1');
+// Validate index is still valid after reload
+if (selectedSatIndex >= satellites.length) selectedSatIndex = -1;
 let tracking = false;
 let trackingInterval = null;
 let lastSentAz = null;
 let lastSentEl = null;
+let currentRangeRate = 0; // m/s, positive = departing
+let preAos = true; // true until satellite rises above minEl
+let dopplerRefreshInterval = null; // periodic Doppler update (5s)
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
 let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
 let stationLocation = JSON.parse(localStorage.getItem('stationLocation') || '{"lat":-33.9249,"lon":18.4241,"alt":1000}');
@@ -1591,6 +1627,36 @@ function visibleTransmitters(norad, satNOGS) {
   return satNOGS.transmitters.filter(tx => !isFreqHidden(norad, tx));
 }
 
+// ==================== DOPPLER ====================
+// Speed of light in m/s
+const SPEED_OF_LIGHT = 299792458;
+
+// Calculate Doppler shift for a given frequency (Hz) and range rate (m/s)
+// Positive rangeRate = satellite moving away → received freq is lower
+// Negative rangeRate = satellite approaching → received freq is higher
+function calcDoppler(freqHz, rangeRateMs) {
+  // Doppler shift = -freq * (rangeRate / c)
+  // For RX: positive shift means satellite is approaching (rangeRate < 0)
+  // For TX: negative shift means user must tune lower when approaching
+  return -(freqHz * rangeRateMs) / SPEED_OF_LIGHT;
+}
+
+// Format Doppler shift for display
+function formatDoppler(shiftHz) {
+  const absShift = Math.abs(shiftHz);
+  if (absShift < 0.5) return '0.0 Hz';
+  const sign = shiftHz > 0 ? '+' : '-';
+  if (absShift < 10) return `${sign}${absShift.toFixed(1)} Hz`;
+  if (absShift < 1000) return `${sign}${absShift.toFixed(0)} Hz`;
+  return `${sign}${(absShift / 1000).toFixed(2)} kHz`;
+}
+
+// Get Doppler color class
+function dopplerClass(shiftHz) {
+  if (Math.abs(shiftHz) < 1) return 'doppler-neutral';
+  return shiftHz > 0 ? 'doppler-positive' : 'doppler-negative';
+}
+
 // ==================== TABS ====================
 // Main tab switching
 document.querySelectorAll('.tab[data-tab]').forEach(tab => {
@@ -1617,7 +1683,9 @@ document.querySelectorAll('.tab[data-manage-tab]').forEach(tab => {
     const manageContent = tab.closest('.tab-content');
     manageContent.querySelectorAll('.manage-panel').forEach(p => p.style.display = 'none');
     tab.classList.add('active');
-    document.getElementById('manage-' + tab.dataset.manageTab).style.display = 'block';
+    const panel = document.getElementById('manage-' + tab.dataset.manageTab);
+    panel.style.display = tab.dataset.manageTab === 'satnogs' ? 'flex' : 'flex';
+    panel.style.flexDirection = 'column';
     // Refresh SatNOGS Data tab when opened
     if (tab.dataset.manageTab === 'satnogs') {
       updateSatNOGSStats();
@@ -1763,9 +1831,17 @@ function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLo
         const cross = ((prevAz > activeStop && az < activeStop) || 
                        (prevAz < activeStop && az > activeStop));
         if (cross) {
-          // Verify genuine crossing (not a 360° wrap artifact)
-          const circularDiff = Math.min(Math.abs(az - prevAz), 360 - Math.abs(az - prevAz));
-          if (circularDiff < 170) {
+          // Verify genuine crossing: the stop must lie on the shorter arc
+          // between prevAz and az. If it's on the longer arc, the satellite
+          // didn't actually pass through it (e.g. 0°→355° falsely "crosses" 180°).
+          function angularDist(a, b) {
+            const d = Math.abs(a - b);
+            return d > 180 ? 360 - d : d;
+          }
+          const shorterArc = angularDist(prevAz, az);
+          const distToStop = angularDist(prevAz, activeStop) + angularDist(activeStop, az);
+          // Stop is on the shorter arc if the distances sum to approximately the arc length
+          if (Math.abs(distToStop - shorterArc) < 1) {
             return activeStop;
           }
         }
@@ -1917,6 +1993,38 @@ function saveSatellites() {
   }
 })();
 
+function refreshTleForSat(index) {
+  const sat = satellites[index];
+  const container = document.getElementById('satList');
+  const row = container.querySelector(`.sat-list-item[data-index="${index}"]`);
+  const refreshBtn = row ? row.querySelector('.btn-refresh-tle') : null;
+  if (refreshBtn) {
+    refreshBtn.textContent = 'Refreshing...';
+    refreshBtn.style.background = '#d29922';
+    refreshBtn.style.color = '#000';
+    refreshBtn.style.borderColor = '#d29922';
+  }
+  return fetchTleOrCsv(sat.norad).then(result => {
+    if (result && result.length >= 3) {
+      sat.line1 = result[1];
+      sat.line2 = result[2];
+      delete sat.csvData;
+      sat.tleDate = new Date().toISOString();
+      saveSatellites();
+      renderSatList();
+    }
+  }).catch(() => {
+    // Silently fail
+  }).finally(() => {
+    if (refreshBtn) {
+      refreshBtn.textContent = 'Refresh TLE';
+      refreshBtn.style.background = '';
+      refreshBtn.style.color = '';
+      refreshBtn.style.borderColor = '';
+    }
+  });
+}
+
 function renderSatList() {
   const container = document.getElementById('satList');
   const countEl = document.getElementById('satCount');
@@ -1939,7 +2047,8 @@ function renderSatList() {
           <div class="sat-list-meta">NORAD: ${sat.norad || '—'} · TLE age: ${formatAge(age)} <span class="${ageClass}"></span></div>
         </div>
         <div class="sat-list-actions">
-          <button class="btn btn-sm" onclick="event.stopPropagation();removeSat(${i})">Remove</button>
+          <button class="btn btn-sm btn-refresh-tle" onclick="event.stopPropagation();refreshTleForSat(${i})">Refresh TLE</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();removeSat(${i})" style="background:var(--red);color:#fff;border-color:var(--red);">Remove</button>
         </div>
       </div>`;
   }).join('');
@@ -2143,7 +2252,7 @@ function renderPassTable() {
         })()
       : (isFirstRow ? '<td style="width:0;padding:0;"></td>' : '<td style="width:0;padding:0;"></td>');
     
-    const bgColor = satGroupIndex % 2 === 0 ? 'rgba(30,58,138,0.45)' : 'rgba(22,101,52,0.35)';
+    const bgColor = satGroupIndex % 2 === 0 ? 'rgba(30,58,138,0.5)' : 'rgba(88,166,255,0.08)';
     
     // Build row with conditional frequency columns
     let row = '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '" style="background-color:' + bgColor + ';">' +
@@ -2215,15 +2324,16 @@ function renderPassTable() {
   };
   
   // Overhead satellites first
-  renderPasses(overhead);
-  
-  // Divider if we have both overhead and upcoming
-  if (overhead.length > 0 && upcoming.length > 0) {
-    html += '<tr class="pass-divider"><td colspan="11"></td></tr>';
+  if (overhead.length > 0) {
+    html += '<tr class="pass-section-header"><td colspan="11">Active Passes</td></tr>';
+    renderPasses(overhead);
   }
   
   // Upcoming passes
-  renderPasses(upcoming);
+  if (upcoming.length > 0) {
+    html += '<tr class="pass-section-header"><td colspan="11">Upcoming Passes</td></tr>';
+    renderPasses(upcoming);
+  }
   
   html += '</tbody></table>';
   
@@ -2331,63 +2441,92 @@ function updateCurrentSatDisplay() {
   updateTrackingFreqInfo(sat);
 }
 
-// Update frequency/mode info in Tracking tab
+// Update frequency/mode info in Tracking tab — compact table with Doppler
 function updateTrackingFreqInfo(sat) {
   const card = document.getElementById('trackingFreqCard');
   const infoEl = document.getElementById('trackingFreqInfo');
-  
+
   if (!sat || !sat.norad) {
     card.style.display = 'none';
     return;
   }
-  
+
   const data = getSatNOGSData(sat.norad);
   if (!data || !data.transmitters || data.transmitters.length === 0) {
     card.style.display = 'none';
     return;
   }
-  
+
   // Filter out hidden frequencies
   const visTx = freqHideFilter ? visibleTransmitters(sat.norad, data) : data.transmitters;
   if (visTx.length === 0) {
     card.style.display = 'none';
     return;
   }
-  
+
   card.style.display = 'block';
-  const primary = visTx[0];
-  const primaryInfo = formatTransmitterInfo(primary);
-  
-  let html = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;">`;
-  html += `<span style="font-size:0.8rem;color:var(--muted);">Freq:</span>`;
-  html += `<span class="tracking-freq-info">${primaryInfo}</span>`;
-  
-  if (visTx.length > 1) {
-    html += `<span class="tracking-freq-expand" id="trackingFreqExpand">(+${visTx.length - 1} more)</span>`;
+
+  // Compute current range rate from TLE (always available when satellite is selected)
+  let rangeRateMs = 0;
+  try {
+    const satrec = satrecFromSat(sat);
+    const now = new Date();
+    const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (top && top.rangeRate != null) {
+      rangeRateMs = top.rangeRate;
+    }
+  } catch(e) {
+    // TLE parse error - rangeRate stays 0
   }
-  html += `</div>`;
-  
-  // Collapsible list of additional visible transmitters
-  html += `<ul class="tracking-freq-list" id="trackingFreqList" style="display:none;">`;
-  for (let i = 1; i < visTx.length; i++) {
-    const tx = visTx[i];
-    const info = formatTransmitterInfo(tx);
-    html += `<li>${info}</li>`;
+
+  // Build table
+  let html = '<div class="card-title">FREQUENCIES</div>';
+  html += '<table class="freq-table">';
+  html += '<tr><th class="freq-dl-col">DL Freq MHz</th><th class="freq-rx-col">RX Doppler</th>';
+  html += '<th class="freq-gap"></th>';
+  html += '<th class="freq-ul-col">UL Freq MHz</th><th class="freq-tx-col">TX Comp</th>';
+  html += '<th class="freq-mode-col">Mode</th></tr>';
+
+  for (const tx of visTx) {
+    const dlRange = formatFreqRange(tx.downlink_low, tx.downlink_high);
+    const ulRange = formatFreqRange(tx.uplink_low, tx.uplink_high);
+    const mode = tx.mode || '';
+
+    // Get center frequencies for Doppler calculation
+    const dlCenterHz = getCenterFreq(tx.downlink_low, tx.downlink_high);
+    const ulCenterHz = getCenterFreq(tx.uplink_low, tx.uplink_high);
+
+    // Calculate Doppler shifts
+    let rxDopplerHtml = '<span class="freq-no-doppler">—</span>';
+    let txCompHtml = '<span class="freq-no-doppler">—</span>';
+    if (dlCenterHz) {
+      const rxShift = calcDoppler(dlCenterHz, rangeRateMs);
+      rxDopplerHtml = `<span class="${dopplerClass(rxShift)}">${formatDoppler(rxShift)}</span>`;
+    }
+    if (ulCenterHz) {
+      const txShift = -calcDoppler(ulCenterHz, rangeRateMs); // TX Comp is opposite of RX Doppler
+      txCompHtml = `<span class="${dopplerClass(txShift)}">${formatDoppler(txShift)}</span>`;
+    }
+
+    html += '<tr>';
+    html += `<td class="freq-dl-col">${dlRange ? dlRange : '—'}</td>`;
+    html += `<td class="freq-rx-col">${rxDopplerHtml}</td>`;
+    html += '<td class="freq-gap"></td>';
+    html += `<td class="freq-ul-col">${ulRange ? ulRange : '—'}</td>`;
+    html += `<td class="freq-tx-col">${txCompHtml}</td>`;
+    html += `<td class="freq-mode-col">${mode || '—'}</td>`;
+    html += '</tr>';
   }
-  html += `</ul>`;
-  
+
+  html += '</table>';
   infoEl.innerHTML = html;
-  
-  // Expand/collapse handler
-  const expandBtn = document.getElementById('trackingFreqExpand');
-  const freqList = document.getElementById('trackingFreqList');
-  if (expandBtn && freqList) {
-    expandBtn.addEventListener('click', () => {
-      const isHidden = freqList.style.display === 'none';
-      freqList.style.display = isHidden ? 'block' : 'none';
-      expandBtn.textContent = isHidden ? '(- hide)' : `(+${visTx.length - 1} more)`;
-    });
+}
+function getCenterFreq(lowHz, highHz) {
+  if (lowHz === null || lowHz === undefined || isNaN(lowHz)) return null;
+  if (highHz !== null && highHz !== undefined && !isNaN(highHz) && highHz !== lowHz) {
+    return (lowHz + highHz) / 2;
   }
+  return lowHz;
 }
 
 function updateTrackSatSelect() {
@@ -2920,8 +3059,13 @@ function satrecFromSat(sat) {
 }
 
 // ==================== TRACKING ====================
-document.getElementById('startTrackBtn').addEventListener('click', startTracking);
-document.getElementById('stopTrackBtn').addEventListener('click', stopTracking);
+document.getElementById('startTrackBtn').addEventListener('click', () => {
+  if (tracking) {
+    stopTracking();
+  } else {
+    startTracking();
+  }
+});
 document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   const idx = parseInt(e.target.value);
   selectedSatIndex = idx;
@@ -3000,20 +3144,24 @@ function startTracking() {
 
 function beginTracking(sat, satrec, now, minEl) {
   tracking = true;
-  document.getElementById('startTrackBtn').textContent = 'Tracking...';
-  document.getElementById('startTrackBtn').disabled = true;
+  const btn = document.getElementById('startTrackBtn');
+  const status = document.getElementById('trackStatus');
+  btn.className = 'btn btn-danger track-btn';
+  btn.textContent = 'Stop';
   
   // Invalidate AOS/LOS cache so tracking starts with fresh data
   cachedTime = null;
   cachedAosTime = null;
   cachedLosTime = null;
-  
+
   // If satellite is below horizon, compute position at AOS and command there
   const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
   const currentEl = currentTop ? currentTop.elevation * 180 / Math.PI : -90;
-  
+
   if (currentEl < minEl) {
     // Satellite is below horizon - find AOS and command there
+    preAos = true;
+    status.textContent = 'Waiting';
     const aosTime = findNextAos(satrec, now, minEl);
     if (aosTime) {
       const aosTop = computeTopo(satrec, aosTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -3026,10 +3174,12 @@ function beginTracking(sat, satrec, now, minEl) {
       }
     }
   } else {
+    preAos = false;
+    status.textContent = 'Tracking';
     // Satellite is above horizon - command current position immediately
     computeAndSend(true);
   }
-  
+
   trackingInterval = setInterval(() => { computeAndSend().catch(e => console.error("Tracking error:", e)); }, updateIntervalMs);
 }
 
@@ -3037,12 +3187,17 @@ function stopTracking() {
   tracking = false;
   lastSentAz = null;
   lastSentEl = null;
+  currentRangeRate = 0;
+  preAos = true;
   if (trackingInterval) {
     clearInterval(trackingInterval);
     trackingInterval = null;
   }
-  document.getElementById('startTrackBtn').textContent = 'Start Tracking';
-  document.getElementById('startTrackBtn').disabled = false;
+  const btn = document.getElementById('startTrackBtn');
+  const status = document.getElementById('trackStatus');
+  btn.className = 'btn btn-success track-btn';
+  btn.textContent = 'Start';
+  status.textContent = '';
   // Send STOP to device
   const api = getApiBase();
   if (api) {
@@ -3071,6 +3226,7 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
   if (!posVel.position) return null;
 
   const pos = posVel.position;
+  const vel = posVel.velocity || { x: 0, y: 0, z: 0 };
 
   // Get GMST from satellite.js
   const gmst = satellite.gstime(date);
@@ -3080,11 +3236,29 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
   const lon = stationLon * Math.PI / 180;
   const stationEci = geodeticToEci(lat, lon, stationAlt / 1000, gmst);
 
+  // Station velocity due to Earth rotation (km/s)
+  const omegaEarth = 7.2921159e-5; // rad/s
+  const stationR = Math.sqrt(stationEci.x * stationEci.x + stationEci.y * stationEci.y);
+  const stationVel = {
+    x: -omegaEarth * stationEci.y,
+    y: omegaEarth * stationEci.x,
+    z: 0
+  };
+
   // Range vector from station to satellite
   const rangeX = pos.x - stationEci.x;
   const rangeY = pos.y - stationEci.y;
   const rangeZ = pos.z - stationEci.z;
   const rangeKm = Math.sqrt(rangeX * rangeX + rangeY * rangeY + rangeZ * rangeZ);
+
+  // Relative velocity (satellite - station) in ECI
+  const relVelX = vel.x - stationVel.x;
+  const relVelY = vel.y - stationVel.y;
+  const relVelZ = vel.z - stationVel.z;
+
+  // Range rate: projection of relative velocity onto range unit vector (km/s)
+  // Positive = range increasing (departing), Negative = range decreasing (approaching)
+  const rangeRateMs = rangeKm > 0 ? (relVelX * rangeX + relVelY * rangeY + relVelZ * rangeZ) / rangeKm * 1000 : 0;
 
   // Transform to topocentric (SEZ) frame
   const theta = gmst + lon;
@@ -3105,7 +3279,8 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
   return {
     azimuth: azimuth,        // radians, 0 = North, clockwise
     elevation: elevation,    // radians
-    range: rangeKm           // km
+    range: rangeKm,          // km
+    rangeRate: rangeRateMs   // m/s, positive = departing
   };
 }
 
@@ -3150,17 +3325,24 @@ async function computeAndSend(force) {
     let satAz = top.azimuth;
     let satEl = top.elevation;
     let satRange = top.range;
+    currentRangeRate = top.rangeRate || 0;
 
     // Convert satellite.js radians to degrees
     satAz = (satAz * 180 / Math.PI + 360) % 360;
     satEl = satEl * 180 / Math.PI;
     
     // Auto-stop tracking if satellite has gone below minElevation (LOS)
-    // Only if we were previously tracking (lastSentEl was set and above minEl)
-    if (tracking && satEl < minElevation && lastSentEl !== null && lastSentEl >= minElevation) {
+    // Only if we were previously tracking above minEl — not when pre-AOS
+    if (tracking && satEl < minElevation && lastSentEl !== null && lastSentEl >= minElevation && !preAos) {
       // Satellite has set - stop tracking
       stopTracking();
       return;
+    }
+    
+    // Track pre-AOS state: true until satellite rises above minEl
+    if (satEl >= minElevation && preAos) {
+      preAos = false;
+      document.getElementById('trackStatus').textContent = 'Tracking';
     }
     
     // Clamp elevation to 0 minimum when sending to rotator
@@ -3174,10 +3356,10 @@ async function computeAndSend(force) {
 
 
     // Send to rotator (only if above minimum elevation and position changed significantly)
-    // Browser threshold prevents unnecessary setPosition calls
+    // When satellite is below minEl but we're tracking, keep sending AOS position
     const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 1.0;
     const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 1.0;
-    
+
     if (force || (satEl >= minElevation && (azChanged || elChanged))) {
       try {
         await setPosition(satAz, sendEl);
@@ -3188,8 +3370,16 @@ async function computeAndSend(force) {
       }
     }
 
+    // Update display even when below minEl (pre-AOS tracking)
+    document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
+    document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+    document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
+
     // Update polar plot
     drawPolarPlot(top, sat);
+
+    // Update frequency Doppler display
+    updateTrackingFreqInfo(sat);
 
   } catch (e) {
     console.error('Tracking error:', e);
@@ -3597,7 +3787,7 @@ setInterval(async () => {
 // ==================== POLAR PLOT ====================
 function drawPolarPlot(top, sat) {
   const svg = document.getElementById('polarPlot');
-  const cx = 230, cy = 230, r = 170;
+  const cx = 230, cy = 215, r = 185;
   
   // Guard against invalid/missing top data
   if (!top || typeof top.azimuth !== 'number' || typeof top.elevation !== 'number' || 
@@ -3837,10 +4027,10 @@ function drawPolarPlot(top, sat) {
     elSteps.forEach(el => {
       const radius = ((90 - el) / 90) * r;
       const strokeDash = el === 90 ? '' : 'stroke-dasharray="2,3"';
-      elGrid += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#484f58" stroke-width="0.7" ${strokeDash}/>`;
+      elGrid += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#2d5a8e" stroke-width="0.8" ${strokeDash}/>`;
       // Label on the north axis (top)
       if (el % 20 === 0 || el === 90) {
-        elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#8b949e" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
+        elGrid += `<text x="${cx}" y="${cy - radius - 2}" fill="#58a6ff" font-size="8" text-anchor="middle" font-family="monospace">${el}°</text>`;
       }
     });
     
@@ -3851,23 +4041,23 @@ function drawPolarPlot(top, sat) {
       const angle = (az - 90) * Math.PI / 180;
       const x2 = cx + r * Math.cos(angle);
       const y2 = cy + r * Math.sin(angle);
-      azGrid += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#484f58" stroke-width="0.5" stroke-dasharray="2,4"/>`;
+      azGrid += `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" stroke="#2d5a8e" stroke-width="0.6" stroke-dasharray="2,4"/>`;
       // Label at the edge
       const labelR = r + 12;
       const lx = cx + labelR * Math.cos(angle);
       const ly = cy + labelR * Math.sin(angle);
       const anchor = az === 0 ? 'middle' : az === 180 ? 'middle' : az < 180 ? 'start' : 'end';
       if (az % 30 === 0) {
-        azGrid += `<text x="${lx}" y="${ly + 3}" fill="#8b949e" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
+        azGrid += `<text x="${lx}" y="${ly + 3}" fill="#58a6ff" font-size="8" text-anchor="${anchor}" font-family="monospace">${az}°</text>`;
       }
     });
     
     // Cardinal direction labels (larger, brighter)
     let cardinal = `
-      <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
-      <text x="${cx}" y="${cy + r + 32}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">S</text>
-      <text x="450" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">E</text>
-      <text x="10" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">W</text>`;
+      <text x="${cx}" y="${cy - r - 18}" fill="#58a6ff" font-size="11" font-weight="600" text-anchor="middle">N</text>
+      <text x="${cx}" y="${cy + r + 28}" fill="#58a6ff" font-size="11" font-weight="600" text-anchor="middle">S</text>
+      <text x="444" y="${cy + 4}" fill="#58a6ff" font-size="11" font-weight="600">E</text>
+      <text x="-1" y="${cy + 4}" fill="#58a6ff" font-size="11" font-weight="600">W</text>`;
     
     const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
     const rotPt = toSvg(rotAz, rotEl);
@@ -3875,12 +4065,12 @@ function drawPolarPlot(top, sat) {
     svg.innerHTML = `
       <defs>
         <radialGradient id="plotBg" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#161b22"/>
-          <stop offset="100%" stop-color="#0d1117"/>
+          <stop offset="0%" stop-color="#0f2040"/>
+          <stop offset="100%" stop-color="#080e1a"/>
         </radialGradient>
       </defs>
       <!-- Background -->
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#plotBg)" stroke="#30363d" stroke-width="1"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#plotBg)" stroke="#1e4d8c" stroke-width="1"/>
       <!-- Satellite trajectory path -->
       ${pathSvg}
       <!-- Elevation grid -->
@@ -4063,14 +4253,14 @@ function drawPolarPlot(top, sat) {
     const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
     
     svg.innerHTML = `
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="#161b22" stroke="#30363d"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="#0f2040" stroke="#1e4d8c"/>
       ${pathSvg}
       ${elGrid}
       ${azGrid}
-      <text x="${cx}" y="${cy - r - 26}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">N</text>
-      <text x="${cx}" y="${cy + r + 32}" fill="#8b949e" font-size="11" font-weight="600" text-anchor="middle">S</text>
-      <text x="450" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">E</text>
-      <text x="10" y="${cy + 4}" fill="#8b949e" font-size="11" font-weight="600">W</text>
+      <text x="${cx}" y="${cy - r - 18}" fill="#58a6ff" font-size="11" font-weight="600" text-anchor="middle">N</text>
+      <text x="${cx}" y="${cy + r + 28}" fill="#58a6ff" font-size="11" font-weight="600" text-anchor="middle">S</text>
+      <text x="444" y="${cy + 4}" fill="#58a6ff" font-size="11" font-weight="600">E</text>
+      <text x="-1" y="${cy + 4}" fill="#58a6ff" font-size="11" font-weight="600">W</text>
       <circle cx="${satPt.x}" cy="${satPt.y}" r="6" fill="#58a6ff"/>
     `;
   });
@@ -4231,16 +4421,6 @@ function sendDirection(dir) {
   const api = getApiBase();
   if (!api) return;
   fetch(api + '/cmd?dir=' + dir, { method: 'GET' })
-    .then(() => {
-      const statusEl = document.getElementById('controlStatus');
-      if (dir === 'STOP') {
-        statusEl.textContent = 'IDLE';
-        statusEl.className = 'control-status';
-      } else {
-        statusEl.textContent = dir + '...';
-        statusEl.className = 'control-status moving';
-      }
-    })
     .catch(() => {});
 }
 
@@ -4445,6 +4625,74 @@ setTimeout(() => {
 
 // App version display (for cache-busting verification)
 document.getElementById('appVersion').textContent = 'v1.3.0';
+
+// ==================== CONFIGURATION SAVE/LOAD ====================
+const CONFIG_KEYS = [
+  'satellites', 'selectedSatIndex', 'deviceApiBase', 'stationLocation',
+  'updateInterval', 'minElevation', 'satNOGSData', 'satNOGSProxyMode',
+  'satNOGSProxyUrl', 'satNOGSRefreshInterval', 'satNOGSFilterActive',
+  'satShowFreqs', 'hiddenSats', 'hiddenFreqs', 'satHideFilter',
+  'freqHideFilter', 'gridSquare'
+];
+
+function saveConfig() {
+  const config = {};
+  CONFIG_KEYS.forEach(key => {
+    const val = localStorage.getItem(key);
+    if (val !== null) config[key] = val;
+  });
+  const json = JSON.stringify(config, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'azelctrl-config-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  const now = new Date().toLocaleString();
+  localStorage.setItem('lastSaveTime', now);
+  document.getElementById('lastSaveTime').textContent = 'Last saved: ' + now;
+  document.getElementById('configStatus').textContent = 'Configuration saved (' + (new Intl.NumberFormat().format(json.length)) + ' bytes)';
+}
+
+function loadConfig(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const config = JSON.parse(e.target.result);
+      const status = document.getElementById('configStatus');
+      let count = 0;
+      CONFIG_KEYS.forEach(key => {
+        if (config[key] !== undefined) {
+          localStorage.setItem(key, config[key]);
+          count++;
+        }
+      });
+      status.textContent = 'Loaded ' + count + ' settings. Reloading...';
+      setTimeout(() => location.reload(), 1500);
+    } catch (err) {
+      document.getElementById('configStatus').textContent = 'Error: Invalid config file — ' + err.message;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Show last save time on load
+(function() {
+  const lastSave = localStorage.getItem('lastSaveTime');
+  if (lastSave) {
+    document.getElementById('lastSaveTime').textContent = 'Last saved: ' + lastSave;
+  }
+})();
+
+document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+document.getElementById('loadConfigBtn').addEventListener('click', () => {
+  document.getElementById('loadConfigFile').click();
+});
+document.getElementById('loadConfigFile').addEventListener('change', (e) => {
+  if (e.target.files[0]) loadConfig(e.target.files[0]);
+  e.target.value = '';
+});
 </script>
 </body>
 </html>
