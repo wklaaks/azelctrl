@@ -269,7 +269,12 @@ td.max-el-low { color: var(--muted); }
 td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 /* SatNOGS filter toggle */
-.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* Satellites tab — sticky header, scrollable table */
+#tab-satellites { display: none; flex-direction: column; flex: 1; overflow: hidden; padding: 0; }
+#tab-satellites.active { display: flex; }
+#tab-satellites .card { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 14px; margin: 12px; }
+#tab-satellites .card-title { flex-shrink: 0; }
+.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-shrink: 0; position: sticky; top: 0; background: var(--card); padding: 4px 0; z-index: 1; }
 .satnogs-filter-label { font-size: 0.8rem; color: var(--muted); }
 
 /* SatNOGS data section */
