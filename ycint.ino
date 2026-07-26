@@ -5694,6 +5694,24 @@ void setupWebServer() {
     server.send(200, "application/json", json);
   });
 
+  // GET /api/rotator — rotator model and physical limits
+  // Response: {"model":"N360","physicalStop":180.0}
+  server.on("/api/rotator", []() {
+    const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
+    float physStop;
+    switch (rotModel) {
+      case ROT_N360: physStop = 180.0; break;
+      case ROT_S360: physStop = 0.0; break;
+      case ROT_N450: physStop = 135.0; break;
+      case ROT_S450: physStop = 315.0; break;
+      default: physStop = 180.0; break;
+    }
+    String json = "{\"model\":\"" + String(modelNames[rotModel]) + "\","
+                  "\"physicalStop\":" + String(physStop, 1) + "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+
   // SatNOGS proxy endpoint
   server.on("/satnogs-proxy", HTTP_GET, handleSatNOGSProxy);
 

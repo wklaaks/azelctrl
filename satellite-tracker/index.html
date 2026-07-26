@@ -1611,6 +1611,25 @@ async function setElfMode(enabled) {
   return await resp.json();
 }
 
+// ==================== ROTATOR MODEL ====================
+let rotatorModel = null; // {model: 'N360'|'S360'|'N450'|'S450', physicalStop: number}
+
+async function fetchRotatorModel() {
+  if (!getApiBase()) return;
+  try {
+    const resp = await fetch(`${getApiBase()}/api/rotator`);
+    if (resp.ok) {
+      rotatorModel = await resp.json();
+      console.log('Rotator model:', rotatorModel);
+    }
+  } catch (err) {
+    console.warn('Failed to fetch rotator model:', err.message);
+  }
+}
+
+// Fetch rotator model on startup
+fetchRotatorModel();
+
 // ==================== ELF MODE ====================
 document.getElementById('elfToggle').addEventListener('change', async (e) => {
   const enabled = e.target.checked;
@@ -1623,9 +1642,22 @@ document.getElementById('elfToggle').addEventListener('change', async (e) => {
   }
 });
 
+// Get the wrap boundary angle for the current rotator model
+// N360: 180° (North-facing, cannot cross South line)
+// S360: 0° (South-facing, cannot cross North line)
+// N450: 135° (North-facing, cannot cross SE line)
+// S450: 315° (South-facing, cannot cross NW line)
+function getWrapBoundary() {
+  if (!rotatorModel) return null; // Unknown model — skip detection
+  return rotatorModel.physicalStop;
+}
+
 // Check if a satellite pass crosses the rotator's wrap boundary
-// Returns: null (no crossing), '180' (crosses 180°), or '0' (crosses 0°/360°)
+// Returns: null (no crossing) or the boundary angle that's crossed
 function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLon, stationAlt) {
+  const boundary = getWrapBoundary();
+  if (boundary === null) return null; // Unknown rotator model — skip
+
   const interval = 15000; // 15-second samples for accuracy
   let t = new Date(aosTime);
   const los = new Date(losTime);
@@ -1638,20 +1670,23 @@ function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLo
       const az = (pos.azimuth * 180 / Math.PI + 360) % 360;
       
       if (prevAz !== null) {
-        // Check if azimuth crosses through 180° (N360 boundary)
-        if ((prevAz > 180 && az < 180) || (prevAz < 180 && az > 180)) {
-          // Verify it's a genuine crossing, not a wrap-around artifact
-          const diff = Math.abs(az - prevAz);
-          if (diff < 170) { // Only flag if the jump is reasonable (< 170°)
-            return '180';
-          }
-        }
+        // Check if azimuth crosses through the boundary
+        // For boundaries near 0° (0° or 315°), handle wrap-around
+        const isNearZero = boundary === 0 || boundary === 315;
         
-        // Check if azimuth crosses through 0°/360° (S360 boundary)
-        if ((prevAz > 350 && az < 10) || (prevAz < 10 && az > 350)) {
-          const diff = Math.min(Math.abs(az - prevAz), 360 - Math.abs(az - prevAz));
-          if (diff < 170) {
-            return '0';
+        if (isNearZero) {
+          // Check crossing through boundary near 0°/360°
+          const cross = ((prevAz > boundary && az < boundary) || (prevAz < boundary && az > boundary));
+          if (cross) {
+            const diff = Math.min(Math.abs(az - prevAz), 360 - Math.abs(az - prevAz));
+            if (diff < 170) return boundary;
+          }
+        } else {
+          // Check crossing through boundary away from 0°
+          const cross = ((prevAz > boundary && az < boundary) || (prevAz < boundary && az > boundary));
+          if (cross) {
+            const diff = Math.abs(az - prevAz);
+            if (diff < 170) return boundary;
           }
         }
       }
@@ -2746,7 +2781,7 @@ function startTracking() {
         stationLocation.lat, stationLocation.lon, stationLocation.alt);
       
       if (boundary) {
-        const boundaryLabel = boundary === '180' ? '180°' : '0°/360°';
+        const boundaryLabel = boundary + '°';
         const aosStr = pass.aosTime.toLocaleString('en-ZA', {
           weekday: 'short', day: '2-digit', month: '2-digit',
           hour: '2-digit', minute: '2-digit'
