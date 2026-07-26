@@ -2075,20 +2075,30 @@ function renderPassTable() {
       const allTx = satNOGS.transmitters;
       const visTx = freqHideOn ? visibleTransmitters(satNOGS) : allTx;
       
-      // If multi-transmitter and this is a specific row, use that transmitter
-      const tx = (totalTx > 1 && txIndex < visTx.length) 
-        ? visTx[txIndex] 
-        : visTx[0];
-      
-      const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
-      const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
-      
-      dlFreq = dl ? `<span style="font-family:monospace;">${dl}</span>` : '<span class="no-data">—</span>';
-      ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
-      modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
+      if (visTx.length === 0) {
+        // All frequencies hidden — show dashes
+        dlFreq = '<span class="no-data">—</span>';
+        ulFreq = '<span class="no-data">—</span>';
+        modeCell = '<span class="no-data">—</span>';
+      } else {
+        // If multi-transmitter and this is a specific row, use that transmitter
+        const tx = (totalTx > 1 && txIndex < visTx.length) 
+          ? visTx[txIndex] 
+          : visTx[0];
+        
+        const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
+        const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
+        
+        dlFreq = dl ? `<span style="font-family:monospace;">${dl}</span>` : '<span class="no-data">—</span>';
+        ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
+        modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
+      }
       
       // Add freq-hide toggle button when Freq-Hide is OFF (so user can mark frequencies to hide)
-      if (!freqHideOn && tx) {
+      if (!freqHideOn && visTx.length > 0) {
+        const tx = (totalTx > 1 && txIndex < visTx.length) 
+          ? visTx[txIndex] 
+          : visTx[0];
         const hidden = isFreqHidden(p.sat.norad, tx);
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
         const btnText = hidden ? '✓' : '✗';
