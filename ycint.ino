@@ -5695,19 +5695,21 @@ void setupWebServer() {
   });
 
   // GET /api/rotator — rotator model and physical limits
-  // Response: {"model":"N360","physicalStop":180.0}
+  // Response: {"model":"N360","forbiddenZone":[startAngle, endAngle]}
+  // For 360 models: single line (start=end, 180° forbidden arc on either side)
+  // For 450 models: 90° forbidden zone between two boundaries
   server.on("/api/rotator", []() {
     const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
-    float physStop;
+    float forbiddenStart, forbiddenEnd;
     switch (rotModel) {
-      case ROT_N360: physStop = 180.0; break;
-      case ROT_S360: physStop = 0.0; break;
-      case ROT_N450: physStop = 135.0; break;
-      case ROT_S450: physStop = 315.0; break;
-      default: physStop = 180.0; break;
+      case ROT_N360: forbiddenStart = 180.0; forbiddenEnd = 180.0; break; // Single line
+      case ROT_S360: forbiddenStart = 0.0; forbiddenEnd = 0.0; break;   // Single line
+      case ROT_N450: forbiddenStart = 135.0; forbiddenEnd = 225.0; break; // 90° zone (SE-SW through S)
+      case ROT_S450: forbiddenStart = 315.0; forbiddenEnd = 45.0; break;  // 90° zone (NW-NE through N)
+      default: forbiddenStart = 180.0; forbiddenEnd = 180.0; break;
     }
     String json = "{\"model\":\"" + String(modelNames[rotModel]) + "\","
-                  "\"physicalStop\":" + String(physStop, 1) + "}";
+                  "\"forbiddenZone\":[" + String(forbiddenStart, 1) + "," + String(forbiddenEnd, 1) + "]}";
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
   });
