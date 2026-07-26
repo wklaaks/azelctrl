@@ -2069,7 +2069,7 @@ function renderPassTable() {
     let dlFreq = '<span class="no-data">—</span>';
     let ulFreq = '<span class="no-data">—</span>';
     let modeCell = '<span class="no-data">—</span>';
-    let freqHideCell = '<td></td>';
+    let freqHideCell = '<td style="width:0;padding:0;"></td>';
     
     if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
       // When Freq-Hide is ON, show only visible (non-hidden) transmitters
@@ -2107,7 +2107,7 @@ function renderPassTable() {
         const key = freqKey(p.sat.norad, tx);
         freqHideCell = `<td style="text-align:center;"><button class="${btnClass}" data-key="${key}" title="${hidden ? 'Show this frequency' : 'Hide this frequency'}">${btnText}</button></td>`;
       } else {
-        freqHideCell = '<td></td>';
+        freqHideCell = '<td style="width:0;padding:0;"></td>';
       }
     }
     
@@ -2134,7 +2134,7 @@ function renderPassTable() {
           const btnText = hidden ? '✗' : '☑';
           return `<td style="text-align:center;"><button class="${btnClass}" data-norad="${p.sat.norad}" title="${hidden ? 'Show this satellite' : 'Hide this satellite'}">${btnText}</button></td>`;
         })()
-      : (isFirstRow ? '<td></td>' : '<td></td>');
+      : (isFirstRow ? '<td style="width:0;padding:0;"></td>' : '<td style="width:0;padding:0;"></td>');
     
     const bgColor = satGroupIndex % 2 === 0 ? 'rgba(30,58,138,0.45)' : 'rgba(22,101,52,0.35)';
     
@@ -2149,7 +2149,7 @@ function renderPassTable() {
         '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>' +
         freqHideCell;
     } else {
-      row += '<td></td>';
+      row += '<td style="width:0;padding:0;"></td>';
     }
     
     row += satHideCell +
@@ -2171,12 +2171,12 @@ function renderPassTable() {
     html += '<th style="width:100px;">DL Freq</th>' +
       '<th style="width:100px;">UL Freq</th>' +
       '<th style="width:70px;">Mode</th>' +
-      (!freqHideOn ? '<th style="width:28px;">FH</th>' : '<th style="width:28px;"></th>');
+      (!freqHideOn ? '<th style="width:28px;">FH</th>' : '<th style="width:0;padding:0;"></th>');
   } else {
-    html += '<th style="width:28px;"></th>';
+    html += '<th style="width:0;padding:0;"></th>';
   }
   
-  html += (!satHideOn ? '<th style="width:28px;">SH</th>' : '<th style="width:28px;"></th>') +
+  html += (!satHideOn ? '<th style="width:28px;">SH</th>' : '<th style="width:0;padding:0;"></th>') +
     '<th>AOS Time</th>' +
     '<th>Until</th>' +
     '<th>Max El</th>' +
