@@ -286,6 +286,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 /* Tracking tab frequency display */
 .tracking-freq-info { font-size: 0.8rem; color: var(--muted); margin-top: 4px; font-family: monospace; }
+#trackingFreqCard { text-align: center; }
 .tracking-freq-expand { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.75rem; }
 .tracking-freq-list { margin-top: 2px; font-size: 0.75rem; color: var(--muted); }
 .tracking-freq-list li { margin: 1px 0; list-style: none; padding-left: 1em; }
@@ -427,15 +428,15 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </label>
       <span class="satnogs-filter-label">Freq/Modes</span>
       <label class="toggle-switch" style="transform:scale(0.9);">
-        <input type="checkbox" id="satHideToggle">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="satnogs-filter-label">Sat-Hide</span>
-      <label class="toggle-switch" style="transform:scale(0.9);">
         <input type="checkbox" id="freqHideToggle">
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Freq-Hide</span>
+      <label class="toggle-switch" style="transform:scale(0.9);">
+        <input type="checkbox" id="satHideToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="satnogs-filter-label">Sat-Hide</span>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
@@ -2350,7 +2351,7 @@ function updateTrackingFreqInfo(sat) {
   const primary = visTx[0];
   const primaryInfo = formatTransmitterInfo(primary);
   
-  let html = `<div style="display:flex;align-items:center;gap:8px;">`;
+  let html = `<div style="display:flex;align-items:center;justify-content:center;gap:8px;">`;
   html += `<span style="font-size:0.8rem;color:var(--muted);">Freq:</span>`;
   html += `<span class="tracking-freq-info">${primaryInfo}</span>`;
   
