@@ -2055,7 +2055,7 @@ function renderPassTable() {
       minsStr = formatTimeRemaining(aosSeconds);
     }
     
-    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
+    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @ ' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
 
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
     const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '') + (satGroupIndex % 2 === 0 ? ' sat-even' : ' sat-odd').trim();
@@ -2179,7 +2179,7 @@ function renderPassTable() {
   html += (!satHideOn ? '<th style="width:28px;">SH</th>' : '<th style="width:0;padding:0;"></th>') +
     '<th>AOS Time</th>' +
     '<th>Until</th>' +
-    '<th>Max El</th>' +
+    '<th>MAX EL@AZ</th>' +
     '<th></th>' +
     '</tr></thead><tbody>';
   
@@ -4167,7 +4167,7 @@ function refreshPasses() {
                 <td class="num">${formatTime(aos)}</td>
                 <td class="num" style="text-align: right;">${p.aosAz.toFixed(0)}°</td>
                 <td class="num" style="text-align: right;">${p.losAz.toFixed(0)}°</td>
-                <td class="num ${elClass}" style="font-family: monospace;">${String(p.maxEl.toFixed(1)).padStart(5, '\u00A0')}° @${String(p.maxElAz.toFixed(0)).padStart(3, '\u00A0')}</td>
+                <td class="num ${elClass}" style="font-family: monospace;">${String(p.maxEl.toFixed(1)).padStart(5, '\u00A0')}° @ ${String(p.maxElAz.toFixed(0)).padStart(3, '\u00A0')}</td>
                 <td class="num">${formatTime(los)}</td>
                 <td class="num">${dur.toFixed(1)} min</td>
               </tr>`;
