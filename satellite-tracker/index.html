@@ -289,6 +289,24 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 /* Manage tab SatNOGS panel */
 .manage-panel .card-title { margin-bottom: 10px; }
+
+/* Hide toggle buttons */
+.hide-toggle { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.hide-toggle-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; cursor: pointer;
+  transition: all 0.15s;
+}
+.hide-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+.hide-toggle-btn.hidden { background: var(--orange); border-color: var(--orange); color: #000; }
+.freq-hide-toggle { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; margin-left: 4px; }
+.freq-hide-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-size: 0.6rem; padding: 0px 4px; border-radius: 2px; cursor: pointer;
+  transition: all 0.15s; line-height: 1;
+}
+.freq-hide-btn:hover { border-color: var(--accent); color: var(--accent); }
+.freq-hide-btn.hidden { background: var(--orange); border-color: var(--orange); color: #000; }
 </style>
 </head>
 <body>
@@ -401,6 +419,16 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <span class="toggle-slider"></span>
       </label>
       <span class="satnogs-filter-label">Freq/Modes</span>
+      <label class="toggle-switch" style="transform:scale(0.9);">
+        <input type="checkbox" id="satHideToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="satnogs-filter-label">Sat-Hide</span>
+      <label class="toggle-switch" style="transform:scale(0.9);">
+        <input type="checkbox" id="freqHideToggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="satnogs-filter-label">Freq-Hide</span>
       <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCount">0 satellites</span>
     </div>
     <div id="satPassTable"></div>
@@ -1511,6 +1539,43 @@ let upcomingPasses = [];
 let satPassCache = null;
 let satPassCacheTime = null;
 
+// Hidden state — persisted in localStorage
+let hiddenSats = new Set(JSON.parse(localStorage.getItem('hiddenSats') || '[]')); // NORAD IDs
+let hiddenFreqs = new Set(JSON.parse(localStorage.getItem('hiddenFreqs') || '[]')); // "NORAD:freqKey"
+let satHideFilter = localStorage.getItem('satHideFilter') !== 'false'; // ON by default
+let freqHideFilter = localStorage.getItem('freqHideFilter') !== 'false'; // ON by default
+
+function saveHiddenSats() { localStorage.setItem('hiddenSats', JSON.stringify([...hiddenSats])); }
+function saveHiddenFreqs() { localStorage.setItem('hiddenFreqs', JSON.stringify([...hiddenFreqs])); }
+
+// Frequency key for a transmitter — unique identifier for hiding
+function freqKey(norad, tx) {
+  const dl = tx.downlink_low ?? tx.downlink ?? '—';
+  const ul = tx.uplink_low ?? tx.uplink ?? '—';
+  const mode = tx.mode ?? '—';
+  return `${norad}:${dl}:${ul}:${mode}`;
+}
+
+function isFreqHidden(norad, tx) {
+  return hiddenFreqs.has(freqKey(norad, tx));
+}
+
+function toggleFreqHidden(norad, tx) {
+  const key = freqKey(norad, tx);
+  if (hiddenFreqs.has(key)) {
+    hiddenFreqs.delete(key);
+  } else {
+    hiddenFreqs.add(key);
+  }
+  saveHiddenFreqs();
+}
+
+// Filter transmitters by hidden state
+function visibleTransmitters(satNOGS) {
+  if (!freqHideFilter || !satNOGS || !satNOGS.transmitters) return satNOGS?.transmitters || [];
+  return satNOGS.transmitters.filter(tx => !isFreqHidden(satNOGS.satellite_norad || '', tx));
+}
+
 // ==================== TABS ====================
 // Main tab switching
 document.querySelectorAll('.tab[data-tab]').forEach(tab => {
@@ -1877,6 +1942,8 @@ function renderPassTable() {
   const passTableEl = document.getElementById('satPassTable');
   const showActiveOnly = document.getElementById('satNOGSFilterActive').checked;
   const showFreqs = document.getElementById('satShowFreqs').checked;
+  const satHideOn = document.getElementById('satHideToggle').checked;
+  const freqHideOn = document.getElementById('freqHideToggle').checked;
   
   if (satellites.length === 0) {
     passTableEl.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No satellites stored yet</div>';
@@ -1922,6 +1989,11 @@ function renderPassTable() {
     let filteredPasses = passes;
     if (showActiveOnly) {
       filteredPasses = passes.filter(p => isSatelliteActive(p.sat.norad));
+    }
+    
+    // Apply Sat-Hide filter if enabled
+    if (satHideOn) {
+      filteredPasses = filteredPasses.filter(p => !hiddenSats.has(p.sat.norad));
     }
     
     // Separate overhead from upcoming
@@ -1987,10 +2059,13 @@ function renderPassTable() {
     let modeCell = '<span class="no-data">—</span>';
     
     if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
+      // Get visible transmitters (filtered by Freq-Hide)
+      const visTx = freqHideOn ? visibleTransmitters(satNOGS) : satNOGS.transmitters;
+      
       // If multi-transmitter and this is a specific row, use that transmitter
-      const tx = (totalTx > 1 && txIndex < satNOGS.transmitters.length) 
-        ? satNOGS.transmitters[txIndex] 
-        : satNOGS.transmitters[0];
+      const tx = (totalTx > 1 && txIndex < visTx.length) 
+        ? visTx[txIndex] 
+        : visTx[0];
       
       const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
       const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
@@ -1998,6 +2073,14 @@ function renderPassTable() {
       dlFreq = dl ? `<span style="font-family:monospace;">${dl}</span>` : '<span class="no-data">—</span>';
       ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
       modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
+      
+      // Add freq-hide toggle button
+      if (freqHideOn && tx) {
+        const hidden = isFreqHidden(p.sat.norad, tx);
+        const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
+        const btnText = hidden ? '✓' : '✗';
+        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-norad="${p.sat.norad}" data-dl="${tx.downlink_low ?? tx.downlink ?? '-'}" data-ul="${tx.uplink_low ?? tx.uplink ?? '-'}" data-mode="${tx.mode ?? '-'}" title="Hide this frequency">${btnText}</button></span>`;
+      }
     }
     
     // Satellite name (only on first row for multi-transmitter)
@@ -2014,6 +2097,16 @@ function renderPassTable() {
     const selectCell = isFirstRow 
       ? `<td><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
       : '<td></td>';
+    
+    // Sat-Hide toggle (only on first row, when Sat-Hide is ON)
+    const hideCell = isFirstRow && satHideOn
+      ? (() => {
+          const hidden = hiddenSats.has(p.sat.norad);
+          const btnClass = hidden ? 'hide-toggle-btn hidden' : 'hide-toggle-btn';
+          const btnText = hidden ? 'Unhide' : 'Hide';
+          return `<td><button class="${btnClass}" data-norad="${p.sat.norad}" title="${hidden ? 'Unhide this satellite' : 'Hide this satellite'}">${btnText}</button></td>`;
+        })()
+      : (isFirstRow ? '<td></td>' : '<td></td>');
     
     const bgColor = satGroupIndex % 2 === 0 ? 'rgba(30,58,138,0.45)' : 'rgba(22,101,52,0.35)';
     
@@ -2032,6 +2125,7 @@ function renderPassTable() {
       minsCell +
       '<td>' + maxElCell + '</td>' +
       selectCell +
+      hideCell +
       '</tr>';
     
     return row;
@@ -2052,6 +2146,7 @@ function renderPassTable() {
     '<th>Until</th>' +
     '<th>Max El</th>' +
     '<th></th>' +
+    (satHideOn ? '<th style="width:60px;">Hide</th>' : '') +
     '</tr></thead><tbody>';
   
   // Render passes with multi-row support for multiple transmitters
@@ -2059,11 +2154,14 @@ function renderPassTable() {
   const renderPasses = (passList) => {
     for (const p of passList) {
       const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
-      // When freqs are hidden, always show single row; when shown, use transmitter count
-      const txCount = showFreqs && satNOGS && satNOGS.transmitters ? satNOGS.transmitters.length : 1;
+      // When freqs are hidden, use visible count; when shown, use visible (filtered) count
+      const visTx = showFreqs && satNOGS && satNOGS.transmitters
+        ? (freqHideOn ? visibleTransmitters(satNOGS) : satNOGS.transmitters)
+        : [];
+      const txCount = showFreqs && visTx.length > 0 ? visTx.length : 1;
       
       if (txCount > 1) {
-        // Multi-row: one row per transmitter, all with same group index
+        // Multi-row: one row per visible transmitter, all with same group index
         for (let i = 0; i < txCount; i++) {
           html += makeRow(p, i === 0, i, txCount, satGroupIndex);
         }
@@ -2089,7 +2187,9 @@ function renderPassTable() {
   html += '</tbody></table>';
   
   if (filteredPasses.length === 0) {
-    if (showActiveOnly) {
+    if (satHideOn) {
+      html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All satellites hidden. Toggle Sat-Hide to see all.</div>';
+    } else if (showActiveOnly) {
       html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No active satellites with upcoming passes. Toggle filter to see all.</div>';
     } else {
       html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No upcoming passes found in next 48 hours</div>';
@@ -2125,6 +2225,42 @@ function renderPassTable() {
           b.classList.toggle('selected', isSel);
           b.disabled = isSel;
         });
+      }
+    });
+  });
+  
+  // Add Sat-Hide toggle handlers
+  passTableEl.querySelectorAll('.hide-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const norad = btn.dataset.norad;
+      if (hiddenSats.has(norad)) {
+        hiddenSats.delete(norad);
+      } else {
+        hiddenSats.add(norad);
+      }
+      saveHiddenSats();
+      renderPassTable();
+    });
+  });
+  
+  // Add Freq-Hide toggle handlers
+  passTableEl.querySelectorAll('.freq-hide-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Reconstruct the transmitter object from data attributes
+      const norad = btn.dataset.norad;
+      const satNOGS = getSatNOGSData(norad);
+      if (!satNOGS) return;
+      // Find the matching transmitter
+      const tx = satNOGS.transmitters.find(t =>
+        (t.downlink_low ?? t.downlink ?? '-') === btn.dataset.dl &&
+        (t.uplink_low ?? t.uplink ?? '-') === btn.dataset.ul &&
+        (t.mode ?? '-') === btn.dataset.mode
+      );
+      if (tx) {
+        toggleFreqHidden(norad, tx);
+        renderPassTable();
       }
     });
   });
@@ -2176,24 +2312,30 @@ function updateTrackingFreqInfo(sat) {
     return;
   }
   
+  // Filter out hidden frequencies
+  const visTx = freqHideFilter ? visibleTransmitters(data) : data.transmitters;
+  if (visTx.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  
   card.style.display = 'block';
-  const txList = data.transmitters;
-  const primary = txList[0];
+  const primary = visTx[0];
   const primaryInfo = formatTransmitterInfo(primary);
   
   let html = `<div style="display:flex;align-items:center;gap:8px;">`;
   html += `<span style="font-size:0.8rem;color:var(--muted);">Freq:</span>`;
   html += `<span class="tracking-freq-info">${primaryInfo}</span>`;
   
-  if (txList.length > 1) {
-    html += `<span class="tracking-freq-expand" id="trackingFreqExpand">(+${txList.length - 1} more)</span>`;
+  if (visTx.length > 1) {
+    html += `<span class="tracking-freq-expand" id="trackingFreqExpand">(+${visTx.length - 1} more)</span>`;
   }
   html += `</div>`;
   
-  // Collapsible list of additional transmitters
+  // Collapsible list of additional visible transmitters
   html += `<ul class="tracking-freq-list" id="trackingFreqList" style="display:none;">`;
-  for (let i = 1; i < txList.length; i++) {
-    const tx = txList[i];
+  for (let i = 1; i < visTx.length; i++) {
+    const tx = visTx[i];
     const info = formatTransmitterInfo(tx);
     html += `<li>${info}</li>`;
   }
@@ -2208,7 +2350,7 @@ function updateTrackingFreqInfo(sat) {
     expandBtn.addEventListener('click', () => {
       const isHidden = freqList.style.display === 'none';
       freqList.style.display = isHidden ? 'block' : 'none';
-      expandBtn.textContent = isHidden ? '(- hide)' : `(+${txList.length - 1} more)`;
+      expandBtn.textContent = isHidden ? '(- hide)' : `(+${visTx.length - 1} more)`;
     });
   }
 }
@@ -4198,6 +4340,26 @@ const satNOGSFilterActive = localStorage.getItem('satNOGSFilterActive') === 'tru
 document.getElementById('satNOGSFilterActive').checked = satNOGSFilterActive;
 const satShowFreqs = localStorage.getItem('satShowFreqs') !== 'false';
 document.getElementById('satShowFreqs').checked = satShowFreqs;
+
+// Sat-Hide toggle
+document.getElementById('satHideToggle').checked = satHideFilter;
+document.getElementById('satHideToggle').addEventListener('change', (e) => {
+  satHideFilter = e.target.checked;
+  localStorage.setItem('satHideFilter', e.target.checked);
+  renderPassTable();
+});
+
+// Freq-Hide toggle
+document.getElementById('freqHideToggle').checked = freqHideFilter;
+document.getElementById('freqHideToggle').addEventListener('change', (e) => {
+  freqHideFilter = e.target.checked;
+  localStorage.setItem('freqHideFilter', e.target.checked);
+  renderPassTable();
+  // Also update tracking freq display if a satellite is selected
+  if (selectedSatIndex >= 0 && selectedSatIndex < satellites.length) {
+    updateTrackingFreqInfo(satellites[selectedSatIndex]);
+  }
+});
 
 // Load SatNOGS refresh interval setting
 const refreshInterval = getRefreshIntervalDays();
