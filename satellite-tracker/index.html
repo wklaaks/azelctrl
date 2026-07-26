@@ -496,6 +496,18 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
               </div>
               <div style="font-size:0.75rem;color:var(--muted);margin-top:2px;" id="satNOGSStats"></div>
             </div>
+
+            <div style="margin-top:12px;padding:10px;background:rgba(88,166,255,0.05);border:1px solid rgba(88,166,255,0.2);border-radius:6px;">
+              <div style="font-size:0.75rem;color:var(--accent);margin-bottom:4px;font-weight:600;">Alt Sync (Pre-cached Data)</div>
+              <div style="font-size:0.7rem;color:var(--muted);margin-bottom:8px;">
+                Fetch from pre-generated CSV files. Faster than ESP proxy but data may be less current.
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-sm" id="altSyncStatusBtn" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-size:0.7rem;">Alt Sync Status</button>
+                <button class="btn btn-sm" id="altSyncFreqBtn" style="background:#7c3aed;color:#fff;border-color:#6d28d9;font-size:0.7rem;">Alt Sync Frequencies</button>
+              </div>
+              <div style="font-size:0.7rem;color:var(--muted);margin-top:4px;" id="altSyncStatus"></div>
+            </div>
       
       <div class="satnogs-status" id="satNOGSStatus"></div>
       
@@ -1196,6 +1208,16 @@ function clearSatNOGSLog() {
   if (logEl) logEl.textContent = '';
 }
 
+// Log a message to the SatNOGS activity log (alias for addSatNOGSLog)
+function addSatNOGSLog(msg) {
+  logSatNOGS(msg);
+}
+
+// Update the SatNOGS status display with current cache state
+function updateSatNOGSStatusDisplay() {
+  updateSatNOGSStats();
+}
+
 function getRefreshIntervalDays() {
   return parseInt(localStorage.getItem('satNOGSRefreshInterval') || '7');
 }
@@ -1321,6 +1343,138 @@ async function refreshAllSatNOGSData() {
   }
 
   return { total: count, success, failed };
+}
+
+// ==================== ALT SYNC (Pre-cached CSV) ====================
+// Pre-cached SatNOGS data hosted on GitHub Pages with CORS headers.
+const ALT_SYNC_BASE = 'https://wklaaks.github.io/azelctrl-sat-data';
+const ALT_SYNC_STATUS_URL = `${ALT_SYNC_BASE}/sat-status.csv`;
+const ALT_SYNC_FREQS_URL = `${ALT_SYNC_BASE}/sat-freqs.csv`;
+const ALT_SYNC_META_URL = `${ALT_SYNC_BASE}/metadata.json`;
+
+// Parse CSV text into array of objects
+function parseCSV(text) {
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',');
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h] = values[idx] ? values[idx].trim() : '';
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+// Fetch and cache status data from pre-cached CSV
+async function altSyncStatus() {
+  const statusEl = document.getElementById('altSyncStatus');
+  statusEl.textContent = 'Fetching status data...';
+  try {
+    const resp = await fetch(ALT_SYNC_STATUS_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const rows = parseCSV(text);
+    let updated = 0;
+    for (const row of rows) {
+      const noradId = row['norad_cat_id'];
+      if (!noradId) continue;
+      const existing = getSatNOGSData(noradId) || {};
+      const data = {
+        ...existing,
+        satellite: {
+          status: row['status'] || 'unknown',
+          name: row['name'] || '',
+          decayed: null
+        },
+        lastUpdated: Date.now(),
+        lastUpdatedSource: 'alt-sync',
+        altSyncGenerated: row['last_updated'] || ''
+      };
+      setSatNOGSData(noradId, data);
+      updated++;
+    }
+    // Fetch metadata for timestamp display
+    let genTime = '';
+    try {
+      const metaResp = await fetch(ALT_SYNC_META_URL);
+      if (metaResp.ok) {
+        const meta = await metaResp.json();
+        genTime = meta.generated ? ` (generated ${new Date(meta.generated).toLocaleString()})` : '';
+      }
+    } catch {}
+    statusEl.textContent = `Updated status for ${updated} satellites${genTime}`;
+    updateSatNOGSStats();
+    updateSatNOGSStatusDisplay();
+    addSatNOGSLog(`Alt Sync Status: ${updated} satellites updated`);
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    console.error('[Alt Sync] Status error:', e);
+  }
+}
+
+// Fetch and cache frequency data from pre-cached CSV
+async function altSyncFrequencies() {
+  const statusEl = document.getElementById('altSyncStatus');
+  statusEl.textContent = 'Fetching frequency data...';
+  try {
+    const resp = await fetch(ALT_SYNC_FREQS_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const rows = parseCSV(text);
+    // Group by norad_cat_id
+    const bySat = {};
+    for (const row of rows) {
+      const noradId = row['norad_cat_id'];
+      if (!noradId) continue;
+      if (!bySat[noradId]) bySat[noradId] = [];
+      bySat[noradId].push(row);
+    }
+    let updated = 0;
+    for (const [noradId, txRows] of Object.entries(bySat)) {
+      const existing = getSatNOGSData(noradId) || {};
+      const transmitters = txRows.map(row => ({
+        uplink_low: row['uplink_low_mhz'] ? parseFloat(row['uplink_low_mhz']) * 1_000_000 : null,
+        uplink_high: row['uplink_high_mhz'] ? parseFloat(row['uplink_high_mhz']) * 1_000_000 : null,
+        downlink_low: row['downlink_low_mhz'] ? parseFloat(row['downlink_low_mhz']) * 1_000_000 : null,
+        downlink_high: row['downlink_high_mhz'] ? parseFloat(row['downlink_high_mhz']) * 1_000_000 : null,
+        mode: row['mode'] || '',
+        uplink_mode: row['uplink_mode'] || '',
+        invert: row['invert'] === 'true',
+        alive: row['alive'] === 'true',
+        description: row['description'] || '',
+        type: row['type'] || ''
+      }));
+      const data = {
+        ...existing,
+        transmitters,
+        lastUpdated: Date.now(),
+        lastUpdatedSource: 'alt-sync',
+        altSyncGenerated: ''
+      };
+      setSatNOGSData(noradId, data);
+      updated++;
+    }
+    // Fetch metadata for timestamp display
+    let genTime = '';
+    try {
+      const metaResp = await fetch(ALT_SYNC_META_URL);
+      if (metaResp.ok) {
+        const meta = await metaResp.json();
+        genTime = meta.generated ? ` (generated ${new Date(meta.generated).toLocaleString()})` : '';
+      }
+    } catch {}
+    statusEl.textContent = `Updated frequencies for ${updated} satellites${genTime}`;
+    updateSatNOGSStats();
+    updateSatNOGSStatusDisplay();
+    addSatNOGSLog(`Alt Sync Frequencies: ${updated} satellites updated`);
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    console.error('[Alt Sync] Frequencies error:', e);
+  }
 }
 
 // ==================== CONFIGURATION ====================
@@ -2162,6 +2316,12 @@ document.getElementById('satNOGSRefreshInterval').addEventListener('change', (e)
   e.target.value = val;
   localStorage.setItem('satNOGSRefreshInterval', val);
 });
+
+// Alt Sync Status button
+document.getElementById('altSyncStatusBtn').addEventListener('click', altSyncStatus);
+
+// Alt Sync Frequencies button
+document.getElementById('altSyncFreqBtn').addEventListener('click', altSyncFrequencies);
 
 // ==================== REFRESH ALL TLES ====================
 document.getElementById('refreshTlesBtn').addEventListener('click', async () => {
