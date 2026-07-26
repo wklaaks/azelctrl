@@ -2101,9 +2101,9 @@ function renderPassTable() {
           : visTx[0];
         const hidden = isFreqHidden(p.sat.norad, tx);
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
-        const btnText = hidden ? '✓' : '✗';
+        const btnText = hidden ? '☐' : '☑';
         const key = freqKey(p.sat.norad, tx);
-        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-key="${key}" title="Hide this frequency">${btnText}</button></span>`;
+        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-key="${key}" title="${hidden ? 'Show this frequency' : 'Hide this frequency'}">${btnText}</button></span>`;
       }
     }
     
