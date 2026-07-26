@@ -2092,7 +2092,8 @@ function renderPassTable() {
         const hidden = isFreqHidden(p.sat.norad, tx);
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
         const btnText = hidden ? '✓' : '✗';
-        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-norad="${p.sat.norad}" data-dl="${tx.downlink_low ?? tx.downlink ?? '-'}" data-ul="${tx.uplink_low ?? tx.uplink ?? '-'}" data-mode="${tx.mode ?? '-'}" title="Hide this frequency">${btnText}</button></span>`;
+        const key = freqKey(p.sat.norad, tx);
+        modeCell += `<span class="freq-hide-toggle"><button class="${btnClass}" data-key="${key}" title="Hide this frequency">${btnText}</button></span>`;
       }
     }
     
@@ -2261,17 +2262,14 @@ function renderPassTable() {
   passTableEl.querySelectorAll('.freq-hide-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const norad = btn.dataset.norad;
-      const satNOGS = getSatNOGSData(norad);
-      if (!satNOGS) return;
-      // Find the matching transmitter by comparing freqKey
-      for (const tx of satNOGS.transmitters) {
-        if (freqKey(norad, tx) === `${norad}:${btn.dataset.dl}:${btn.dataset.ul}:${btn.dataset.mode}`) {
-          toggleFreqHidden(norad, tx);
-          renderPassTable();
-          break;
-        }
+      const key = btn.dataset.key;
+      if (hiddenFreqs.has(key)) {
+        hiddenFreqs.delete(key);
+      } else {
+        hiddenFreqs.add(key);
       }
+      saveHiddenFreqs();
+      renderPassTable();
     });
   });
 }
