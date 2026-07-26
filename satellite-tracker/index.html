@@ -1612,7 +1612,7 @@ async function setElfMode(enabled) {
 }
 
 // ==================== ROTATOR MODEL ====================
-let rotatorModel = null; // {model: 'N360'|'S360'|'N450'|'S450', forbiddenZone: [startAngle, endAngle]}
+let rotatorModel = null; // {model: 'N360'|'S360'|'N450'|'S450', stops: [angle, ...]}
 
 async function fetchRotatorModel() {
   if (!getApiBase()) return;
@@ -1642,63 +1642,40 @@ document.getElementById('elfToggle').addEventListener('change', async (e) => {
   }
 });
 
-// Check if an azimuth angle is inside the forbidden zone
-// For 360 models: single point (start == end)
-// For 450 models: arc between start and end
-function isInForbiddenZone(az, zone) {
-  const [start, end] = zone;
-  if (start === end) {
-    // Single line — check if azimuth is very close to it
-    return Math.abs(az - start) < 5 || Math.abs(az - start - 360) < 5 || Math.abs(az - start + 360) < 5;
-  }
-  // Arc zone — check if azimuth falls between start and end
-  // Handle wrap-around (e.g., S450: 315°→45° crosses 0°)
-  if (start < end) {
-    return az >= start && az <= end;
-  } else {
-    // Wraps around 0° (e.g., 315° to 45°)
-    return az >= start || az <= end;
-  }
-}
-
-// Check if a satellite pass crosses into the rotator's forbidden zone
-// Returns: null (no crossing) or the boundary angle that's crossed
+// Check if a satellite pass crosses a rotator hard stop boundary
+// Returns: null (no crossing) or the stop angle that's crossed
 function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLon, stationAlt) {
-  if (!rotatorModel || !rotatorModel.forbiddenZone) return null;
-  const zone = rotatorModel.forbiddenZone;
+  if (!rotatorModel || !rotatorModel.stops) return null;
+  const stops = rotatorModel.stops;
 
-  const interval = 15000; // 15-second samples for accuracy
+  const interval = 15000; // 15-second samples
   let t = new Date(aosTime);
   const los = new Date(losTime);
   
   let prevAz = null;
-  let prevInZone = false;
   
   while (t < los) {
     const pos = computeTopo(satrec, t, stationLat, stationLon, stationAlt);
     if (pos) {
       const az = (pos.azimuth * 180 / Math.PI + 360) % 360;
-      const inZone = isInForbiddenZone(az, zone);
       
       if (prevAz !== null) {
-        // Check if we just entered the forbidden zone (crossed a boundary)
-        if (!prevInZone && inZone) {
-          // Return the boundary we crossed
-          const [start, end] = zone;
-          if (start === end) {
-            return start; // Single line boundary
+        // Check each stop to see if the pass crossed it
+        for (const stop of stops) {
+          // Check if azimuth crossed through this stop
+          const cross = ((prevAz > stop && az < stop) || (prevAz < stop && az > stop));
+          if (cross) {
+            // Verify genuine crossing (not a 360° wrap artifact)
+            const diff = Math.abs(az - prevAz);
+            const circularDiff = Math.min(diff, 360 - diff);
+            if (circularDiff < 170) {
+              return stop;
+            }
           }
-          // Determine which boundary we crossed based on direction
-          const diff = az - prevAz;
-          const normalizedDiff = diff > 180 ? diff - 360 : (diff < -180 ? diff + 360 : diff);
-          // If moving clockwise (positive), we hit the start boundary
-          // If moving counter-clockwise (negative), we hit the end boundary
-          return normalizedDiff > 0 ? start : end;
         }
       }
       
       prevAz = az;
-      prevInZone = inZone;
     }
     
     t = new Date(t.getTime() + interval);
