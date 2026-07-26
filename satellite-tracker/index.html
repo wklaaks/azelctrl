@@ -24,7 +24,7 @@
   --tab-inactive: #8b949e;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -69,8 +69,8 @@ a:hover { text-decoration: underline; }
 .tab.active { color: var(--tab-active); border-bottom-color: var(--accent); }
 
 /* Content */
-.tab-content { display: none; padding: 16px; flex: 1; }
-.tab-content.active { display: block; }
+.tab-content { display: none; padding: 16px; flex: 1; overflow: hidden; }
+.tab-content.active { display: flex; flex-direction: column; }
 
 /* Cards */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px; }
@@ -184,7 +184,8 @@ td.max-el-low { color: var(--muted); }
 
 /* Next Pass table */
 #satPassTable table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-#satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.75rem; color: var(--muted); }
+#satPassTable thead { position: sticky; top: 0; z-index: 2; }
+#satPassTable th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border); font-size: 0.75rem; color: var(--muted); background: var(--card); }
 #satPassTable td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); }
 #satPassTable tr:hover { background: rgba(88,166,255,0.05); }
 #satPassTable tr.selected-row { background: rgba(255,165,0,0.25); border-left: 4px solid #ff8c00; }
@@ -274,7 +275,8 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 #tab-satellites.active { display: flex; }
 #tab-satellites .card { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 14px; margin: 12px; }
 #tab-satellites .card-title { flex-shrink: 0; }
-.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-shrink: 0; position: sticky; top: 0; background: var(--card); padding: 4px 0; z-index: 1; }
+.satnogs-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-shrink: 0; }
+#satPassTable { flex: 1; overflow-y: auto; overflow-x: auto; }
 .satnogs-filter-label { font-size: 0.8rem; color: var(--muted); }
 
 /* SatNOGS data section */
@@ -1547,8 +1549,8 @@ let satPassCacheTime = null;
 // Hidden state — persisted in localStorage
 let hiddenSats = new Set(JSON.parse(localStorage.getItem('hiddenSats') || '[]')); // NORAD IDs
 let hiddenFreqs = new Set(JSON.parse(localStorage.getItem('hiddenFreqs') || '[]')); // "NORAD:freqKey"
-let satHideFilter = localStorage.getItem('satHideFilter') !== 'false'; // ON by default
-let freqHideFilter = localStorage.getItem('freqHideFilter') !== 'false'; // ON by default
+let satHideFilter = localStorage.getItem('satHideFilter') === 'true'; // OFF by default
+let freqHideFilter = localStorage.getItem('freqHideFilter') === 'true'; // OFF by default
 
 function saveHiddenSats() { localStorage.setItem('hiddenSats', JSON.stringify([...hiddenSats])); }
 function saveHiddenFreqs() { localStorage.setItem('hiddenFreqs', JSON.stringify([...hiddenFreqs])); }
@@ -1577,7 +1579,7 @@ function toggleFreqHidden(norad, tx) {
 
 // Filter transmitters by hidden state
 function visibleTransmitters(satNOGS) {
-  if (!freqHideFilter || !satNOGS || !satNOGS.transmitters) return satNOGS?.transmitters || [];
+  if (!satNOGS || !satNOGS.transmitters) return [];
   return satNOGS.transmitters.filter(tx => !isFreqHidden(satNOGS.satellite_norad || '', tx));
 }
 
@@ -1958,7 +1960,9 @@ function renderPassTable() {
   // Recompute pass data every 60 seconds, not on every render
   const now = new Date();
   const shouldRecompute = !satPassCacheTime || (now.getTime() - satPassCacheTime) > 60000 ||
-                          satPassCache.showActiveOnly !== showActiveOnly;
+                          satPassCache.showActiveOnly !== showActiveOnly ||
+                          satPassCache.satHideOn !== satHideOn ||
+                          satPassCache.freqHideOn !== freqHideOn;
   
   if (shouldRecompute) {
     satPassCacheTime = now.getTime();
@@ -1998,7 +2002,7 @@ function renderPassTable() {
     
     // Apply Sat-Hide filter if enabled
     if (satHideOn) {
-      filteredPasses = filteredPasses.filter(p => !hiddenSats.has(p.sat.norad));
+      filteredPasses = passes.filter(p => !hiddenSats.has(p.sat.norad));
     }
     
     // Separate overhead from upcoming
@@ -2007,6 +2011,8 @@ function renderPassTable() {
     
     satPassCache = { overhead, upcoming, filteredPasses };
     satPassCache.showActiveOnly = showActiveOnly;
+    satPassCache.satHideOn = satHideOn;
+    satPassCache.freqHideOn = freqHideOn;
   }
   
   const { overhead, upcoming, filteredPasses } = satPassCache;
@@ -2064,8 +2070,10 @@ function renderPassTable() {
     let modeCell = '<span class="no-data">—</span>';
     
     if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
-      // Get visible transmitters (filtered by Freq-Hide)
-      const visTx = freqHideOn ? visibleTransmitters(satNOGS) : satNOGS.transmitters;
+      // When Freq-Hide is ON, show only visible (non-hidden) transmitters
+      // When Freq-Hide is OFF, show all transmitters
+      const allTx = satNOGS.transmitters;
+      const visTx = freqHideOn ? visibleTransmitters(satNOGS) : allTx;
       
       // If multi-transmitter and this is a specific row, use that transmitter
       const tx = (totalTx > 1 && txIndex < visTx.length) 
@@ -2079,8 +2087,8 @@ function renderPassTable() {
       ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
       modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
       
-      // Add freq-hide toggle button
-      if (freqHideOn && tx) {
+      // Add freq-hide toggle button when Freq-Hide is OFF (so user can mark frequencies to hide)
+      if (!freqHideOn && tx) {
         const hidden = isFreqHidden(p.sat.norad, tx);
         const btnClass = hidden ? 'freq-hide-btn hidden' : 'freq-hide-btn';
         const btnText = hidden ? '✓' : '✗';
@@ -2103,8 +2111,8 @@ function renderPassTable() {
       ? `<td><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
       : '<td></td>';
     
-    // Sat-Hide toggle (only on first row, when Sat-Hide is ON)
-    const hideCell = isFirstRow && satHideOn
+    // Sat-Hide toggle (only on first row, when Sat-Hide is OFF so user can configure)
+    const hideCell = isFirstRow && !satHideOn
       ? (() => {
           const hidden = hiddenSats.has(p.sat.norad);
           const btnClass = hidden ? 'hide-toggle-btn hidden' : 'hide-toggle-btn';
@@ -2151,7 +2159,7 @@ function renderPassTable() {
     '<th>Until</th>' +
     '<th>Max El</th>' +
     '<th></th>' +
-    (satHideOn ? '<th style="width:60px;">Hide</th>' : '') +
+    (!satHideOn ? '<th style="width:60px;">Hide</th>' : '') +
     '</tr></thead><tbody>';
   
   // Render passes with multi-row support for multiple transmitters
@@ -2193,7 +2201,7 @@ function renderPassTable() {
   
   if (filteredPasses.length === 0) {
     if (satHideOn) {
-      html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All satellites hidden. Toggle Sat-Hide to see all.</div>';
+      html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">All satellites hidden. Toggle Sat-Hide OFF to see all.</div>';
     } else if (showActiveOnly) {
       html = '<div style="padding:10px;color:var(--muted);font-size:0.85rem;text-align:center;">No active satellites with upcoming passes. Toggle filter to see all.</div>';
     } else {
@@ -2253,19 +2261,16 @@ function renderPassTable() {
   passTableEl.querySelectorAll('.freq-hide-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      // Reconstruct the transmitter object from data attributes
       const norad = btn.dataset.norad;
       const satNOGS = getSatNOGSData(norad);
       if (!satNOGS) return;
-      // Find the matching transmitter
-      const tx = satNOGS.transmitters.find(t =>
-        (t.downlink_low ?? t.downlink ?? '-') === btn.dataset.dl &&
-        (t.uplink_low ?? t.uplink ?? '-') === btn.dataset.ul &&
-        (t.mode ?? '-') === btn.dataset.mode
-      );
-      if (tx) {
-        toggleFreqHidden(norad, tx);
-        renderPassTable();
+      // Find the matching transmitter by comparing freqKey
+      for (const tx of satNOGS.transmitters) {
+        if (freqKey(norad, tx) === `${norad}:${btn.dataset.dl}:${btn.dataset.ul}:${btn.dataset.mode}`) {
+          toggleFreqHidden(norad, tx);
+          renderPassTable();
+          break;
+        }
       }
     });
   });
