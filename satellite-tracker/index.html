@@ -234,15 +234,18 @@ td.max-el-low { color: var(--muted); }
 .quick-sat-btn:hover { background: var(--border); border-color: var(--accent); }
 
 /* Browse satellite list */
-.browse-sat-list { min-height: 200px; max-height: calc(100vh - 200px); overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 5px; background: var(--bg); }
-.browse-sat-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid rgba(48,54,61,0.5); cursor: pointer; transition: background 0.1s; }
-.browse-sat-item:hover { background: rgba(88,166,255,0.05); }
+.browse-sat-list { min-height: 200px; max-height: calc(100vh - 200px); overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 0; background: var(--bg); }
+.browse-sat-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid rgba(48,54,61,0.3); cursor: pointer; transition: background 0.1s; }
+.browse-sat-item:nth-child(odd) { background: rgba(30,58,138,0.15); }
+.browse-sat-item:nth-child(even) { background: rgba(88,166,255,0.04); }
+.browse-sat-item:hover { background: rgba(88,166,255,0.1); }
 .browse-sat-item.added { opacity: 0.5; }
 .browse-sat-item input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
 .browse-sat-name { flex: 1; font-size: 0.8rem; }
 .browse-sat-norad { font-size: 0.7rem; color: var(--muted); font-family: monospace; }
-.browse-sat-btn { padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; font-size: 0.7rem; }
-.browse-sat-btn:hover { background: var(--accent); color: #000; }
+.browse-sat-btn { padding: 4px 12px; border-radius: 4px; border: none; background: #2563eb; color: #fff; cursor: pointer; font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
+.browse-sat-btn:hover { background: #3b82f6; }
+.browse-sat-btn:disabled { background: #484f58; cursor: not-allowed; }
 
 /* Error/warning banners */
 .banner { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; font-size: 0.8rem; }
@@ -285,6 +288,9 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 /* SatNOGS filter toggle */
 /* Satellites tab — sticky header, scrollable table */
 #tab-satellites { display: none; flex-direction: column; flex: 1; overflow: hidden; padding: 0; }
+#tab-settings { overflow-y: auto; }
+#tab-control { overflow-y: auto; }
+#tab-passes { overflow-y: auto; }
 #tab-satellites.active { display: flex; }
 #tab-satellites .card { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 14px; margin: 12px; }
 #tab-satellites .card-title { flex-shrink: 0; }
@@ -315,7 +321,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 .freq-table .freq-gap { width: 40px; min-width: 40px; }
 .freq-table .freq-ul-col { min-width: 100px; padding-right: 4px; }
 .freq-table .freq-tx-col { min-width: 85px; padding-left: 4px; }
-.freq-table .freq-mode-col { min-width: 60px; text-align: right; }
+.freq-table .freq-mode-col { min-width: 40px; text-align: right; }
 
 /* No data indicator */
 .no-data { color: var(--muted); font-style: italic; font-size: 0.75rem; }
@@ -441,14 +447,17 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   <div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>Satellite Passes</span>
-      <span style="font-size:0.75rem;color:var(--muted);text-transform:none;letter-spacing:0;" id="satCount">0 satellites</span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:0.75rem;color:var(--muted);text-transform:none;letter-spacing:0;" id="satCount">0 satellites</span>
+        <button class="btn btn-sm" id="pausePassesBtn" style="background:#7c3aed;color:#fff;">PAUSE</button>
+      </span>
     </div>
     <div class="satnogs-filter-row">
       <label class="toggle-switch">
         <input type="checkbox" id="satNOGSFilterActive">
         <span class="toggle-slider"></span>
       </label>
-      <span class="satnogs-filter-label">Show only active satellites</span>
+      <span class="satnogs-filter-label">Only Active</span>
       <label class="toggle-switch">
         <input type="checkbox" id="satShowFreqs">
         <span class="toggle-slider"></span>
@@ -587,7 +596,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <!-- Tab: Pass Predictions -->
 <div class="tab-content" id="tab-passes">
   <div class="card">
-    <div class="card-title">Upcoming Passes</div>
+    <div class="card-title">Pass Predictions</div>
     <div id="passInfo">Select a satellite to see pass predictions</div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
       <label style="font-size:0.8rem;color:var(--muted)">Lookahead:</label>
@@ -761,6 +770,20 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     </div>
     <div style="margin-top:10px;">
       <button class="btn btn-primary" id="saveSatNOGSProxyBtn">Save Proxy Settings</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Controller</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Rotator Model</div>
+        <div class="setting-desc">Read from ESP on startup. Click to refresh if you changed the model on the ESP.</div>
+      </div>
+      <div class="setting-control">
+        <span id="rotatorModelDisplay" style="font-family:monospace;font-size:0.9rem;color:var(--muted);">—</span>
+        <button class="btn btn-sm" id="refreshRotatorModelBtn">Refresh</button>
+      </div>
     </div>
   </div>
 
@@ -1769,9 +1792,25 @@ async function fetchRotatorModel() {
     if (resp.ok) {
       rotatorModel = await resp.json();
       console.log('Rotator model:', rotatorModel);
+      updateRotatorModelDisplay();
+    } else {
+      document.getElementById('rotatorModelDisplay').textContent = 'Error: ' + resp.status;
     }
   } catch (err) {
     console.warn('Failed to fetch rotator model:', err.message);
+    document.getElementById('rotatorModelDisplay').textContent = '— (offline)';
+  }
+}
+
+function updateRotatorModelDisplay() {
+  const el = document.getElementById('rotatorModelDisplay');
+  if (!el) return;
+  if (rotatorModel && rotatorModel.model) {
+    el.textContent = rotatorModel.model;
+    el.style.color = 'var(--text)';
+  } else {
+    el.textContent = '—';
+    el.style.color = 'var(--muted)';
   }
 }
 
@@ -1844,10 +1883,10 @@ function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLo
           if (Math.abs(distToStop - shorterArc) < 1) {
             return activeStop;
           }
-        }
       }
       
       prevAz = az;
+    }
     }
     
     t = new Date(t.getTime() + interval);
@@ -2149,10 +2188,26 @@ function renderPassTable() {
   document.getElementById('satCount').textContent = uniqueSats.size + ' satellite' + (uniqueSats.size !== 1 ? 's' : '');
 
   const makeRow = (p, isFirstRow, txIndex, totalTx, satGroupIndex) => {
-    const aosStr = p.aos.toLocaleString('en-ZA', {
-      weekday: 'short', day: '2-digit', month: '2-digit',
-      hour: '2-digit', minute: '2-digit'
-    });
+    // Format AOS time: today = HH:MM, tomorrow = "Day, HH:MM"
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000);
+    const tomorrowStart = new Date(todayEnd);
+    const tomorrowEnd = new Date(tomorrowStart.getTime() + 86400000);
+    let aosStr;
+    if (p.aos >= todayStart && p.aos < todayEnd) {
+      // Today — just time
+      aosStr = p.aos.toLocaleString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    } else if (p.aos >= tomorrowStart && p.aos < tomorrowEnd) {
+      // Tomorrow — day + time
+      aosStr = p.aos.toLocaleString('en-ZA', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    } else {
+      // Further out — full date
+      aosStr = p.aos.toLocaleString('en-ZA', {
+        weekday: 'short', day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
     
     // Recalculate time remaining at display time (not stale stored value)
     const displayNow = new Date();
@@ -2171,7 +2226,8 @@ function renderPassTable() {
       minsStr = formatTimeRemaining(aosSeconds);
     }
     
-    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '° @ ' + String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
+    const maxElStr = String(Math.round(p.maxEl)).padStart(2, '0') + '°';
+    const maxElAzStr = String((Math.round(p.maxElAz) + 360) % 360).padStart(3, '0') + '°';
 
     const isSelected = (selectedSatIndex >= 0 && satellites[selectedSatIndex].name === p.sat.name);
     const rowClass = (isSelected ? 'selected-row' : '') + (p.isOverhead ? ' overhead-row' : '') + (satGroupIndex % 2 === 0 ? ' sat-even' : ' sat-odd').trim();
@@ -2179,7 +2235,7 @@ function renderPassTable() {
     // Get SatNOGS data for this satellite
     const satNOGS = p.sat.norad ? getSatNOGSData(p.sat.norad) : null;
     const activity = p.sat.norad ? getSatelliteActivity(p.sat.norad) : 'unknown';
-    const statusDot = getActivityDot(activity);
+    const statusDot = showActiveOnly ? '' : getActivityDot(activity);
     
     // Frequency/mode info for this transmitter row
     let dlFreq = '<span class="no-data">—</span>';
@@ -2191,7 +2247,12 @@ function renderPassTable() {
       // When Freq-Hide is ON, show only visible (non-hidden) transmitters
       // When Freq-Hide is OFF, show all transmitters
       const allTx = satNOGS.transmitters;
-      const visTx = freqHideOn ? visibleTransmitters(p.sat.norad, satNOGS) : allTx;
+      const filteredTx = allTx.filter(tx => {
+        if (!tx.mode) return true;
+        const mode = tx.mode.toLowerCase();
+        return !mode.includes('transceiver') && !mode.includes('randomizer');
+      });
+      const visTx = freqHideOn ? visibleTransmitters(p.sat.norad, { transmitters: filteredTx }) : filteredTx;
       
       if (visTx.length === 0) {
         // All frequencies hidden — show dashes
@@ -2235,11 +2296,12 @@ function renderPassTable() {
     // AOS/LOS info (only on first row)
     const aosCell = isFirstRow ? aosStr : '';
     const minsCell = isFirstRow
-      ? `<td class="num" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}">${minsStr}</td>`
+      ? `<td class="num" data-aos="${p.aos.getTime()}" data-los="${p.los.getTime()}" data-overhead="${p.isOverhead ? '1' : '0'}" data-neversets="${p.neverSets ? '1' : '0'}" style="width: 70px;">${minsStr}</td>`
       : '<td></td>';
     const maxElCell = isFirstRow ? maxElStr : '';
+    const maxElAzCell = isFirstRow ? maxElAzStr : '';
     const selectCell = isFirstRow 
-      ? `<td><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
+      ? `<td style="width:70px;"><button class="btn-select${isSelected ? ' selected"' : '"'}${isSelected ? ' disabled' : ''} data-name="${p.sat.name}">${isSelected ? 'Selected' : 'Select'}</button></td>` 
       : '<td></td>';
     
     // Sat-Hide toggle (only on first row, when Sat-Hide is OFF so user can configure)
@@ -2257,21 +2319,22 @@ function renderPassTable() {
     // Build row with conditional frequency columns
     let row = '<tr class="' + rowClass + '" data-name="' + p.sat.name + '" data-overhead="' + (p.isOverhead ? '1' : '0') + '" style="background-color:' + bgColor + ';">' +
       '<td>' + satNameCell + '</td>' +
-      '<td style="width:40px;text-align:center;">' + statusDot + '</td>';
+      (showActiveOnly ? '<td style="width:0;padding:0;"></td>' : '<td style="width:40px;text-align:center;">' + statusDot + '</td>');
     
     if (showFreqs) {
       row += '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
         '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
-        '<td class="freq-cell" style="width:70px;">' + modeCell + '</td>' +
+        '<td class="freq-cell" style="width:50px;">' + modeCell + '</td>' +
         freqHideCell;
     } else {
       row += '<td style="width:0;padding:0;"></td>';
     }
     
-    row += satHideCell +
-      '<td>' + aosCell + '</td>' +
+      row += satHideCell +
+      '<td style="text-align: right; width: 80px;">' + aosCell + '</td>' +
       minsCell +
-      '<td>' + maxElCell + '</td>' +
+      '<td style="width: 60px; text-align: right;">' + maxElCell + '</td>' +
+      '<td style="width: 50px; text-align: right;">' + maxElAzCell + '</td>' +
       selectCell +
       '</tr>';
     
@@ -2281,22 +2344,23 @@ function renderPassTable() {
   // Build table header with conditional frequency columns
   let html = '<table><thead><tr>' +
     '<th>Satellite</th>' +
-    '<th style="width:40px;text-align:center;" title="Satellite status">●</th>';
+    (showActiveOnly ? '<th style="width:0;padding:0;"></th>' : '<th style="width:40px;text-align:center;" title="Satellite status">●</th>');
   
   if (showFreqs) {
     html += '<th style="width:100px;">DL Freq</th>' +
       '<th style="width:100px;">UL Freq</th>' +
-      '<th style="width:70px;">Mode</th>' +
+      '<th style="width:50px;">Mode</th>' +
       (!freqHideOn ? '<th style="width:28px;">FH</th>' : '<th style="width:0;padding:0;"></th>');
   } else {
     html += '<th style="width:0;padding:0;"></th>';
   }
   
   html += (!satHideOn ? '<th style="width:28px;">SH</th>' : '<th style="width:0;padding:0;"></th>') +
-    '<th>AOS Time</th>' +
-    '<th>Until</th>' +
-    '<th>MAX EL@AZ</th>' +
-    '<th></th>' +
+    '<th style="text-align: right; width: 80px;">AOS Time</th>' +
+    '<th style="width: 70px;">Until</th>' +
+    '<th style="width: 60px; text-align: right;">MaxEl</th>' +
+    '<th style="width: 50px; text-align: right;">MEAZ</th>' +
+    '<th style="width:70px;"></th>' +
     '</tr></thead><tbody>';
   
   // Render passes with multi-row support for multiple transmitters
@@ -2325,13 +2389,13 @@ function renderPassTable() {
   
   // Overhead satellites first
   if (overhead.length > 0) {
-    html += '<tr class="pass-section-header"><td colspan="11">Active Passes</td></tr>';
+    html += '<tr class="pass-section-header"><td colspan="999">Active Passes</td></tr>';
     renderPasses(overhead);
   }
   
   // Upcoming passes
   if (upcoming.length > 0) {
-    html += '<tr class="pass-section-header"><td colspan="11">Upcoming Passes</td></tr>';
+    html += '<tr class="pass-section-header"><td colspan="999">Upcoming Passes</td></tr>';
     renderPasses(upcoming);
   }
   
@@ -2534,7 +2598,9 @@ function updateTrackSatSelect() {
   if (!select) return;
   const current = select.value;
   select.innerHTML = '<option value="-1">— select satellite —</option>';
-  satellites.forEach((sat, i) => {
+  // Sort alphabetically by name
+  const sorted = satellites.map((sat, i) => ({ sat, i })).sort((a, b) => a.sat.name.localeCompare(b.sat.name));
+  sorted.forEach(({ sat, i }) => {
     const opt = document.createElement('option');
     opt.value = i;
     opt.textContent = sat.name;
@@ -2542,6 +2608,28 @@ function updateTrackSatSelect() {
   });
   select.value = selectedSatIndex >= 0 ? String(selectedSatIndex) : '-1';
 }
+
+// Intercept ArrowDown on satellite dropdown — select next satellite without opening menu
+document.getElementById('trackSatSelect').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const sorted = satellites.map((sat, i) => ({ sat, i })).sort((a, b) => a.sat.name.localeCompare(b.sat.name));
+    if (sorted.length === 0) return;
+    const currentSat = selectedSatIndex >= 0 && selectedSatIndex < satellites.length ? satellites[selectedSatIndex].name : null;
+    let currentIdx = currentSat ? sorted.findIndex(s => s.sat.name === currentSat) : -1;
+    let nextIdx;
+    if (e.key === 'ArrowDown') {
+      nextIdx = currentIdx < sorted.length - 1 ? currentIdx + 1 : 0;
+    } else {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : sorted.length - 1;
+    }
+    selectedSatIndex = sorted[nextIdx].i;
+    localStorage.setItem('selectedSatIndex', selectedSatIndex);
+    updateTrackSatSelect();
+    updateCurrentSatDisplay();
+    refreshPasses();
+  }
+});
 
 function removeSat(index) {
   const sat = satellites[index];
@@ -2659,20 +2747,22 @@ document.getElementById('browseSatListBtn').addEventListener('click', async () =
 document.getElementById('addAllSatBtn').addEventListener('click', async () => {
   const addAllBtn = document.getElementById('addAllSatBtn');
   const statusEl = document.getElementById('browseStatus');
+  const listEl = document.getElementById('browseSatList');
   
   if (!window.browseAvailableSats || window.browseAvailableSats.length === 0) {
     return;
   }
   
   addAllBtn.disabled = true;
-  addAllBtn.textContent = 'Adding...';
+  addAllBtn.textContent = 'Adding';
+  addAllBtn.style.background = '#484f58';
+  addAllBtn.style.color = '#fff';
   const total = window.browseAvailableSats.length;
   let added = 0;
   
   // Disable individual Add buttons
   document.querySelectorAll('.browse-sat-btn').forEach(btn => {
     btn.disabled = true;
-    btn.textContent = '...';
   });
   
   for (const sat of window.browseAvailableSats) {
@@ -2680,6 +2770,14 @@ document.getElementById('addAllSatBtn').addEventListener('click', async () => {
     try {
       await fetchTleForNORAD(sat.norad, sat.name);
       added++;
+      // Remove this satellite's row from the list
+      const items = listEl.querySelectorAll('.browse-sat-item');
+      items.forEach(item => {
+        const noradEl = item.querySelector('.browse-sat-norad');
+        if (noradEl && noradEl.textContent === sat.norad) {
+          item.remove();
+        }
+      });
     } catch (e) {
       console.error('Failed to add', sat.name, e);
     }
@@ -2689,6 +2787,9 @@ document.getElementById('addAllSatBtn').addEventListener('click', async () => {
   
   statusEl.textContent = `Added ${added}/${total} satellites`;
   addAllBtn.textContent = 'Add ALL';
+  addAllBtn.disabled = false;
+  addAllBtn.style.background = '';
+  addAllBtn.style.color = '';
   
   // Clear the available list since they've been added
   window.browseAvailableSats = [];
@@ -4343,13 +4444,14 @@ function refreshPasses() {
       <table>
         <thead>
           <tr>
-            <th>Date</th>
-            <th>AOS</th>
-            <th style="text-align: right;">AOS Az</th>
-            <th style="text-align: right;">LOS Az</th>
-            <th>\u00A0\u00A0\u00A0\u00A0Max El</th>
-            <th>LOS</th>
-            <th>Duration</th>
+            <th style="text-align: right;">Date</th>
+            <th style="text-align: right;">AOS\u00A0\u00A0\u00A0\u00A0</th>
+            <th style="text-align: right; font-family: monospace;">AOS Az</th>
+            <th style="text-align: right; font-family: monospace;">LOS Az</th>
+            <th style="text-align: right; font-family: monospace;">MaxEl</th>
+            <th style="text-align: right; font-family: monospace;">MEAZ</th>
+            <th style="text-align: right;">LOS\u00A0\u00A0\u00A0\u00A0</th>
+            <th style="text-align: right;">Duration</th>
           </tr>
         </thead>
         <tbody>
@@ -4360,13 +4462,14 @@ function refreshPasses() {
             const elClass = p.maxEl >= 45 ? 'max-el-high' : p.maxEl >= 20 ? 'max-el-med' : 'max-el-low';
             return `
               <tr>
-                <td>${formatDate(aos)}</td>
-                <td class="num">${formatTime(aos)}</td>
-                <td class="num" style="text-align: right;">${p.aosAz.toFixed(0)}°</td>
-                <td class="num" style="text-align: right;">${p.losAz.toFixed(0)}°</td>
-                <td class="num ${elClass}" style="font-family: monospace;">${String(p.maxEl.toFixed(1)).padStart(5, '\u00A0')}° @ ${String(p.maxElAz.toFixed(0)).padStart(3, '\u00A0')}</td>
-                <td class="num">${formatTime(los)}</td>
-                <td class="num">${dur.toFixed(1)} min</td>
+                <td style="text-align: right;">${formatDate(aos)}</td>
+                <td class="num" style="text-align: right;">${formatTime(aos)}</td>
+                <td class="num" style="text-align: right; font-family: monospace;">${p.aosAz.toFixed(0)}°</td>
+                <td class="num" style="text-align: right; font-family: monospace;">${p.losAz.toFixed(0)}°</td>
+                <td class="num ${elClass}" style="text-align: right; font-family: monospace;">${String(p.maxEl.toFixed(1)).padStart(5, '\u00A0')}°</td>
+                <td class="num" style="text-align: right; font-family: monospace;">${String(p.maxElAz.toFixed(0)).padStart(3, '\u00A0')}°</td>
+                <td class="num" style="text-align: right;">${formatTime(los)}</td>
+                <td class="num" style="text-align: right;">${dur.toFixed(1)} min</td>
               </tr>`;
           }).join('')}
         </tbody>
@@ -4601,8 +4704,40 @@ updateSatNOGSStats();
 populateSatNOGSSatSelect();
 showProxyWarning();
 
+document.getElementById('pausePassesBtn').addEventListener('click', () => {
+  const btn = document.getElementById('pausePassesBtn');
+  passesPaused = !passesPaused;
+  if (passesPaused) {
+    stopPassUpdates();
+    btn.textContent = 'UNPAUSE';
+    btn.style.background = '#d29922';
+    btn.style.color = '#000';
+  } else {
+    startPassUpdates();
+    renderPassTable(); // immediate refresh on unpause
+    btn.textContent = 'PAUSE';
+    btn.style.background = '#7c3aed';
+    btn.style.color = '#fff';
+  }
+});
+
 // Recompute passes every 60 seconds (matches Tracking tab cache interval)
-setInterval(renderPassTable, 60000);
+let passesPaused = false;
+let passUpdateTimer = null;
+
+function startPassUpdates() {
+  stopPassUpdates();
+  passUpdateTimer = setInterval(renderPassTable, 60000);
+}
+
+function stopPassUpdates() {
+  if (passUpdateTimer) {
+    clearInterval(passUpdateTimer);
+    passUpdateTimer = null;
+  }
+}
+
+startPassUpdates();
 
 // Load settings
 document.getElementById('gridSquare').value = localStorage.getItem('gridSquare') || '';
@@ -4684,6 +4819,11 @@ function loadConfig(file) {
     document.getElementById('lastSaveTime').textContent = 'Last saved: ' + lastSave;
   }
 })();
+
+// Refresh rotator model button
+document.getElementById('refreshRotatorModelBtn').addEventListener('click', () => {
+  fetchRotatorModel();
+});
 
 document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 document.getElementById('loadConfigBtn').addEventListener('click', () => {

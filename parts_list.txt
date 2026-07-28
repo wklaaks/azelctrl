@@ -1,0 +1,21 @@
+1. 1 X BMT ESP8266 NODEMCU WIFI BOARD [V2-ESP8266 Module ESP-12E NODEMCU LUA (V2) CP2102 USB Interface (Not Low Cost CH340) WIFI Development Board] : R100 (Communica SKU: BMT ESP8266 NODEMCU WIFI BOARD)
+2. 1 X HKD ESP8266 NODEMCU DRIVER BOARD [WiFi NodeMcu Lua L293D Driver Board for ESP8266 ESP-12E] : R69 (Communica SKU: HKD ESP8266 NODEMCU DRIVER BOARD) 
+3. 1 X BDD I2C 0.96IN OLED 128X64-BLUE [0.96IN I2C IIC OLED 128X64 Blue. 3.3-5V 160DEG] : R62 (Communica SKU: BDD I2C 0.96IN OLED 128X64-BLUE)
+4. 1 X BMT 16 BIT A/D (ADC) DEV BOARD [New ADS1115 16 Bit A/D Module with Internal PGA- I2C. 2-5.5V VCC] : R49 (Communica SKU: BMT 16 BIT A/D (ADC) DEV BOARD)
+5. 1 X XS82 Straight Inline DIN Plug (Male) • 8 way • Mini : R27 (Communica SKU: XS82)
+6. 2 X PB11C02 RED Miniature Push Button Switch • Momentary • Form : SPST-0-(1) • 0.3A-50VDC • Solder-Lug • Red-Button • Round Actuator • PTM : R20 (Communica SKU: PB11C02 RED)
+7. 1 X BT2B NO RIBS [Enclosure ABS 130X70X44 "S20" Black No Ribs] : R49 (Communica SKU: BT2B NO RIBS)
+8. 1 X BMT RIBBON JUMPER 40W F/F 15CM Jumper Female/Female 15cm in 40Way Colour Cable : R23 (Communica SKU: BMT RIBBON JUMPER 40W F/F 15CM)
+
+Optional
+I used these plastic spacers to mount the NODEMCU DRIVER BOARD and the ADS1115 board. 
+You have to trim the plastic past somewhat to make them go through the small mounting holes. 
+There are probably better options out there, but this is what I had and used. 
+They pop through the board on the side where you trim back the plastic just enough to fit throug the hole without too much pressure. 
+Then the other side of these plastic bases, you glue it either directly into the plastic box you are using, or onto another plastic base, which fits snuggly into the box.
+I used this approach so that should I have to remove and swap out any of the boards, that I can simply lift the insides up and out of the box, because you probably will have to cut the spacers to 
+completely remove the board.
+9. 9 X PDC-5 Spacer Snap Fit Top Flat Base HT=5mm : R1.27 (Communica SKU: PDC-5)
+10. 1 meter CAB04PR,22MSCR Mylar Screened Cable 4 pair • 0.22mm2 : R13.80 per meter (Communica SKU: CAB04PR,22MSCR)
+
+
