@@ -1219,19 +1219,26 @@ void sendGzippedHTML(const uint8_t* gzData, size_t gzLen) {
   server.sendContent_P((const char*)gzData, gzLen);
 }
 
-// Upload a new HTML file to SPIFFS
+// Upload a file to SPIFFS
 void handleUpload() {
   HTTPUpload& upload = server.upload();
   static File spiffsFile;
+  static String uploadPath;
 
   if (upload.status == UPLOAD_FILE_START) {
+    // Sanitize filename — strip path, allow alphanumeric + ._-
+    String filename = upload.filename;
+    int lastSlash = filename.lastIndexOf('/');
+    if (lastSlash >= 0) filename = filename.substring(lastSlash + 1);
+    uploadPath = "/" + filename;
+    
     // Remove old file if exists
-    if (SPIFFS.exists(spiffsHtmlFile)) {
-      SPIFFS.remove(spiffsHtmlFile);
+    if (SPIFFS.exists(uploadPath)) {
+      SPIFFS.remove(uploadPath);
     }
-    spiffsFile = SPIFFS.open(spiffsHtmlFile, "w");
+    spiffsFile = SPIFFS.open(uploadPath, "w");
     Serial.print("Upload: start ");
-    Serial.println(upload.filename);
+    Serial.println(uploadPath);
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     if (spiffsFile) {
       spiffsFile.write(upload.buf, upload.currentSize);
@@ -1240,20 +1247,86 @@ void handleUpload() {
     if (spiffsFile) {
       spiffsFile.close();
       Serial.print("Upload: done ");
+      Serial.print(uploadPath);
+      Serial.print(" (");
       Serial.print(upload.totalSize);
-      Serial.println(" bytes");
+      Serial.println(" bytes)");
     }
-    // Send response after upload is complete
     server.send(200, "text/plain", "Upload complete");
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
     if (spiffsFile) {
       spiffsFile.close();
     }
-    if (SPIFFS.exists(spiffsHtmlFile)) {
-      SPIFFS.remove(spiffsHtmlFile);
+    if (SPIFFS.exists(uploadPath)) {
+      SPIFFS.remove(uploadPath);
     }
     server.send(500, "text/plain", "Upload failed");
   }
+}
+
+// Get Content-Type based on file extension
+const char* getContentType(const String& path) {
+  if (path.endsWith(".html")) return "text/html";
+  if (path.endsWith(".css"))  return "text/css";
+  if (path.endsWith(".js"))   return "application/javascript";
+  if (path.endsWith(".json")) return "application/json";
+  if (path.endsWith(".svg"))  return "image/svg+xml";
+  if (path.endsWith(".png"))  return "image/png";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  if (path.endsWith(".gif"))  return "image/gif";
+  if (path.endsWith(".ico"))  return "image/x-icon";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gz"))   return "application/gzip";
+  return "application/octet-stream";
+}
+
+// Serve files from SPIFFS via /files/ path
+void serveSpiffsFile(const String& path) {
+  // Remove leading /files/ prefix
+  String spiffsPath = path;
+  if (spiffsPath.startsWith("/files/")) {
+    spiffsPath = spiffsPath.substring(7);  // Remove "/files/"
+  }
+  if (!spiffsPath.startsWith("/")) {
+    spiffsPath = "/" + spiffsPath;
+  }
+
+  if (!SPIFFS.exists(spiffsPath)) {
+    server.send(404, "text/plain", "File not found");
+    return;
+  }
+
+  File f = SPIFFS.open(spiffsPath, "r");
+  if (!f || f.size() == 0) {
+    server.send(404, "text/plain", "File not found");
+    f.close();
+    return;
+  }
+
+  const char* contentType = getContentType(spiffsPath);
+  bool isGzipped = spiffsPath.endsWith(".gz");
+
+  server.setContentLength(f.size());
+  if (isGzipped) {
+    server.sendHeader("Content-Encoding", "gzip");
+  }
+  // Use send() with empty body - setContentLength() must be called BEFORE send()
+  server.send(200, contentType, "");
+  // Now stream the file content
+  const size_t chunkSize = 512;
+  uint8_t buf[chunkSize];
+  size_t remaining = f.size();
+  while (remaining > 0) {
+    size_t toRead = remaining < chunkSize ? remaining : chunkSize;
+    size_t bytesRead = f.read(buf, toRead);
+    if (bytesRead > 0) {
+      server.sendContent(reinterpret_cast<char*>(buf), bytesRead);
+      remaining -= bytesRead;
+    } else {
+      break;
+    }
+  }
+  f.close();
 }
 
 void handlePortal() {
@@ -5494,8 +5567,18 @@ void setupWebServer() {
     // POST response is sent from handleUpload() callback
   }, handleUpload);
   
+  // Serve files from SPIFFS
+  server.on("/files", HTTP_GET, []() {
+    serveSpiffsFile(server.uri());
+  });
+  
   server.onNotFound([]() {
-    // Redirect all unknown requests to main page (captive portal detection)
+    // If the request starts with /files/, serve from SPIFFS
+    if (server.uri().startsWith("/files/")) {
+      serveSpiffsFile(server.uri());
+      return;
+    }
+    // Redirect all other unknown requests to main page
     Serial.println("Web: notFound -> redirecting to main page");
     sendHtml();
   });

@@ -830,15 +830,25 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   </div>
 
   <div class="card">
-    <div class="card-title">Firmware Update</div>
+    <div class="card-title">File Upload</div>
     <div class="setting-row">
       <div>
         <div class="setting-label">Upload HTML to ESP</div>
-        <div class="setting-desc">Update the web interface without reflashing. Select a <code>.html.gz</code> file (gzip-compressed HTML). The ESP serves this from its filesystem until the next upload.</div>
+        <div class="setting-desc">Update the web interface without reflashing. Select a <code>.html.gz</code> file (gzip-compressed). The ESP serves this from its filesystem.</div>
       </div>
       <div class="setting-control">
         <input type="file" id="htmlUploadInput" accept=".gz" style="font-size:0.75rem;">
-        <button class="btn btn-sm" id="htmlUploadBtn" style="background:#22c55e;color:#000;border-color:#22c55e;">Upload</button>
+        <button class="btn btn-sm" id="htmlUploadBtn" style="background:#22c55e;color:#000;border-color:#22c55e;">Upload HTML</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Upload Any File</div>
+        <div class="setting-desc">Upload images, SVGs, or other assets. Files are accessible at <code>/files/filename</code>. SVG/HTML/JS should be gzip-compressed. PNG/JPG upload as-is.</div>
+      </div>
+      <div class="setting-control">
+        <input type="file" id="fileUploadInput" style="font-size:0.75rem;">
+        <button class="btn btn-sm" id="fileUploadBtn" style="background:#8957e5;color:#fff;border-color:#8957e5;">Upload File</button>
       </div>
     </div>
     <div class="setting-row">
@@ -5112,12 +5122,12 @@ document.getElementById('refreshRotatorModelBtn').addEventListener('click', () =
 });
 
 // Upload HTML to ESP
-const uploadInput = document.getElementById('htmlUploadInput');
-const uploadBtn = document.getElementById('htmlUploadBtn');
+const htmlUploadInput = document.getElementById('htmlUploadInput');
+const htmlUploadBtn = document.getElementById('htmlUploadBtn');
 const uploadStatus = document.getElementById('uploadStatus');
 
-uploadBtn.addEventListener('click', () => {
-  const file = uploadInput.files[0];
+function doUpload(fileInput, btn, label) {
+  const file = fileInput.files[0];
   if (!file) {
     uploadStatus.textContent = 'No file selected';
     uploadStatus.style.color = 'var(--red)';
@@ -5125,18 +5135,18 @@ uploadBtn.addEventListener('click', () => {
   }
   uploadStatus.textContent = 'Uploading ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)...';
   uploadStatus.style.color = 'var(--accent)';
-  uploadBtn.disabled = true;
+  btn.disabled = true;
 
   const api = getApiBase() || '';
   const formData = new FormData();
-  formData.append('html', file);
+  formData.append('file', file);
 
   fetch(api + '/upload', {
     method: 'POST',
     body: formData
   }).then(resp => {
     if (resp.ok) {
-      uploadStatus.textContent = 'Upload complete! Refresh the page to see changes.';
+      uploadStatus.textContent = label + ' uploaded! ' + (file.name.endsWith('.gz') ? 'Refresh to see changes.' : 'Available at /files/' + file.name);
       uploadStatus.style.color = 'var(--green)';
     } else {
       uploadStatus.textContent = 'Upload failed: ' + resp.status;
@@ -5146,9 +5156,16 @@ uploadBtn.addEventListener('click', () => {
     uploadStatus.textContent = 'Upload error: ' + err.message;
     uploadStatus.style.color = 'var(--red)';
   }).finally(() => {
-    uploadBtn.disabled = false;
+    btn.disabled = false;
   });
-});
+}
+
+htmlUploadBtn.addEventListener('click', () => doUpload(htmlUploadInput, htmlUploadBtn, 'HTML'));
+
+// Upload any file
+const fileUploadInput = document.getElementById('fileUploadInput');
+const fileUploadBtn = document.getElementById('fileUploadBtn');
+fileUploadBtn.addEventListener('click', () => doUpload(fileUploadInput, fileUploadBtn, 'File'));
 
 document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 document.getElementById('loadConfigBtn').addEventListener('click', () => {
