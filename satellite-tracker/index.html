@@ -754,14 +754,14 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div class="setting-control">
         <select id="leadAngle">
           <option value="0">0° (chase current)</option>
-          <option value="1.0">1.0°</option>
-          <option value="2.0">2.0°</option>
-          <option value="3.0" selected>3.0°</option>
-          <option value="4.0">4.0°</option>
-          <option value="5.0">5.0°</option>
-          <option value="6.0">6.0°</option>
-          <option value="8.0">8.0°</option>
-          <option value="10.0">10.0°</option>
+          <option value="1">1°</option>
+          <option value="2">2°</option>
+          <option value="3" selected>3°</option>
+          <option value="4">4°</option>
+          <option value="5">5°</option>
+          <option value="6">6°</option>
+          <option value="8">8°</option>
+          <option value="10">10°</option>
         </select>
       </div>
     </div>
@@ -3643,10 +3643,11 @@ async function computeAndSend(force) {
     let targetAz, targetEl;
 
     if (leadAngleDeg > 0 && satEl >= 0) {
-      // Find the satellite position that is leadAngleDeg ahead along its path
-      const sampleInterval = 1000; // 1 second
-      const maxSamples = 120; // 2 minutes max search
-      let accumulatedAngle = 0;
+      // Find the satellite position that is leadAngleDeg ahead along its path.
+      // Use 0.1-second samples for precision — at high elevation, satellites move
+      // very fast angularly, so 1-second samples can skip past the target.
+      const sampleInterval = 100; // 0.1 second
+      const maxSamples = 600; // 60 seconds max search
       let leadTop = null;
 
       for (let i = 1; i <= maxSamples; i++) {
