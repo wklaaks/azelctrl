@@ -3609,8 +3609,9 @@ async function computeAndSend(force) {
     let satRange = top.range;
     currentRangeRate = top.rangeRate || 0;
 
-    // Auto-stop tracking if satellite has gone below minElevation (LOS)
-    if (tracking && satEl < minElevation && lastTargetEl !== null && lastTargetEl >= minElevation && !preAos) {
+    // Auto-stop tracking if satellite has gone below the horizon (LOS)
+    // minElevation is only an AOS threshold — once tracking starts, continue to 0°
+    if (tracking && satEl < 0 && lastTargetEl !== null && lastTargetEl >= 0 && !preAos) {
       stopTracking();
       return;
     }
