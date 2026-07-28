@@ -36,6 +36,14 @@
 #include <DNSServer.h>
 #include <EEPROM.h>
 #include <ESP8266HTTPClient.h>
+#include <FS.h>
+
+// ==================== SPIFFS HTML ====================
+// The ESP can serve the HTML from SPIFFS (filesystem) instead of PROGMEM.
+// To upload: gzip -9 -c index.html > index.html.gz
+//            curl -F "file=@index.html.gz" http://<ESP_IP>/upload
+// The firmware checks SPIFFS first, falls back to PROGMEM if not found.
+const char* spiffsHtmlFile = "/index.html.gz";
 
 // ==================== EEPROM LAYOUT ====================
 // All settings in one contiguous block. Using 512 bytes = one full flash sector
@@ -1177,12 +1185,75 @@ void sendProgmemHTML(const char* pgmHtml) {
   server.sendContent(pgmHtml);
 }
 
-// Serve gzip-compressed HTML from PROGMEM
+// Serve gzip-compressed HTML from SPIFFS if available, otherwise PROGMEM
+void sendHtml() {
+  // Check SPIFFS first
+  if (SPIFFS.begin() && SPIFFS.exists(spiffsHtmlFile)) {
+    File f = SPIFFS.open(spiffsHtmlFile, "r");
+    if (f.size() > 0) {
+      server.setContentLength(f.size());
+      server.sendHeader("Content-Encoding", "gzip");
+      server.send(200, "text/html");
+      // Read and send in chunks to avoid blocking
+      const size_t chunkSize = 1024;
+      uint8_t buf[chunkSize];
+      while (f.available()) {
+        size_t toRead = f.available() < chunkSize ? f.available() : chunkSize;
+        f.read(buf, toRead);
+        server.sendContent((const char*)buf, toRead);
+      }
+      f.close();
+      return;
+    }
+    f.close();
+  }
+  // Fallback to PROGMEM
+  sendGzippedHTML(index_html_gz, index_html_gz_len);
+}
+
+// Serve gzip-compressed HTML from PROGMEM (fallback)
 void sendGzippedHTML(const uint8_t* gzData, size_t gzLen) {
   server.setContentLength(gzLen);
   server.sendHeader("Content-Encoding", "gzip");
   server.send(200, "text/html");
   server.sendContent_P((const char*)gzData, gzLen);
+}
+
+// Upload a new HTML file to SPIFFS
+void handleUpload() {
+  HTTPUpload& upload = server.upload();
+  static File spiffsFile;
+
+  if (upload.status == UPLOAD_FILE_START) {
+    // Remove old file if exists
+    if (SPIFFS.exists(spiffsHtmlFile)) {
+      SPIFFS.remove(spiffsHtmlFile);
+    }
+    spiffsFile = SPIFFS.open(spiffsHtmlFile, "w");
+    Serial.print("Upload: start ");
+    Serial.println(upload.filename);
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (spiffsFile) {
+      spiffsFile.write(upload.buf, upload.currentSize);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (spiffsFile) {
+      spiffsFile.close();
+      Serial.print("Upload: done ");
+      Serial.print(upload.totalSize);
+      Serial.println(" bytes");
+    }
+    // Send response after upload is complete
+    server.send(200, "text/plain", "Upload complete");
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    if (spiffsFile) {
+      spiffsFile.close();
+    }
+    if (SPIFFS.exists(spiffsHtmlFile)) {
+      SPIFFS.remove(spiffsHtmlFile);
+    }
+    server.send(500, "text/plain", "Upload failed");
+  }
 }
 
 void handlePortal() {
@@ -5416,13 +5487,17 @@ unsigned long webMoveTime = 0;
 
 void setupWebServer() {
   server.on("/", []() {
-    sendGzippedHTML(index_html_gz, index_html_gz_len);
+    sendHtml();
   });
+  
+  server.on("/upload", HTTP_POST, []() {
+    // POST response is sent from handleUpload() callback
+  }, handleUpload);
   
   server.onNotFound([]() {
     // Redirect all unknown requests to main page (captive portal detection)
     Serial.println("Web: notFound -> redirecting to main page");
-    sendGzippedHTML(index_html_gz, index_html_gz_len);
+    sendHtml();
   });
   
   server.on("/cmd", []() {
@@ -5676,6 +5751,25 @@ void setup() {
   Serial.println("\n========================================");
   Serial.println("  Yaesu Rotator Controller");
   Serial.println("========================================");
+  
+  // Initialize SPIFFS filesystem
+  if (SPIFFS.begin()) {
+    Serial.println("SPIFFS: OK");
+    // List files for debugging
+    Serial.print("SPIFFS files: ");
+    Dir root = SPIFFS.openDir("/");
+    while (root.next()) {
+      String filename = root.fileName();
+      size_t size = root.fileSize();
+      Serial.print(filename);
+      Serial.print(" (");
+      Serial.print(size);
+      Serial.print("B) ");
+    }
+    Serial.println();
+  } else {
+    Serial.println("SPIFFS: NOT MOUNTED (using PROGMEM fallback)");
+  }
   
   // Safe boot state
   pinMode(AZ_ENABLE, OUTPUT); digitalWrite(AZ_ENABLE, LOW);
