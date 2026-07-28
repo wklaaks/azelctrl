@@ -1647,10 +1647,42 @@ function normalizeApiBase(raw) {
   return raw.replace(/\/+$/, '');  // strip trailing slashes
 }
 
-function getApiBase() {
-  return normalizeApiBase(localStorage.getItem('deviceApiBase') || '');
+// Detect if page is served from an HTTP server (not file://)
+function isServedFromServer() {
+  const proto = window.location.protocol;
+  return proto === 'http:' || proto === 'https:';
 }
-document.getElementById('deviceIp').value = localStorage.getItem('deviceApiBase') || '';
+
+function getApiBase() {
+  const stored = localStorage.getItem('deviceApiBase') || '';
+  // If user explicitly set an IP, use it
+  if (stored.trim() !== '') {
+    return normalizeApiBase(stored);
+  }
+  // If served from HTTP server (ESP), use the page origin as base
+  if (isServedFromServer()) {
+    return window.location.origin;
+  }
+  // Otherwise (file://), no API base — calls will fail until user sets IP
+  return '';
+}
+
+// Check if API calls should work (either explicit IP or served from server)
+function hasApiBase() {
+  return getApiBase() !== '';
+}
+
+// On page load, show the stored IP or hint
+const deviceIpInput = document.getElementById('deviceIp');
+const storedIp = localStorage.getItem('deviceApiBase') || '';
+if (storedIp) {
+  deviceIpInput.value = storedIp;
+} else if (isServedFromServer()) {
+  deviceIpInput.value = '';
+  deviceIpInput.placeholder = 'Auto (served from device)';
+} else {
+  deviceIpInput.placeholder = 'Enter ESP IP address';
+}
 
 // ==================== STATE ====================
 let satellites = JSON.parse(localStorage.getItem('satellites') || '[]');

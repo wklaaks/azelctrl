@@ -1166,67 +1166,23 @@ p{font-size:18px}
 </body></html>
 )RAWHTML";
 
-const char html_rotator[] PROGMEM = R"RAWHTML(
-<!DOCTYPE html><html><head>
-<title>Rotator Control</title>
-<meta name='viewport' content='width=device-width,initial-scale=1.0'>
-<style>
-body{font-family:Arial,sans-serif;background:#1a1a2e;color:#eee;text-align:center;margin:0;padding:15px}
-h1{color:#00d4ff;font-size:28px;margin:10px 0}
-.info{background:#16213e;padding:20px;border-radius:10px;margin:15px auto;max-width:340px}
-.info div{margin:8px 0;font-size:24px}
-.info div:last-child{margin-top:16px}
-.val{font-family:'Courier New',monospace;display:inline-block;text-align:right;min-width:6ch;font-weight:bold}
-.controls{margin:25px auto;max-width:340px}
-button{background:#0f3460;color:#fff;border:2px solid #00d4ff;border-radius:10px;padding:18px 12px;font-size:18px;cursor:pointer;margin:6px;transition:padding 0.05s ease,background 0.05s ease,box-shadow 0.05s ease;box-shadow:0 5px 0 #0a2445}
-button:active{background:#00b8d4;color:#fff;padding:20px 12px 16px 12px;box-shadow:0 2px 0 #0a2445}
-.grid{display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:80px 80px;gap:6px;justify-content:center}
-.stop{background:#e94560;color:white;border-color:#e94560}
-.stop:active{background:#ff6b6b}
-</style></head><body>
-<h1>Rotator Control</h1>
-<div class='info'>
-<div>Az: <span class='val' id='az'>--</span>&deg;</div>
-<div>El: <span class='val' id='el'>--</span>&deg;</div>
-<div>Moving: <span id='move'>IDLE</span></div>
-</div>
-<div class='controls'>
-<div class='grid'>
-<div></div>
-<button class='dir-btn' onmousedown='sendCmd("UP");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("UP");return false;' ontouchend='sendCmd("STOP");return false;'>UP</button>
-<div></div>
-<button class='dir-btn' onmousedown='sendCmd("LEFT");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("LEFT");return false;' ontouchend='sendCmd("STOP");return false;'>LEFT</button>
-<button class='stop' onmousedown='sendCmd("STOP");return false;' onmouseup='sendCmd("STOP");return false;' ontouchstart='sendCmd("STOP");return false;' ontouchend='sendCmd("STOP");return false;'>STOP</button>
-<button class='dir-btn' onmousedown='sendCmd("RIGHT");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("RIGHT");return false;' ontouchend='sendCmd("STOP");return false;'>RIGHT</button>
-<div></div>
-<button class='dir-btn' onmousedown='sendCmd("DOWN");return false;' onmouseup='sendCmd("STOP");return false;' onmouseleave='sendCmd("STOP");return false;' ontouchstart='sendCmd("DOWN");return false;' ontouchend='sendCmd("STOP");return false;'>DOWN</button>
-<div></div>
-</div></div>
-<script>
-function padNum(v){var s=parseFloat(v).toFixed(1);while(s.length<6)s=' '+s;return s;}
-function sendCmd(c){fetch('/cmd?dir='+c).catch(function(){});return false;}
-setInterval(function(){
-fetch('/status').then(function(r){return r.json();}).then(function(d){
-document.getElementById('az').textContent=padNum(d.az);
-document.getElementById('el').textContent=padNum(d.el);
-document.getElementById('move').textContent=d.move;
-}).catch(function(){});
-fetch('/btn').then(function(r){return r.json();}).then(function(d){
-var btns=document.querySelectorAll('.dir-btn');
-var active=null;
-if(d.btn2&&d.move!=='IDLE'){if(d.move==='LEFT')active='LEFT';else if(d.move==='RIGHT')active='RIGHT';else if(d.move==='UP')active='UP';else if(d.move==='DOWN')active='DOWN';}
-else if(d.webMove!=='IDLE'&&d.webMove!='')active=d.webMove;
-for(var i=0;i<btns.length;i++){if(btns[i].classList.contains('dir-btn')){if(btns[i].textContent===active)btns[i].style.background='#00b8d4';else btns[i].style.background='#0f3460';}}
-}).catch(function(){});
-},300);</script>
-</body></html>
-)RAWHTML";
+// Satellite tracker HTML — gzip-compressed, embedded from index_gz.h
+#include "index_gz.h"
+
 
 // Helper: send PROGMEM content via web server
 void sendProgmemHTML(const char* pgmHtml) {
   server.setContentLength(strlen_P(pgmHtml));
   server.send(200, "text/html");
   server.sendContent(pgmHtml);
+}
+
+// Serve gzip-compressed HTML from PROGMEM
+void sendGzippedHTML(const uint8_t* gzData, size_t gzLen) {
+  server.setContentLength(gzLen);
+  server.sendHeader("Content-Encoding", "gzip");
+  server.send(200, "text/html");
+  server.sendContent_P((const char*)gzData, gzLen);
 }
 
 void handlePortal() {
@@ -5460,13 +5416,13 @@ unsigned long webMoveTime = 0;
 
 void setupWebServer() {
   server.on("/", []() {
-    sendProgmemHTML(html_rotator);
+    sendGzippedHTML(index_html_gz, index_html_gz_len);
   });
   
   server.onNotFound([]() {
     // Redirect all unknown requests to main page (captive portal detection)
     Serial.println("Web: notFound -> redirecting to main page");
-    sendProgmemHTML(html_rotator);
+    sendGzippedHTML(index_html_gz, index_html_gz_len);
   });
   
   server.on("/cmd", []() {
