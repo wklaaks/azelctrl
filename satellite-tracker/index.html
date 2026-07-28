@@ -746,6 +746,41 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         </select>
       </div>
     </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Lead Time</div>
+        <div class="setting-desc">Seconds ahead to aim — antenna moves to where the satellite will be</div>
+      </div>
+      <div class="setting-control">
+        <select id="leadTime">
+          <option value="0">0s (chase current)</option>
+          <option value="5">5s</option>
+          <option value="10" selected>10s</option>
+          <option value="15">15s</option>
+          <option value="20">20s</option>
+          <option value="25">25s</option>
+          <option value="30">30s</option>
+          <option value="40">40s</option>
+          <option value="50">50s</option>
+          <option value="60">60s</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Dead Zone</div>
+        <div class="setting-desc">Angular tolerance — re-command when satellite drifts beyond this from target</div>
+      </div>
+      <div class="setting-control">
+        <select id="deadZone">
+          <option value="1.0">1.0°</option>
+          <option value="1.5">1.5°</option>
+          <option value="2.0" selected>2.0°</option>
+          <option value="3.0">3.0°</option>
+          <option value="5.0">5.0°</option>
+        </select>
+      </div>
+    </div>
     <div style="margin-top:10px;">
       <button class="btn btn-primary" id="savePrefsBtn">Save Preferences</button>
     </div>
@@ -1628,6 +1663,12 @@ let lastSentAz = null;
 let lastSentEl = null;
 let currentRangeRate = 0; // m/s, positive = departing
 let preAos = true; // true until satellite rises above minEl
+// Predictive tracking state
+let lastTargetAz = null; // last commanded target (where we aimed)
+let lastTargetEl = null;
+let minDistAchieved = Infinity; // smallest distance between sat and target so far
+let leadTimeSec = parseInt(localStorage.getItem('leadTime') || '10'); // seconds ahead to lead
+let deadZoneDeg = parseFloat(localStorage.getItem('deadZone') || '2.0'); // dead zone tolerance
 let dopplerRefreshInterval = null; // periodic Doppler update (5s)
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
 let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
@@ -1728,6 +1769,13 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
       cachedTime = null;
       cachedAosTime = null;
       cachedLosTime = null;
+    }
+    if (tab.dataset.tab === 'settings') {
+      // Re-set select values when Settings tab becomes visible
+      document.getElementById('updateInterval').value = updateIntervalMs;
+      document.getElementById('minElevation').value = minElevation;
+      document.getElementById('leadTime').value = leadTimeSec;
+      document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
     }
   });
 });
@@ -3285,11 +3333,14 @@ function startTracking() {
 
 function beginTracking(sat, satrec, now, minEl) {
   tracking = true;
+  lastTargetAz = null;
+  lastTargetEl = null;
+  minDistAchieved = Infinity;
   const btn = document.getElementById('startTrackBtn');
   const status = document.getElementById('trackStatus');
   btn.className = 'btn btn-danger track-btn';
   btn.textContent = 'Stop';
-  
+
   // Invalidate AOS/LOS cache so tracking starts with fresh data
   cachedTime = null;
   cachedAosTime = null;
@@ -3299,7 +3350,7 @@ function beginTracking(sat, satrec, now, minEl) {
   const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
   const currentEl = currentTop ? currentTop.elevation * 180 / Math.PI : -90;
 
-  if (currentEl < minEl) {
+  if (currentEl < 0) {
     // Satellite is below horizon - find AOS and command there
     preAos = true;
     status.textContent = 'Waiting';
@@ -3312,12 +3363,15 @@ function beginTracking(sat, satrec, now, minEl) {
         setPosition(aosAz, aosEl).catch(e => console.warn('Failed to send initial AOS position:', e));
         lastSentAz = aosAz;
         lastSentEl = aosEl;
+        lastTargetAz = aosAz;
+        lastTargetEl = aosEl;
       }
     }
   } else {
+    // Satellite is already above horizon — track its current position immediately
+    // (regardless of minElevation, since the user explicitly started tracking)
     preAos = false;
     status.textContent = 'Tracking';
-    // Satellite is above horizon - command current position immediately
     computeAndSend(true);
   }
 
@@ -3328,6 +3382,9 @@ function stopTracking() {
   tracking = false;
   lastSentAz = null;
   lastSentEl = null;
+  lastTargetAz = null;
+  lastTargetEl = null;
+  minDistAchieved = Infinity;
   currentRangeRate = 0;
   preAos = true;
   if (trackingInterval) {
@@ -3449,6 +3506,27 @@ function findNextAos(satrec, fromTime, minEl) {
   return null;
 }
 
+// Shortest angular distance handling wrap-around at 360°
+function angularDiff(from, to) {
+  let d = ((to - from + 540) % 360) - 180;
+  return d; // -180..180
+}
+
+// Great-circle angular distance between two (az, el) positions
+function angularDistance(az1, el1, az2, el2) {
+  // Convert to unit vectors
+  const toRad = Math.PI / 180;
+  const x1 = Math.cos(el1 * toRad) * Math.cos(az1 * toRad);
+  const y1 = Math.cos(el1 * toRad) * Math.sin(az1 * toRad);
+  const z1 = Math.sin(el1 * toRad);
+  const x2 = Math.cos(el2 * toRad) * Math.cos(az2 * toRad);
+  const y2 = Math.cos(el2 * toRad) * Math.sin(az2 * toRad);
+  const z2 = Math.sin(el2 * toRad);
+  // Dot product of unit vectors = cos(angle)
+  const dot = Math.max(-1, Math.min(1, x1 * x2 + y1 * y2 + z1 * z2));
+  return Math.acos(dot) * 180 / Math.PI; // degrees
+}
+
 async function computeAndSend(force) {
   if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
     stopTracking();
@@ -3458,60 +3536,108 @@ async function computeAndSend(force) {
   try {
     const satrec = satrecFromSat(sat);
     const now = new Date();
+
+    // Current satellite position
     const top = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
     if (!top || top.elevation === null) {
       return;
     }
 
-    let satAz = top.azimuth;
-    let satEl = top.elevation;
+    let satAz = (top.azimuth * 180 / Math.PI + 360) % 360;
+    let satEl = top.elevation * 180 / Math.PI;
     let satRange = top.range;
     currentRangeRate = top.rangeRate || 0;
 
-    // Convert satellite.js radians to degrees
-    satAz = (satAz * 180 / Math.PI + 360) % 360;
-    satEl = satEl * 180 / Math.PI;
-    
     // Auto-stop tracking if satellite has gone below minElevation (LOS)
-    // Only if we were previously tracking above minEl — not when pre-AOS
-    if (tracking && satEl < minElevation && lastSentEl !== null && lastSentEl >= minElevation && !preAos) {
-      // Satellite has set - stop tracking
+    if (tracking && satEl < minElevation && lastTargetEl !== null && lastTargetEl >= minElevation && !preAos) {
       stopTracking();
       return;
     }
-    
-    // Track pre-AOS state: true until satellite rises above minEl
+
+    // Track pre-AOS state
     if (satEl >= minElevation && preAos) {
       preAos = false;
       document.getElementById('trackStatus').textContent = 'Tracking';
     }
-    
-    // Clamp elevation to 0 minimum when sending to rotator
-    const sendEl = Math.max(0, satEl);
 
-    // Update target display with aligned decimal points
-    document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
-    document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
-    document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
+    // --- PREDICTIVE LEADING ALGORITHM ---
+    // Instead of chasing the satellite's current position, predict where it will be
+    // `leadTimeSec` seconds in the future and command the rotator there.
+    //
+    // This creates a "move-ahead-and-wait" pattern:
+    //   1. Antenna moves to predicted future position
+    //   2. Stops and waits
+    //   3. Satellite catches up from behind
+    //   4. When satellite drifts beyond dead zone from our target, move further ahead
+    //
+    // No oscillation because we always move forward along the satellite's path.
 
+    let targetAz, targetEl;
 
+    if (leadTimeSec > 0 && satEl >= minElevation) {
+      // Predict satellite position leadTimeSec into the future
+      const futureTime = new Date(now.getTime() + leadTimeSec * 1000);
+      const futureTop = computeTopo(satrec, futureTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
 
-    // Send to rotator (only if above minimum elevation and position changed significantly)
-    // When satellite is below minEl but we're tracking, keep sending AOS position
-    const azChanged = lastSentAz === null || Math.abs(satAz - lastSentAz) > 1.0;
-    const elChanged = lastSentEl === null || Math.abs(satEl - lastSentEl) > 1.0;
+      if (futureTop && futureTop.elevation !== null) {
+        targetAz = (futureTop.azimuth * 180 / Math.PI + 360) % 360;
+        targetEl = Math.max(0, futureTop.elevation * 180 / Math.PI);
 
-    if (force || (satEl >= minElevation && (azChanged || elChanged))) {
+        // Safety: if the future position is below minEl, don't lead — stay with current
+        if (futureTop.elevation * 180 / Math.PI < minElevation) {
+          targetAz = satAz;
+          targetEl = Math.max(0, satEl);
+        }
+      } else {
+        targetAz = satAz;
+        targetEl = Math.max(0, satEl);
+      }
+    } else {
+      // No lead time or below minEl — use current position
+      targetAz = satAz;
+      targetEl = Math.max(0, satEl);
+    }
+
+    // Decide whether to re-command.
+    // Track the minimum distance achieved between satellite and our target.
+    // Only re-command when the satellite has PASSED the target (distance is increasing
+    // beyond the dead zone), not while it's still approaching.
+    let needsCommand = false;
+
+    if (force) {
+      needsCommand = true;
+    } else if (lastTargetAz === null) {
+      // First command — always send
+      needsCommand = true;
+    } else if (satEl >= minElevation) {
+      const dist = angularDistance(satAz, satEl, lastTargetAz, lastTargetEl);
+
+      // Update the minimum distance achieved so far
+      if (dist < minDistAchieved) {
+        minDistAchieved = dist;
+        // Satellite is still approaching — don't re-command yet
+      } else if (dist > deadZoneDeg && minDistAchieved < deadZoneDeg) {
+        // Satellite has passed the target (distance is now > dead zone,
+        // but it was previously inside the dead zone) — re-command ahead
+        needsCommand = true;
+      }
+    }
+
+    if (needsCommand && satEl >= minElevation) {
       try {
-        await setPosition(satAz, sendEl);
-        lastSentAz = satAz;
-        lastSentEl = sendEl;
+        await setPosition(targetAz, targetEl);
+        lastSentAz = targetAz;
+        lastSentEl = targetEl;
+        lastTargetAz = targetAz;
+        lastTargetEl = targetEl;
+        minDistAchieved = Infinity; // reset for the new target
+        debugLog(`[TRACK] Commanded to ${targetAz.toFixed(1)}°/${targetEl.toFixed(1)}° (sat at ${satAz.toFixed(1)}°/${satEl.toFixed(1)}°)`);
       } catch (err) {
         console.warn('Failed to send position:', err);
       }
     }
 
-    // Update display even when below minEl (pre-AOS tracking)
+    // Display: show current satellite position
     document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
     document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
     document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
@@ -4657,8 +4783,12 @@ document.getElementById('saveLocBtn').addEventListener('click', () => {
 document.getElementById('savePrefsBtn').addEventListener('click', () => {
   updateIntervalMs = parseInt(document.getElementById('updateInterval').value);
   minElevation = parseFloat(document.getElementById('minElevation').value);
+  leadTimeSec = parseInt(document.getElementById('leadTime').value);
+  deadZoneDeg = parseFloat(document.getElementById('deadZone').value);
   localStorage.setItem('updateInterval', updateIntervalMs);
   localStorage.setItem('minElevation', minElevation);
+  localStorage.setItem('leadTime', leadTimeSec);
+  localStorage.setItem('deadZone', deadZoneDeg);
   if (tracking) {
     stopTracking();
     startTracking();
@@ -4849,6 +4979,8 @@ document.getElementById('longitude').value = stationLocation.lon || '';
 document.getElementById('altitude').value = stationLocation.alt || '';
 document.getElementById('updateInterval').value = updateIntervalMs;
 document.getElementById('minElevation').value = minElevation;
+document.getElementById('leadTime').value = leadTimeSec;
+document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
 
 // Load ELF mode from device
 getElfMode().then(data => {
