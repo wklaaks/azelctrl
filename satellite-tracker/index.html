@@ -37,11 +37,11 @@ a:hover { text-decoration: underline; }
 .device-input:focus { outline: none; border-color: var(--accent); }
 .btn { padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; font-size: 0.8rem; }
 .btn:hover { background: var(--border); }
-.btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
-.btn-primary:hover { background: #79c0ff; }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover { background: #79c0ff; color: #000; }
 .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
 .btn-danger:hover { background: #ff6b6b; }
-.btn-success { background: var(--green); color: #000; border-color: var(--green); }
+.btn-success { background: var(--green); color: #fff; border-color: var(--green); }
 .btn-success:hover { background: #56d364; }
 
 .btn-sm { padding: 3px 8px; font-size: 0.75rem; }
@@ -829,7 +829,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   </div>
 
   <div class="card">
-    <div class="card-title">File Upload</div>
+    <div class="card-title">ESP File Management</div>
     <div class="setting-row">
       <div>
         <div class="setting-label">Upload Web Interface to ESP</div>
@@ -837,7 +837,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div class="setting-control">
         <input type="file" id="htmlUploadInput" accept=".gz" style="font-size:0.75rem;">
-        <button class="btn btn-sm" id="htmlUploadBtn" style="background:#22c55e;color:#000;border-color:#22c55e;">Upload HTML</button>
+        <button class="btn btn-sm btn-success" id="htmlUploadBtn">Upload HTML</button>
       </div>
     </div>
     <div class="setting-row">
@@ -847,7 +847,19 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div class="setting-control">
         <input type="file" id="fileUploadInput" style="font-size:0.75rem;">
-        <button class="btn btn-sm" id="fileUploadBtn" style="background:#8957e5;color:#fff;border-color:#8957e5;">Upload File</button>
+        <button class="btn btn-sm btn-success" id="fileUploadBtn">Upload File</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Files on ESP</div>
+        <div class="setting-desc">View and manage files stored on the ESP filesystem.</div>
+      </div>
+      <div class="setting-control" style="flex-direction:column;align-items:stretch;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-sm btn-primary" id="listFilesBtn">List Files</button>
+        </div>
+        <div id="fileList" style="font-family:monospace;font-size:0.75rem;color:var(--text);max-height:120px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px;"></div>
       </div>
     </div>
     <div class="setting-row">
@@ -5197,6 +5209,73 @@ htmlUploadBtn.addEventListener('click', () => doUpload(htmlUploadInput, htmlUplo
 const fileUploadInput = document.getElementById('fileUploadInput');
 const fileUploadBtn = document.getElementById('fileUploadBtn');
 fileUploadBtn.addEventListener('click', () => doUpload(fileUploadInput, fileUploadBtn, 'File'));
+
+// File management — list and delete SPIFFS files
+const listFilesBtn = document.getElementById('listFilesBtn');
+const fileListEl = document.getElementById('fileList');
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderFileList(files) {
+  if (!files || files.length === 0) {
+    fileListEl.innerHTML = '<div style="color:var(--muted);padding:4px;">No files on ESP</div>';
+    return;
+  }
+  fileListEl.innerHTML = '';
+  files.forEach(f => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid var(--border);';
+    const info = document.createElement('span');
+    info.textContent = f.name + ' (' + formatSize(f.size) + ')';
+    info.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.className = 'btn btn-sm btn-danger';
+    delBtn.style.cssText = 'margin-left:8px;flex-shrink:0;';
+    delBtn.addEventListener('click', () => deleteFile(f.name));
+    row.appendChild(info);
+    row.appendChild(delBtn);
+    fileListEl.appendChild(row);
+  });
+}
+
+function listFiles() {
+  const api = getApiBase() || '';
+  if (!api) {
+    fileListEl.innerHTML = '<div style="color:var(--red);padding:4px;">No device connection</div>';
+    return;
+  }
+  fileListEl.innerHTML = '<div style="color:var(--muted);padding:4px;">Loading...</div>';
+  fetch(api + '/list-files').then(r => r.json()).then(files => {
+    renderFileList(files);
+  }).catch(err => {
+    fileListEl.innerHTML = '<div style="color:var(--red);padding:4px;">Error: ' + err.message + '</div>';
+  });
+}
+
+function deleteFile(name) {
+  if (!confirm('Delete ' + name + ' from ESP?')) return;
+  const api = getApiBase() || '';
+  fetch(api + '/delete-file?path=' + encodeURIComponent(name)).then(r => {
+    if (r.ok) {
+      uploadStatus.textContent = 'Deleted: ' + name;
+      uploadStatus.style.color = 'var(--green)';
+      listFiles();
+    } else {
+      uploadStatus.textContent = 'Delete failed: ' + r.status;
+      uploadStatus.style.color = 'var(--red)';
+    }
+  }).catch(err => {
+    uploadStatus.textContent = 'Delete error: ' + err.message;
+    uploadStatus.style.color = 'var(--red)';
+  });
+}
+
+listFilesBtn.addEventListener('click', listFiles);
 
 document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 document.getElementById('loadConfigBtn').addEventListener('click', () => {

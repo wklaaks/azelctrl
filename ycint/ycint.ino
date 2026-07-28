@@ -1277,6 +1277,37 @@ const char* getContentType(const String& path) {
   return "application/octet-stream";
 }
 
+// List all files in SPIFFS as JSON
+void listSpiffsFiles() {
+  Dir dir = SPIFFS.openDir("/");
+  String json = "[";
+  bool first = true;
+  while (dir.next()) {
+    if (!first) json += ",";
+    first = false;
+    json += "{";
+    json += "\"name\":\"" + dir.fileName() + "\",";
+    json += "\"size\":" + String(dir.fileSize());
+    json += "}";
+  }
+  json += "]";
+  server.send(200, "application/json", json);
+}
+
+// Delete a file from SPIFFS
+void deleteSpiffsFile() {
+  String path = server.arg("path");
+  if (path.isEmpty() || !SPIFFS.exists(path)) {
+    server.send(404, "text/plain", "File not found");
+    return;
+  }
+  if (SPIFFS.remove(path)) {
+    server.send(200, "text/plain", "Deleted: " + path);
+  } else {
+    server.send(500, "text/plain", "Delete failed");
+  }
+}
+
 // Serve files from SPIFFS via /files/ path
 void serveSpiffsFile(const String& path) {
   // Remove leading /files/ prefix
@@ -5564,6 +5595,16 @@ void setupWebServer() {
   // Serve files from SPIFFS
   server.on("/files", HTTP_GET, []() {
     serveSpiffsFile(server.uri());
+  });
+  
+  // List SPIFFS files
+  server.on("/list-files", HTTP_GET, []() {
+    listSpiffsFiles();
+  });
+  
+  // Delete SPIFFS file
+  server.on("/delete-file", HTTP_GET, []() {
+    deleteSpiffsFile();
   });
   
   server.onNotFound([]() {
