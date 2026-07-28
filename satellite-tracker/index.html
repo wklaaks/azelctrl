@@ -674,7 +674,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div class="setting-control">
         <input type="text" id="gridSquare"  style="width:100px;text-transform:uppercase;">
-        <button class="btn btn-sm" id="convertGridBtn">Convert</button>
+        <button class="btn btn-sm" id="convertGridBtn" style="background:#6366f1;color:#fff;border-color:#6366f1;">Convert</button>
       </div>
     </div>
     <div class="setting-row">
@@ -782,8 +782,28 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div class="setting-control">
         <span id="rotatorModelDisplay" style="font-family:monospace;font-size:0.9rem;color:var(--muted);">—</span>
-        <button class="btn btn-sm" id="refreshRotatorModelBtn">Refresh</button>
+        <button class="btn btn-sm" id="refreshRotatorModelBtn" style="background:#6366f1;color:#fff;border-color:#6366f1;">Refresh</button>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Debug</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">JavaScript Logging</div>
+        <div class="setting-desc">Enable detailed console logs for troubleshooting. Share the logs with the developer when reporting issues.</div>
+      </div>
+      <div class="setting-control">
+        <label class="toggle-switch">
+          <input type="checkbox" id="debugLogging">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <button class="btn btn-sm" id="copyLogsBtn" style="background:#6366f1;color:#fff;border-color:#6366f1;">Copy Console Logs</button>
+      <span id="copyLogsStatus" style="font-size:0.75rem;color:var(--muted);margin-left:8px;"></span>
     </div>
   </div>
 
@@ -1604,7 +1624,13 @@ let preAos = true; // true until satellite rises above minEl
 let dopplerRefreshInterval = null; // periodic Doppler update (5s)
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
 let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
+let debugLogging = localStorage.getItem('debugLogging') === 'true';
 let stationLocation = JSON.parse(localStorage.getItem('stationLocation') || '{"lat":-33.9249,"lon":18.4241,"alt":1000}');
+
+// Debug logging helper — only outputs when JavaScript Logging is enabled in Settings
+function debugLog(...args) {
+  if (debugLogging) console.log(...args);
+}
 let elfMode = false;
 let currentPass = null;
 let upcomingPasses = [];
@@ -4624,6 +4650,69 @@ document.getElementById('savePrefsBtn').addEventListener('click', () => {
     startTracking();
   }
   alert('Preferences saved');
+});
+
+// ==================== DEBUG LOGGING ====================
+const debugLoggingToggle = document.getElementById('debugLogging');
+const copyLogsBtn = document.getElementById('copyLogsBtn');
+const copyLogsStatus = document.getElementById('copyLogsStatus');
+
+// Load saved state
+debugLoggingToggle.checked = debugLogging;
+
+// Capture console output for copying
+const debugLogBuffer = [];
+const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+
+function interceptLog(level, args) {
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  debugLogBuffer.push(`[${new Date().toLocaleTimeString()}] [${level}] ${msg}`);
+  // Keep only last 500 lines
+  if (debugLogBuffer.length > 500) debugLogBuffer.splice(0, debugLogBuffer.length - 500);
+}
+
+// Override console methods to capture output
+console.log = function(...args) {
+  originalConsoleLog.apply(console, args);
+  if (debugLogging) interceptLog('LOG', args);
+};
+console.warn = function(...args) {
+  originalConsoleWarn.apply(console, args);
+  if (debugLogging) interceptLog('WARN', args);
+};
+console.error = function(...args) {
+  originalConsoleError.apply(console, args);
+  if (debugLogging) interceptLog('ERROR', args);
+};
+
+debugLoggingToggle.addEventListener('change', (e) => {
+  debugLogging = e.target.checked;
+  localStorage.setItem('debugLogging', debugLogging);
+  if (!debugLogging) {
+    debugLogBuffer.length = 0; // Clear buffer when disabled
+    copyLogsStatus.textContent = '';
+  } else {
+    debugLogBuffer.push(`[${new Date().toLocaleTimeString()}] [LOG] JavaScript Logging enabled`);
+  }
+});
+
+copyLogsBtn.addEventListener('click', () => {
+  if (!debugLogging || debugLogBuffer.length === 0) {
+    copyLogsStatus.textContent = 'No logs captured — enable JavaScript Logging first';
+    copyLogsStatus.style.color = '#ef4444';
+    return;
+  }
+  const text = debugLogBuffer.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    copyLogsStatus.textContent = `Copied ${debugLogBuffer.length} lines`;
+    copyLogsStatus.style.color = '#22c55e';
+    setTimeout(() => { copyLogsStatus.textContent = ''; }, 3000);
+  }).catch(() => {
+    copyLogsStatus.textContent = 'Copy failed — use Cmd+Shift+I to view logs';
+    copyLogsStatus.style.color = '#ef4444';
+  });
 });
 
 // ==================== SATNOGS PROXY SETTINGS ====================
