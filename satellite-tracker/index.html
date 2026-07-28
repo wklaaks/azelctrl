@@ -3636,7 +3636,7 @@ async function computeAndSend(force) {
 
     let targetAz, targetEl;
 
-    if (leadTimeSec > 0 && satEl >= minElevation) {
+    if (leadTimeSec > 0 && satEl >= 0) {
       // Predict satellite position leadTimeSec into the future
       const futureTime = new Date(now.getTime() + leadTimeSec * 1000);
       const futureTop = computeTopo(satrec, futureTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -3645,8 +3645,8 @@ async function computeAndSend(force) {
         targetAz = (futureTop.azimuth * 180 / Math.PI + 360) % 360;
         targetEl = Math.max(0, futureTop.elevation * 180 / Math.PI);
 
-        // Safety: if the future position is below minEl, don't lead — stay with current
-        if (futureTop.elevation * 180 / Math.PI < minElevation) {
+        // Safety: if the future position is below horizon, don't lead — stay with current
+        if (futureTop.elevation * 180 / Math.PI < 0) {
           targetAz = satAz;
           targetEl = Math.max(0, satEl);
         }
@@ -3655,7 +3655,7 @@ async function computeAndSend(force) {
         targetEl = Math.max(0, satEl);
       }
     } else {
-      // No lead time or below minEl — use current position
+      // No lead time or below horizon — use current position
       targetAz = satAz;
       targetEl = Math.max(0, satEl);
     }
@@ -3671,7 +3671,7 @@ async function computeAndSend(force) {
     } else if (lastTargetAz === null) {
       // First command — always send
       needsCommand = true;
-    } else if (satEl >= minElevation) {
+    } else if (satEl >= 0) {
       const dist = angularDistance(satAz, satEl, lastTargetAz, lastTargetEl);
 
       // Update the minimum distance achieved so far
@@ -3685,7 +3685,7 @@ async function computeAndSend(force) {
       }
     }
 
-    if (needsCommand && satEl >= minElevation) {
+    if (needsCommand && satEl >= 0) {
       try {
         await setPosition(targetAz, targetEl);
         lastSentAz = targetAz;
