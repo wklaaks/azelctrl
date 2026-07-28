@@ -25,6 +25,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+body > * { min-width: 0; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -66,7 +67,7 @@ a:hover { text-decoration: underline; }
 .conn-dot.error { background: var(--red); }
 
 /* Tabs */
-.tabs { display: flex; background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border-bottom: 1px solid #1e4d8c; overflow-x: auto; }
+.tabs { display: flex; background: linear-gradient(135deg, #0f2040 0%, #161b22 100%); border-bottom: 1px solid #1e4d8c; overflow-x: auto; flex-wrap: wrap; }
 .tab { padding: 10px 16px; font-size: 0.85rem; cursor: pointer; border-bottom: 2px solid transparent; color: var(--tab-inactive); white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--tab-active); border-bottom-color: var(--accent); }
@@ -192,7 +193,10 @@ td.max-el-med { color: var(--accent); }
 td.max-el-low { color: var(--muted); }
 
 /* Satellites list */
-.sat-list-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.sat-list-item { display: flex; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.sat-list-item > div:first-child { flex: 1 1 0; min-width: 0; }
+.sat-list-item.sat-even { background: rgba(30,58,138,0.5); }
+.sat-list-item.sat-odd { background: rgba(88,166,255,0.08); }
 
 /* Next Pass table */
 #satPassTable table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -307,7 +311,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 #trackingFreqCard { text-align: left; }
 #trackingFreqCard .card-title { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 6px; }
 .freq-table { border-collapse: collapse; font-size: 0.78rem; font-family: "Courier New", monospace; }
-.freq-table th { text-align: left; padding: 3px 6px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap; }
+.freq-table th { text-align: left; padding: 3px 6px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #1e4d8c; font-weight: 600; white-space: nowrap; }
 .freq-table td { padding: 3px 6px; border-bottom: 1px solid rgba(48,54,61,0.3); white-space: nowrap; }
 .freq-table tr:last-child td { border-bottom: none; }
 .freq-table .freq-val { color: var(--text); }
@@ -401,7 +405,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <span id="targetElLabel" style="font-size: 1.1rem;">El:</span>
         <span id="targetEl" class="pos-value">---</span>
       </div>
-      <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
+      <div class="pos-divider"></div>
       <div class="aoslos-container" style="align-items: center;">
         <div class="aoslos-row" id="aosLosTimer"><span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ---:--:--</span></div>
         <div class="aoslos-row" id="aosLosAz"><span class="aoslos-label">AOS Az: </span><span class="aoslos-value"> ---</span></div>
@@ -488,10 +492,13 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   <div class="card manage-card" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
     <div class="manage-panel active" id="manage-remove" style="border-radius: 6px; padding: 10px; flex: 1; overflow-y: auto; display: flex; flex-direction: column;">
       <div class="card-title">Manage Satellites</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:0.75rem;color:var(--muted);" id="satCountManage">0 satellites</span>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-sm btn-refresh" id="refreshTlesBtn">Refresh All TLEs</button>
         <button class="btn btn-sm btn-sort" id="sortByNameBtn">Sort by Name</button>
-        <span style="font-size:0.75rem;color:var(--muted);margin-left:auto;" id="satCountManage">0 satellites</span>
+        <button class="btn btn-sm btn-sort" id="sortByNumBtn">Sort by Number</button>
+        <button class="btn btn-sm btn-refresh" id="refreshTlesBtn" style="margin-left:auto;">Refresh All TLEs</button>
       </div>
       <div id="satList"></div>
     </div>
@@ -822,7 +829,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <!-- Footer -->
 <div class="footer">
   AZELCtrl Satellite Tracker — All orbital computation runs in your browser via satellite.js
-  <span id="appVersion" style="margin-left: 12px; font-family: monospace; font-size: 0.65rem; color: var(--muted);"></span>
+  <span id="appVersion" style="margin-left: 12px; font-family: monospace; font-size: 0.65rem;"></span>
 </div>
 
 <script>
@@ -2106,7 +2113,7 @@ function renderSatList() {
     const age = getTleAge(sat);
     const ageClass = age < 24 * 3600 ? 'fresh' : age < 72 * 3600 ? 'stale' : 'old';
     return `
-      <div class="sat-list-item ${i === selectedSatIndex ? 'selected' : ''}" data-index="${i}">
+      <div class="sat-list-item ${i === selectedSatIndex ? 'selected' : ''} ${i % 2 === 0 ? 'sat-even' : 'sat-odd'}" data-index="${i}">
         <div>
           <div class="sat-list-name">${sat.name}</div>
           <div class="sat-list-meta">NORAD: ${sat.norad || '—'} · TLE age: ${formatAge(age)} <span class="${ageClass}"></span></div>
@@ -2689,7 +2696,14 @@ document.getElementById('sortByNameBtn').addEventListener('click', () => {
   satellites.sort((a, b) => a.name.localeCompare(b.name));
   saveSatellites();
   renderSatList();
-  renderPassTable();
+  updateTrackSatSelect();
+});
+
+// Sort by NORAD number (Manage tab)
+document.getElementById('sortByNumBtn').addEventListener('click', () => {
+  satellites.sort((a, b) => (parseInt(a.norad) || 0) - (parseInt(b.norad) || 0));
+  saveSatellites();
+  renderSatList();
   updateTrackSatSelect();
 });
 
