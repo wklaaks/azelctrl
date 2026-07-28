@@ -748,21 +748,20 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     </div>
     <div class="setting-row">
       <div>
-        <div class="setting-label">Lead Time</div>
-        <div class="setting-desc">Seconds ahead to aim — antenna moves to where the satellite will be</div>
+        <div class="setting-label">Lead Angle</div>
+        <div class="setting-desc">Degrees ahead to aim — antenna moves this many degrees along the satellite's path</div>
       </div>
       <div class="setting-control">
-        <select id="leadTime">
-          <option value="0">0s (chase current)</option>
-          <option value="5">5s</option>
-          <option value="10" selected>10s</option>
-          <option value="15">15s</option>
-          <option value="20">20s</option>
-          <option value="25">25s</option>
-          <option value="30">30s</option>
-          <option value="40">40s</option>
-          <option value="50">50s</option>
-          <option value="60">60s</option>
+        <select id="leadAngle">
+          <option value="0">0° (chase current)</option>
+          <option value="1.0">1.0°</option>
+          <option value="2.0">2.0°</option>
+          <option value="3.0" selected>3.0°</option>
+          <option value="4.0">4.0°</option>
+          <option value="5.0">5.0°</option>
+          <option value="6.0">6.0°</option>
+          <option value="8.0">8.0°</option>
+          <option value="10.0">10.0°</option>
         </select>
       </div>
     </div>
@@ -1728,7 +1727,7 @@ let preAos = true; // true until satellite rises above minEl
 let lastTargetAz = null; // last commanded target (where we aimed)
 let lastTargetEl = null;
 let minDistAchieved = Infinity; // smallest distance between sat and target so far
-let leadTimeSec = parseInt(localStorage.getItem('leadTime') || '10'); // seconds ahead to lead
+let leadAngleDeg = parseFloat(localStorage.getItem('leadAngle') || '3.0'); // degrees ahead to lead
 let deadZoneDeg = parseFloat(localStorage.getItem('deadZone') || '2.0'); // dead zone tolerance
 let dopplerRefreshInterval = null; // periodic Doppler update (5s)
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
@@ -1835,7 +1834,7 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
       // Re-set select values when Settings tab becomes visible
       document.getElementById('updateInterval').value = updateIntervalMs;
       document.getElementById('minElevation').value = minElevation;
-      document.getElementById('leadTime').value = leadTimeSec;
+      document.getElementById('leadAngle').value = leadAngleDeg;
       document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
     }
   });
@@ -3622,12 +3621,19 @@ async function computeAndSend(force) {
       document.getElementById('trackStatus').textContent = 'Tracking';
     }
 
-    // --- PREDICTIVE LEADING ALGORITHM ---
-    // Instead of chasing the satellite's current position, predict where it will be
-    // `leadTimeSec` seconds in the future and command the rotator there.
+    // --- PREDICTIVE LEADING ALGORITHM (angle-based) ---
+    // Lead the antenna by a fixed angular distance along the satellite's apparent path,
+    // not by a fixed time. This adapts automatically to satellite speed — fast at high
+    // elevation, slow at low elevation — keeping consistent angular lead.
+    //
+    // Algorithm:
+    //   1. Sample satellite position at 1-second intervals into the future
+    //   2. Accumulate angular distance from current position
+    //   3. Stop when accumulated distance >= leadAngleDeg
+    //   4. Use that position as the target
     //
     // This creates a "move-ahead-and-wait" pattern:
-    //   1. Antenna moves to predicted future position
+    //   1. Antenna moves to predicted future position (leadAngleDeg ahead)
     //   2. Stops and waits
     //   3. Satellite catches up from behind
     //   4. When satellite drifts beyond dead zone from our target, move further ahead
@@ -3636,26 +3642,49 @@ async function computeAndSend(force) {
 
     let targetAz, targetEl;
 
-    if (leadTimeSec > 0 && satEl >= 0) {
-      // Predict satellite position leadTimeSec into the future
-      const futureTime = new Date(now.getTime() + leadTimeSec * 1000);
-      const futureTop = computeTopo(satrec, futureTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+    if (leadAngleDeg > 0 && satEl >= 0) {
+      // Find the satellite position that is leadAngleDeg ahead along its path
+      const sampleInterval = 1000; // 1 second
+      const maxSamples = 120; // 2 minutes max search
+      let accumulatedAngle = 0;
+      let leadTop = null;
 
-      if (futureTop && futureTop.elevation !== null) {
-        targetAz = (futureTop.azimuth * 180 / Math.PI + 360) % 360;
-        targetEl = Math.max(0, futureTop.elevation * 180 / Math.PI);
+      for (let i = 1; i <= maxSamples; i++) {
+        const futureTime = new Date(now.getTime() + i * sampleInterval);
+        const sampleTop = computeTopo(satrec, futureTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
 
-        // Safety: if the future position is below horizon, don't lead — stay with current
-        if (futureTop.elevation * 180 / Math.PI < 0) {
-          targetAz = satAz;
-          targetEl = Math.max(0, satEl);
+        if (!sampleTop || sampleTop.elevation === null) {
+          break;
         }
+
+        const sampleAz = (sampleTop.azimuth * 180 / Math.PI + 360) % 360;
+        const sampleEl = sampleTop.elevation * 180 / Math.PI;
+
+        // Skip positions below horizon
+        if (sampleEl < 0) {
+          break;
+        }
+
+        // Compute angular distance from current position to this sample
+        const dist = angularDistance(satAz, satEl, sampleAz, sampleEl);
+
+        // If this sample is further along the path than our lead angle, use it
+        if (dist >= leadAngleDeg) {
+          leadTop = sampleTop;
+          break;
+        }
+      }
+
+      if (leadTop) {
+        targetAz = (leadTop.azimuth * 180 / Math.PI + 360) % 360;
+        targetEl = Math.max(0, leadTop.elevation * 180 / Math.PI);
       } else {
+        // Couldn't find a position leadAngleDeg ahead — use current position
         targetAz = satAz;
         targetEl = Math.max(0, satEl);
       }
     } else {
-      // No lead time or below horizon — use current position
+      // No lead angle or below horizon — use current position
       targetAz = satAz;
       targetEl = Math.max(0, satEl);
     }
@@ -4845,11 +4874,11 @@ document.getElementById('saveLocBtn').addEventListener('click', () => {
 document.getElementById('savePrefsBtn').addEventListener('click', () => {
   updateIntervalMs = parseInt(document.getElementById('updateInterval').value);
   minElevation = parseFloat(document.getElementById('minElevation').value);
-  leadTimeSec = parseInt(document.getElementById('leadTime').value);
+  leadAngleDeg = parseFloat(document.getElementById('leadAngle').value);
   deadZoneDeg = parseFloat(document.getElementById('deadZone').value);
   localStorage.setItem('updateInterval', updateIntervalMs);
   localStorage.setItem('minElevation', minElevation);
-  localStorage.setItem('leadTime', leadTimeSec);
+  localStorage.setItem('leadAngle', leadAngleDeg);
   localStorage.setItem('deadZone', deadZoneDeg);
   if (tracking) {
     stopTracking();
@@ -5041,7 +5070,7 @@ document.getElementById('longitude').value = stationLocation.lon || '';
 document.getElementById('altitude').value = stationLocation.alt || '';
 document.getElementById('updateInterval').value = updateIntervalMs;
 document.getElementById('minElevation').value = minElevation;
-document.getElementById('leadTime').value = leadTimeSec;
+document.getElementById('leadAngle').value = leadAngleDeg;
 document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
 
 // Load ELF mode from device
