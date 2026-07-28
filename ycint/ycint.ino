@@ -1077,15 +1077,12 @@ void checkRotctlClient() {
   }
 }
 
-// Modified protocolSend to also send to TCP client when connected
+// Modified protocolSend — sends to TCP client only (serial is for protocol RX)
 void protocolSend(const String& response) {
   const char* lineEnding = getProtocolLineEnding();
   String fullResponse = response + lineEnding;
   
-  // Always send to serial
-  Serial.print(fullResponse);
-  
-  // Also send to TCP client if connected
+  // Send to TCP client if connected
   if (rotctlConnected && rotctlClient.connected()) {
     rotctlClient.print(fullResponse);
   }
@@ -1483,7 +1480,7 @@ void executeAzimuthMove(String dir) {
   if (adsPresent && calAzValid) {
     float azVoltage = (float)ads.readADC_SingleEnded(0) / 32767.0 * 4.096F;
     if (dir == "RIGHT" && azVoltage >= CAL_MAX_SAFE_V) {
-      Serial.println("SAFETY: AZ voltage at limit, cannot move RIGHT");
+      // Safety limit — cannot move RIGHT (AZ)
       return;
     }
   }
@@ -1525,7 +1522,7 @@ void executeElevationMove(String dir) {
   if (adsPresent && calElValid) {
     float elVoltage = (float)ads.readADC_SingleEnded(1) / 32767.0 * 4.096F;
     if (dir == "UP" && elVoltage >= CAL_MAX_SAFE_V) {
-      Serial.println("SAFETY: EL voltage at limit, cannot move UP");
+      // Safety limit — cannot move UP (EL)
       return;
     }
   }
@@ -2218,12 +2215,9 @@ void executeProtocolElMove(float targetEl) {
 // Command format: single char + optional args, separated by spaces
 // Response format: "RPRT 0\n" for success, "value\n" for queries, "RPRT -N\n" for errors
 
-// Send a Default Protocol response (TCP only)
+// Send a Default Protocol response (TCP client only — never to serial)
 void dpSend(const String& response) {
   String full = response + "\n";
-  
-  // Always send to serial too for debugging
-  Serial.print(full);
   
   // Send to TCP client if connected
   if (rotctlConnected && rotctlClient.connected()) {
@@ -2864,7 +2858,7 @@ bool checkModeCommand() {
         stopAll();
         exitCalibrationMode();
         currentMenu = nullptr;
-        Serial.println("MODE:ROTATOR");
+        // Serial.println("MODE:ROTATOR");
         modeIdx = 0;
         return true;
       }
@@ -5415,8 +5409,8 @@ void handleButtons() {
     if (now - btn1LastPress > BTN_DEBOUNCE_MS) {
       rotatorMenuSelection = (rotatorMenuSelection + 1) % 6;
       btn1LastPress = now;
-      Serial.print("Menu: ");
-      Serial.println(directions[rotatorMenuSelection]);
+      // Serial.print("Menu: ");
+      // Serial.println(directions[rotatorMenuSelection]);
     }
   }
   btn1WasPressed = btn1;
@@ -5447,8 +5441,8 @@ void handleButtons() {
     btn2LongPressTriggered = true;
     elfMode = !elfMode;
     saveElfMode();
-    Serial.print("ELF: Mode toggled to ");
-    Serial.println(elfMode ? "ON" : "OFF");
+    // Serial.print("ELF: Mode toggled to ");
+    // Serial.println(elfMode ? "ON" : "OFF");
     // Show elevation prompt (blocking — returns after selection)
     showElfElevPrompt();
   }
@@ -5461,7 +5455,7 @@ void handleButtons() {
     // If SETUP selected + Btn1 held = reboot
     if (btn1) {
       stopAll();
-      Serial.println("RESTART: Btn1+Btn2 long-press - restarting");
+      // Serial.println("RESTART: Btn1+Btn2 long-press - restarting");
       Menu::drawQuickNotice("Restarting", "...", "", true);
       delay(1000);
       ESP.restart();
@@ -5469,7 +5463,7 @@ void handleButtons() {
     
     // Normal: go to Setup
     stopAll();
-    Serial.println("ROT: Long-press Btn2 - going to Setup");
+    // Serial.println("ROT: Long-press Btn2 - going to Setup");
     updateSetupLabels();
     updateSetupTimers();
     cameFromRotatorControl = true;  // Remember we came from AzEl
