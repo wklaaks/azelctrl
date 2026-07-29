@@ -3468,43 +3468,46 @@ function startTracking() {
   
   // Check if pass crosses wrap boundary (before starting tracking)
   if (!elfMode) {
-    const pass = getCurrentOrNextPass(satrec, now, minEl);
-    if (pass) {
-      const boundary = passCrossesWrapBoundary(satrec, pass.aosTime, pass.losTime,
-        stationLocation.lat, stationLocation.lon, stationLocation.alt);
-      
-      if (boundary) {
-        const boundaryLabel = boundary + '°';
-        const aosStr = pass.aosTime.toLocaleString('en-ZA', {
-          weekday: 'short', day: '2-digit', month: '2-digit',
-          hour: '2-digit', minute: '2-digit'
-        });
-        const losStr = pass.losTime.toLocaleString('en-ZA', {
-          weekday: 'short', day: '2-digit', month: '2-digit',
-          hour: '2-digit', minute: '2-digit'
-        });
+    // Use findNextAos directly — more reliable than getCurrentOrNextPass which
+    // can fail if the LOS search doesn't find a crossing
+    const aosTime = findNextAos(satrec, now, 0);
+    if (aosTime) {
+      // Find LOS from AOS
+      const losTime = findLosFromAos(satrec, aosTime, 0, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+      if (losTime) {
+        const boundary = passCrossesWrapBoundary(satrec, aosTime, losTime,
+          stationLocation.lat, stationLocation.lon, stationLocation.alt);
         
-        const confirmed = confirm(
-          `ELF Mode Required for Continuous Tracking\n\n` +
-          `The satellite pass (${aosStr} → ${losStr}) crosses the ${boundaryLabel} wrap boundary.\n\n` +
-          `Without ELF mode, the rotator will need to perform a full 360° rotation during the pass, losing the satellite.\n\n` +
-          `Enable ELF mode now?`
-        );
-        
-        if (confirmed) {
-          // Enable ELF mode on device
-          setElfMode(true).then(() => {
-            elfMode = true;
-            document.getElementById('elfToggle').checked = true;
-            // Start tracking after ELF mode is set
-            beginTracking(sat, satrec, now, minEl);
-          }).catch(err => {
-            alert('Failed to enable ELF mode: ' + err.message);
+        if (boundary) {
+          const boundaryLabel = boundary + '°';
+          const aosStr = aosTime.toLocaleString('en-ZA', {
+            weekday: 'short', day: '2-digit', month: '2-digit',
+            hour: '2-digit', minute: '2-digit'
           });
-          return;
-        } else {
-          // User declined — don't start tracking
-          return;
+          const losStr = losTime.toLocaleString('en-ZA', {
+            weekday: 'short', day: '2-digit', month: '2-digit',
+            hour: '2-digit', minute: '2-digit'
+          });
+          
+          const confirmed = confirm(
+            `ELF Mode Required for Continuous Tracking\n\n` +
+            `The satellite pass (${aosStr} → ${losStr}) crosses the ${boundaryLabel} wrap boundary.\n\n` +
+            `Without ELF mode, the rotator will need to perform a full 360° rotation during the pass, losing the satellite.\n\n` +
+            `Enable ELF mode now?`
+          );
+          
+          if (confirmed) {
+            setElfMode(true).then(() => {
+              elfMode = true;
+              document.getElementById('elfToggle').checked = true;
+              beginTracking(sat, satrec, now, minEl);
+            }).catch(err => {
+              alert('Failed to enable ELF mode: ' + err.message);
+            });
+            return;
+          } else {
+            return;
+          }
         }
       }
     }
@@ -3684,6 +3687,27 @@ function findNextAos(satrec, fromTime, minEl) {
         return new Date(t.getTime() - (minEl - lastElDeg) * dt);
       }
       lastElDeg = elDeg;
+    }
+    t = new Date(t.getTime() + interval);
+  }
+  
+  return null;
+}
+
+// Find LOS time starting from AOS
+function findLosFromAos(satrec, aosTime, minEl, stationLat, stationLon, stationAlt) {
+  const interval = 60000; // 1 minute is fine for LOS
+  let t = new Date(aosTime);
+  let lastEl = minEl;
+  
+  while (t < new Date(aosTime.getTime() + 48 * 3600000)) {
+    const pos = computeTopo(satrec, t, stationLat, stationLon, stationAlt);
+    if (pos) {
+      const el = pos.elevation * 180 / Math.PI;
+      if (lastEl >= minEl && el < minEl) {
+        return t;
+      }
+      lastEl = el;
     }
     t = new Date(t.getTime() + interval);
   }
@@ -4246,6 +4270,9 @@ setInterval(async () => {
       const elIdle = pos.mel === 'idle';
       if (azIdle && elIdle) {
         document.getElementById('trackStatus').textContent = 'Waiting';
+      } else {
+        // Ensure we still show Positioning while rotator is moving
+        document.getElementById('trackStatus').textContent = 'Positioning';
       }
     }
 
