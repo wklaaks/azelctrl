@@ -3490,7 +3490,7 @@ function beginTracking(sat, satrec, now, minEl) {
   if (currentEl < 0) {
     // Satellite is below horizon - find AOS and command there
     preAos = true;
-    status.textContent = 'Waiting';
+    status.textContent = 'Positioning'; // Rotator is moving to AOS position
     const aosTime = findNextAos(satrec, now, minEl);
     if (aosTime) {
       const aosTop = computeTopo(satrec, aosTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -4135,8 +4135,6 @@ setInterval(async () => {
 
     // Check if speed measurement should be completed
     if (speedMeasurement.active && tracking) {
-      // Measurement completes when the rotator stops moving (both axes idle)
-      // or when the antenna reaches within tolerance of the target
       const azIdle = pos.maz === 'idle';
       const elIdle = pos.mel === 'idle';
       
@@ -4156,6 +4154,15 @@ setInterval(async () => {
       if (!tracking && speedMeasurement.startTime !== null) {
         speedMeasurement.active = false;
         speedMeasurement.startTime = null;
+      }
+    }
+
+    // Pre-AOS status: switch from "Positioning" to "Waiting" when rotator arrives
+    if (preAos && tracking && lastTargetAz !== null) {
+      const azIdle = pos.maz === 'idle';
+      const elIdle = pos.mel === 'idle';
+      if (azIdle && elIdle) {
+        document.getElementById('trackStatus').textContent = 'Waiting';
       }
     }
 
