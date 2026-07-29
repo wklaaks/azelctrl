@@ -295,6 +295,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 #tab-settings { overflow-y: auto; }
 #tab-control { overflow-y: auto; }
 #tab-passes { overflow-y: auto; }
+#tab-tracking { overflow-y: auto; }
 #tab-satellites.active { display: flex; }
 #tab-satellites .card { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 14px; margin: 12px; }
 #tab-satellites .card-title { flex-shrink: 0; }
@@ -1925,6 +1926,8 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
       cachedTime = null;
       cachedAosTime = null;
       cachedLosTime = null;
+      cachedIsOverhead = false;
+      cachedNeverSets = false;
     }
     if (tab.dataset.tab === 'settings') {
       // Re-set values when Settings tab becomes visible
@@ -2085,49 +2088,42 @@ function passCrossesWrapBoundary(satrec, aosTime, losTime, stationLat, stationLo
   const stops = HARD_STOPS[rotatorModel.model];
   if (!stops) return null;
 
-  const interval = 15000; // 15-second samples
+  // For rotators with a single hard stop (N360, S360), check if the pass crosses it
+  // For rotators with two hard stops (N450, S450), check both
+  const stopAngles = [];
+  if (stops.cw === stops.ccw) {
+    stopAngles.push(stops.cw);
+  } else {
+    stopAngles.push(stops.cw, stops.ccw);
+  }
+
+  const interval = 5000; // 5-second samples
   let t = new Date(aosTime);
   const los = new Date(losTime);
-  
   let prevAz = null;
   
   while (t < los) {
     const pos = computeTopo(satrec, t, stationLat, stationLon, stationAlt);
     if (pos) {
       const az = (pos.azimuth * 180 / Math.PI + 360) % 360;
-      
       if (prevAz !== null) {
-        // Determine direction of azimuth movement
-        const diff = az - prevAz;
-        const normalizedDiff = diff > 180 ? diff - 360 : (diff < -180 ? diff + 360 : diff);
-        const isClockwise = normalizedDiff > 0;
-        
-        // Only check the stop that applies to this direction
-        const activeStop = isClockwise ? stops.cw : stops.ccw;
-        
-        // Check if azimuth crossed through this stop
-        const cross = ((prevAz > activeStop && az < activeStop) || 
-                       (prevAz < activeStop && az > activeStop));
-        if (cross) {
-          // Verify genuine crossing: the stop must lie on the shorter arc
-          // between prevAz and az. If it's on the longer arc, the satellite
-          // didn't actually pass through it (e.g. 0°→355° falsely "crosses" 180°).
-          function angularDist(a, b) {
-            const d = Math.abs(a - b);
-            return d > 180 ? 360 - d : d;
+        // Check if azimuth crossed through any hard stop
+        for (const stopAngle of stopAngles) {
+          // A crossing occurs if the azimuth goes from above the stop to below it
+          // or from below to above, within a single sample interval
+          const crossed = ((prevAz > stopAngle && az < stopAngle) || 
+                          (prevAz < stopAngle && az > stopAngle));
+          if (crossed) {
+            // Verify this is a genuine crossing (not a false positive from azimuth wrapping)
+            const diff = Math.abs(az - prevAz);
+            if (diff < 180) {
+              return stopAngle;
+            }
           }
-          const shorterArc = angularDist(prevAz, az);
-          const distToStop = angularDist(prevAz, activeStop) + angularDist(activeStop, az);
-          // Stop is on the shorter arc if the distances sum to approximately the arc length
-          if (Math.abs(distToStop - shorterArc) < 1) {
-            return activeStop;
-          }
+        }
       }
-      
       prevAz = az;
     }
-    }
-    
     t = new Date(t.getTime() + interval);
   }
   
@@ -2675,6 +2671,8 @@ function renderPassTable() {
         cachedTime = null;
         cachedAosTime = null;
         cachedLosTime = null;
+        cachedIsOverhead = false;
+        cachedNeverSets = false;
         // Update selection highlighting only (don't recompute passes)
         passTableEl.querySelectorAll('tr').forEach(row => {
           const isSel = row.dataset.name === name;
@@ -3447,6 +3445,8 @@ document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   cachedTime = null;
   cachedAosTime = null;
   cachedLosTime = null;
+  cachedIsOverhead = false;
+  cachedNeverSets = false;
 });
 
 function startTracking() {
@@ -3528,6 +3528,8 @@ function beginTracking(sat, satrec, now, minEl) {
   cachedTime = null;
   cachedAosTime = null;
   cachedLosTime = null;
+  cachedIsOverhead = false;
+  cachedNeverSets = false;
 
   // If satellite is below horizon, compute position at AOS and command there
   const currentTop = computeTopo(satrec, now, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -3537,12 +3539,12 @@ function beginTracking(sat, satrec, now, minEl) {
     // Satellite is below horizon - find AOS and command there
     preAos = true;
     status.textContent = 'Positioning'; // Rotator is moving to AOS position
-    const aosTime = findNextAos(satrec, now, minEl);
+    const aosTime = findNextAos(satrec, now, 0);
     if (aosTime) {
       const aosTop = computeTopo(satrec, aosTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
       if (aosTop) {
         const aosAz = (aosTop.azimuth * 180 / Math.PI + 360) % 360;
-        const aosEl = Math.max(0, aosTop.elevation * 180 / Math.PI);
+        const aosEl = 0; // AOS is at the horizon — force 0° elevation
         setPosition(aosAz, aosEl).catch(e => console.warn('Failed to send initial AOS position:', e));
         lastSentAz = aosAz;
         lastSentEl = aosEl;
@@ -3667,7 +3669,7 @@ function computeTopo(satrec, date, stationLat, stationLon, stationAlt) {
 
 // Find the next AOS time for a satellite
 function findNextAos(satrec, fromTime, minEl) {
-  const interval = 60 * 1000; // 1 minute
+  const interval = 10 * 1000; // 10 seconds (finer for accurate horizon crossing)
   const searchEnd = new Date(fromTime.getTime() + 48 * 60 * 60 * 1000);
   let lastElDeg = -90;
   let t = new Date(fromTime);
@@ -4649,7 +4651,12 @@ function drawPolarPlot(top, sat) {
     
     const satPt = toSvg(satAzDeg, Math.max(0, satElDeg));
     const rotPt = toSvg(rotAz, rotEl);
-    
+
+    // Rotator dot: green + larger when moving, red + normal when idle
+    const isMoving = pos.maz !== 'idle' || pos.mel !== 'idle';
+    const rotDotColor = isMoving ? '#3fb950' : '#f85149';
+    const rotDotRadius = isMoving ? 6 : 4; // 50% larger when moving
+
     svg.innerHTML = `
       <defs>
         <radialGradient id="plotBg" cx="50%" cy="50%" r="50%">
@@ -4672,7 +4679,7 @@ function drawPolarPlot(top, sat) {
         <title>Satellite: Az=${satAzDeg.toFixed(1)}° El=${satElDeg.toFixed(1)}°</title>
       </circle>
       <!-- Rotator position -->
-      <circle cx="${rotPt.x}" cy="${rotPt.y}" r="4" fill="#3fb950" opacity="0.9">
+      <circle cx="${rotPt.x}" cy="${rotPt.y}" r="${rotDotRadius}" fill="${rotDotColor}" opacity="0.9">
         <title>Rotator: Az=${rotAz.toFixed(1)}° El=${rotEl.toFixed(1)}°</title>
       </circle>
     `;
