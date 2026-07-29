@@ -765,6 +765,25 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     </div>
     <div class="setting-row">
       <div>
+        <div class="setting-label">Lead Angle</div>
+        <div class="setting-desc">Degrees ahead to aim — antenna moves this many degrees along the satellite's path before waiting</div>
+      </div>
+      <div class="setting-control">
+        <select id="leadAngle">
+          <option value="0">0° (chase current)</option>
+          <option value="1">1°</option>
+          <option value="2">2°</option>
+          <option value="3" selected>3°</option>
+          <option value="4">4°</option>
+          <option value="5">5°</option>
+          <option value="6">6°</option>
+          <option value="8">8°</option>
+          <option value="10">10°</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
         <div class="setting-label">Dead Zone</div>
         <div class="setting-desc">Angular tolerance — re-command when satellite drifts beyond this from target</div>
       </div>
@@ -1732,6 +1751,7 @@ let lastTargetAz = null; // last commanded target (where we aimed)
 let lastTargetEl = null;
 let minDistAchieved = Infinity; // smallest distance between sat and target so far
 let deadZoneDeg = parseFloat(localStorage.getItem('deadZone') || '2.0'); // dead zone tolerance
+let leadAngleDeg = parseFloat(localStorage.getItem('leadAngle') || '3.0'); // degrees ahead to lead
 let dopplerRefreshInterval = null; // periodic Doppler update (5s)
 let updateIntervalMs = parseInt(localStorage.getItem('updateInterval') || '2000');
 let minElevation = parseFloat(localStorage.getItem('minElevation') || '10');
@@ -1913,6 +1933,7 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
       document.getElementById('rotatorSpeedAz').value = rotatorSpeedAz;
       document.getElementById('rotatorSpeedEl').value = rotatorSpeedEl;
       document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
+      document.getElementById('leadAngle').value = leadAngleDeg;
     }
   });
 });
@@ -3785,45 +3806,80 @@ async function computeAndSend(force) {
       document.getElementById('trackStatus').textContent = 'Tracking';
     }
 
-    // --- KINEMATIC RENDEZVOUS ALGORITHM ---
-    // Instead of leading by a fixed angle, we calculate where the satellite and
-    // rotator will arrive simultaneously. This prevents the rotator from chasing
-    // a moving target — it aims for the exact point where it will meet the satellite.
+    // --- HYBRID TRACKING ALGORITHM ---
+    // Initial command (force=true or first command): use kinematic rendezvous to find
+    // where the rotator and satellite arrive simultaneously. This prevents the rotator
+    // from chasing a moving target on the first move.
     //
-    // On initial start (force=true), we also start measuring the rotator's actual
-    // speed by tracking how long the movement takes.
-    //
-    // After the initial rendezvous, dead zone logic prevents unnecessary re-commanding.
-    // When the satellite drifts beyond the dead zone, we compute a new rendezvous.
+    // Ongoing tracking: use angle-based leading + dead zone. The antenna aims
+    // leadAngleDeg ahead of the satellite along its path. When the satellite drifts
+    // beyond deadZoneDeg from the target, we re-command further ahead. This creates
+    // a "move-ahead-and-wait" pattern that minimizes unnecessary movements.
 
     let targetAz, targetEl;
+    const isFirstCommand = (force && lastTargetAz === null);
 
-    // Need antenna position for rendezvous — use last known ESP position
-    if (antennaAz !== null && antennaEl !== null && satEl >= 0) {
-      const elfDelay = (force && lastTargetAz === null) ? getElfSwitchDelay() : 0;
+    if (isFirstCommand && antennaAz !== null && antennaEl !== null && satEl >= 0) {
+      // Initial command: kinematic rendezvous
+      const elfDelay = getElfSwitchDelay();
       const rendezvous = computeRendezvous(satrec, now, antennaAz, antennaEl, elfDelay);
 
       if (rendezvous) {
         targetAz = rendezvous.az;
         targetEl = rendezvous.el;
+        debugLog(`[RENDEZVOUS] Initial target: ${targetAz.toFixed(1)}°/${targetEl.toFixed(1)}°`);
       } else {
-        // Rendezvous failed — fall back to current satellite position
         targetAz = satAz;
         targetEl = Math.max(0, satEl);
       }
-    } else {
-      // No antenna position yet — use current satellite position
-      targetAz = satAz;
-      targetEl = Math.max(0, satEl);
-    }
 
-    // Start speed measurement when we send a new command
-    if (force && lastTargetAz === null && antennaAz !== null && antennaEl !== null) {
+      // Start speed measurement
       speedMeasurement.active = true;
       speedMeasurement.startAz = antennaAz;
       speedMeasurement.startEl = antennaEl;
       speedMeasurement.startTime = Date.now();
-      debugLog(`[SPEED] Measurement started from ${antennaAz.toFixed(1)}°/${antennaEl.toFixed(1)}°`);
+    } else if (leadAngleDeg > 0 && satEl >= 0) {
+      // Ongoing tracking: angle-based leading
+      // Find the satellite position that is leadAngleDeg ahead along its path.
+      // Use 0.1-second samples for precision.
+      const sampleInterval = 100; // 0.1 second
+      const maxSamples = 600; // 60 seconds max search
+      let leadTop = null;
+
+      for (let i = 1; i <= maxSamples; i++) {
+        const futureTime = new Date(now.getTime() + i * sampleInterval);
+        const sampleTop = computeTopo(satrec, futureTime, stationLocation.lat, stationLocation.lon, stationLocation.alt);
+
+        if (!sampleTop || sampleTop.elevation === null) {
+          break;
+        }
+
+        const sampleAz = (sampleTop.azimuth * 180 / Math.PI + 360) % 360;
+        const sampleEl = sampleTop.elevation * 180 / Math.PI;
+
+        if (sampleEl < 0) {
+          break;
+        }
+
+        const dist = angularDistance(satAz, satEl, sampleAz, sampleEl);
+
+        if (dist >= leadAngleDeg) {
+          leadTop = sampleTop;
+          break;
+        }
+      }
+
+      if (leadTop) {
+        targetAz = (leadTop.azimuth * 180 / Math.PI + 360) % 360;
+        targetEl = Math.max(0, leadTop.elevation * 180 / Math.PI);
+      } else {
+        targetAz = satAz;
+        targetEl = Math.max(0, satEl);
+      }
+    } else {
+      // No antenna position yet or no lead angle — use current satellite position
+      targetAz = satAz;
+      targetEl = Math.max(0, satEl);
     }
 
     // Decide whether to re-command.
@@ -5096,6 +5152,12 @@ document.getElementById('deadZone').addEventListener('change', () => {
   maybeRestartTracking();
 });
 
+document.getElementById('leadAngle').addEventListener('change', () => {
+  leadAngleDeg = parseFloat(document.getElementById('leadAngle').value);
+  localStorage.setItem('leadAngle', leadAngleDeg);
+  maybeRestartTracking();
+});
+
 // ==================== DEBUG LOGGING ====================
 const debugLoggingToggle = document.getElementById('debugLogging');
 const copyLogsBtn = document.getElementById('copyLogsBtn');
@@ -5282,6 +5344,7 @@ document.getElementById('minElevation').value = minElevation;
 document.getElementById('rotatorSpeedAz').value = rotatorSpeedAz;
 document.getElementById('rotatorSpeedEl').value = rotatorSpeedEl;
 document.getElementById('deadZone').value = deadZoneDeg.toFixed(1);
+document.getElementById('leadAngle').value = leadAngleDeg;
 
 // Load ELF mode from device
 getElfMode().then(data => {
