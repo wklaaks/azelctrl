@@ -2312,7 +2312,12 @@ function renderSatList() {
 
   container.querySelectorAll('.sat-list-item').forEach(item => {
     item.addEventListener('click', () => {
-      selectedSatIndex = parseInt(item.dataset.index);
+      const newIdx = parseInt(item.dataset.index);
+      // Stop tracking if user selects a different satellite
+      if (tracking && newIdx !== selectedSatIndex) {
+        stopTracking();
+      }
+      selectedSatIndex = newIdx;
       saveSatellites();
       updateCurrentSatDisplay(); updateTrackSatSelect();
     });
@@ -2637,6 +2642,10 @@ function renderPassTable() {
       const name = btn.dataset.name;
       const idx = satellites.findIndex(s => s.name === name);
       if (idx >= 0) {
+        // Stop tracking if user selects a different satellite
+        if (tracking && idx !== selectedSatIndex) {
+          stopTracking();
+        }
         selectedSatIndex = idx;
         saveSatellites();
         updateCurrentSatDisplay();
@@ -2842,6 +2851,10 @@ document.getElementById('trackSatSelect').addEventListener('keydown', (e) => {
       nextIdx = currentIdx > 0 ? currentIdx - 1 : sorted.length - 1;
     }
     selectedSatIndex = sorted[nextIdx].i;
+    // Stop tracking if user selects a different satellite
+    if (tracking) {
+      stopTracking();
+    }
     localStorage.setItem('selectedSatIndex', selectedSatIndex);
     updateTrackSatSelect();
     updateCurrentSatDisplay();
@@ -3172,6 +3185,10 @@ document.getElementById('addSatBtn').addEventListener('click', () => {
       neverSets: checkNeverSets(satrec, minEl)
     };
     satellites.push(newSat);
+    // Stop tracking if user adds a new satellite
+    if (tracking) {
+      stopTracking();
+    }
     selectedSatIndex = satellites.length - 1;
     saveSatellites();
     renderSatList();
@@ -3231,6 +3248,10 @@ async function fetchTleForNORAD(norad, preferredName) {
       showBanner(statusEl, 'Added ' + newSat.name, 'info');
     }
     selectedSatIndex = existingIdx >= 0 ? existingIdx : satellites.length - 1;
+    // Stop tracking if user fetches TLE for a different satellite
+    if (tracking && selectedSatIndex !== existingIdx) {
+      stopTracking();
+    }
     saveSatellites();
     console.log('fetchTleForNORAD: satellite added, total count:', satellites.length);
     console.log('fetchTleForNORAD: calling renderSatList');
@@ -3394,6 +3415,10 @@ document.getElementById('startTrackBtn').addEventListener('click', () => {
 });
 document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   const idx = parseInt(e.target.value);
+  // Stop tracking if user selects a different satellite
+  if (tracking && idx !== selectedSatIndex) {
+    stopTracking();
+  }
   selectedSatIndex = idx;
   localStorage.setItem('selectedSatIndex', idx);
   updateCurrentSatDisplay();
