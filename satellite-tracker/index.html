@@ -5840,6 +5840,13 @@ class OrbitalMapRenderer {
     const w = this._logicalWidth || 800;
     const h = this._logicalHeight || 280;
 
+    // Use evenodd fill rule to handle world-edge wraps correctly
+    // When a ring crosses the antimeridian, we break it into subpaths
+    // without closing, and evenodd ensures no spurious fills
+    ctx.save();
+    ctx.fillStyle = '#1a2a1a';
+    ctx.strokeStyle = '#2a4a2a';
+    ctx.lineWidth = 0.5;
     ctx.beginPath();
     let started = false;
     let prevX = 0;
@@ -5850,12 +5857,8 @@ class OrbitalMapRenderer {
         started = true;
       } else {
         // Detect world-edge wrap: if consecutive points jump across the map,
-        // close the current subpath and start a new one to avoid cross-map fills
+        // move to the new position without drawing a line
         if (Math.abs(x - prevX) > w * 0.8) {
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-          ctx.beginPath();
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
@@ -5864,8 +5867,9 @@ class OrbitalMapRenderer {
       prevX = x;
     }
     ctx.closePath();
-    ctx.fill();
+    ctx.fill("evenodd");
     ctx.stroke();
+    ctx.restore();
   }
 
   _drawTerminator() {
