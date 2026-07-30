@@ -5846,31 +5846,38 @@ class OrbitalMapRenderer {
 
     // Draw the ring, handling world-edge wraps by adjusting longitude
     // so that consecutive projected points are always close together.
-    // This prevents both triangle artifacts and holes.
+    // Do NOT use closePath() — it can create triangles when the first
+    // and last points of a ring are far apart (e.g., Antarctica).
+    // Instead, manually connect last point to first only if they are close.
     ctx.beginPath();
     let prevX = 0;
-    let lonOffset = 0; // accumulated longitude offset for continuity
+    let lonOffset = 0;
+    let firstX = 0, firstY = 0;
     for (let i = 0; i < ring.length; i++) {
       const [lat, lon] = ring[i];
-      // Adjust longitude for continuity: if the previous point was far
-      // to the right and this point is far to the left (or vice versa),
-      // add/subtract 360° to make them continuous
       let adjustedLon = lon + lonOffset;
       const [x, y] = this.project(lat, adjustedLon);
       if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
-        // Adjust lonOffset to bring this point close to the previous one
         if (x < prevX) lonOffset += 360;
         else lonOffset -= 360;
         const [x2, y2] = this.project(lat, lon + lonOffset);
         ctx.moveTo(x2, y2);
         prevX = x2;
       } else {
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        if (i === 0) {
+          ctx.moveTo(x, y);
+          firstX = x;
+          firstY = y;
+        } else {
+          ctx.lineTo(x, y);
+        }
         prevX = x;
       }
     }
-    ctx.closePath();
+    // Only close the path if the last point is close to the first
+    if (Math.abs(prevX - firstX) < w * 0.5) {
+      ctx.closePath();
+    }
     ctx.fill();
     ctx.stroke();
   }
