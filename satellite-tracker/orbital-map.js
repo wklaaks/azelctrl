@@ -183,33 +183,32 @@ class OrbitalMapRenderer {
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
 
-    // Split ring into subpaths at world-edge wraps, fill each individually
-    // This prevents large triangular fill artifacts when a ring crosses
-    // the antimeridian (±180°) or when the map is panned to a non-zero center
-    const subpaths = [];
-    let current = [];
+    // Draw the ring as a single path, breaking at world-edge wraps
+    // Do NOT call closePath() — it creates triangles at map edges
+    // when a ring crosses the antimeridian
+    ctx.beginPath();
+    let started = false;
     let prevX = 0;
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = this.project(ring[i][0], ring[i][1]);
-      if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
-        if (current.length > 2) subpaths.push(current);
-        current = [];
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        // Detect world-edge wrap: if consecutive points jump across the map,
+        // move to the new position without drawing a line
+        if (Math.abs(x - prevX) > w * 0.8) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
       }
-      current.push([x, y]);
       prevX = x;
     }
-    if (current.length > 2) subpaths.push(current);
-
-    for (const subpath of subpaths) {
-      ctx.beginPath();
-      ctx.moveTo(subpath[0][0], subpath[0][1]);
-      for (let i = 1; i < subpath.length; i++) {
-        ctx.lineTo(subpath[i][0], subpath[i][1]);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
+    // Fill without closePath — Canvas fills open paths as if closed
+    // but doesn't draw the closing line, avoiding triangle artifacts
+    ctx.fill();
+    ctx.stroke();
   }
 
   _drawTerminator() {
