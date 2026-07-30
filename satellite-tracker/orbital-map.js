@@ -133,32 +133,12 @@ class OrbitalMapRenderer {
     if (this.groundTrack) {
       const w = this._logicalWidth || 800;
 
-      // Past track (solid red)
-      if (this.groundTrack.past && this.groundTrack.past.length > 1) {
+      // Future track (solid red)
+      if (this.groundTrack.future && this.groundTrack.future.length > 1) {
         ctx.strokeStyle = '#ef4444';
         ctx.lineWidth = 4;
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
-        ctx.beginPath();
-        for (let i = 0; i < this.groundTrack.past.length; i++) {
-          const [x, y] = this.project(this.groundTrack.past[i][0], this.groundTrack.past[i][1]);
-          if (i === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            const prevX = this.project(this.groundTrack.past[i-1][0], this.groundTrack.past[i-1][1])[0];
-            if (Math.abs(x - prevX) > w * 0.8) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          }
-        }
-        ctx.stroke();
-      }
-
-      // Future track (dashed red)
-      if (this.groundTrack.future && this.groundTrack.future.length > 1) {
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 4;
-        ctx.setLineDash([5, 5]);
-        ctx.globalAlpha = 0.6;
         ctx.beginPath();
         for (let i = 0; i < this.groundTrack.future.length; i++) {
           const [x, y] = this.project(this.groundTrack.future[i][0], this.groundTrack.future[i][1]);
@@ -430,18 +410,10 @@ function getSatGroundPosition(satrec, date) {
   };
 }
 
-// Generate ground track points for a satellite
-function generateGroundTrack(satrec, durationMinutes = 90, stepMinutes = 2) {
+// Generate ground track points for a satellite (future only)
+function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
   const now = new Date();
-  const pastPoints = [];
   const futurePoints = [];
-
-  // Past track
-  for (let i = durationMinutes; i >= 0; i -= stepMinutes) {
-    const time = new Date(now.getTime() - i * 60 * 1000);
-    const pos = getSatGroundPosition(satrec, time);
-    if (pos) pastPoints.push([pos.lat, pos.lon]);
-  }
 
   // Future track
   for (let i = stepMinutes; i <= durationMinutes; i += stepMinutes) {
@@ -450,7 +422,7 @@ function generateGroundTrack(satrec, durationMinutes = 90, stepMinutes = 2) {
     if (pos) futurePoints.push([pos.lat, pos.lon]);
   }
 
-  return { past: pastPoints, future: futurePoints };
+  return { future: futurePoints };
 }
 
 // Compute day/night terminator line
@@ -747,8 +719,9 @@ function updateOrbitalMap() {
     }
 
     // Generate ground track
-    const track = generateGroundTrack(satrec, 90, 2);
-    orbitalMap.setGroundTrack(track.past, track.future);
+    const duration = parseInt(document.getElementById('mapTrackDuration').value) || 180;
+    const track = generateGroundTrack(satrec, duration, 2);
+    orbitalMap.setGroundTrack(null, track.future);
 
     // Compute terminator
     const terminator = computeTerminator(now);
