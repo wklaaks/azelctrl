@@ -79,8 +79,8 @@ class OrbitalMapRenderer {
   }
 
   // Set ground track
-  setGroundTrack(past, future) {
-    this.groundTrack = { past, future };
+  setGroundTrack(past, future, orbitSegments) {
+    this.groundTrack = { past, future, orbitSegments };
   }
 
   // Set satellite position
@@ -133,24 +133,28 @@ class OrbitalMapRenderer {
     if (this.groundTrack) {
       const w = this._logicalWidth || 800;
 
-      // Future track (solid red)
-      if (this.groundTrack.future && this.groundTrack.future.length > 1) {
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 4;
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
-        ctx.beginPath();
-        for (let i = 0; i < this.groundTrack.future.length; i++) {
-          const [x, y] = this.project(this.groundTrack.future[i][0], this.groundTrack.future[i][1]);
-          if (i === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            const prevX = this.project(this.groundTrack.future[i-1][0], this.groundTrack.future[i-1][1])[0];
-            if (Math.abs(x - prevX) > w * 0.8) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+      // Draw orbit segments with different colors
+      if (this.groundTrack.orbitSegments && this.groundTrack.orbitSegments.length > 0) {
+        for (const seg of this.groundTrack.orbitSegments) {
+          const colorIdx = ((seg.orbitNum % 5) + 5) % 5;
+          const color = ORBIT_COLORS[colorIdx];
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          for (let i = 0; i < seg.points.length; i++) {
+            const [x, y] = this.project(seg.points[i][0], seg.points[i][1]);
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              const prevX = this.project(seg.points[i-1][0], seg.points[i-1][1])[0];
+              if (Math.abs(x - prevX) > w * 0.8) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
           }
+          ctx.stroke();
         }
-        ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
@@ -410,19 +414,54 @@ function getSatGroundPosition(satrec, date) {
   };
 }
 
-// Generate ground track points for a satellite (future only)
+// Orbit track colors — 5 distinct colors visible against dark background
+const ORBIT_COLORS = ['#ef4444', '#38bdf8', '#fbbf24', '#a78bfa', '#34d399'];
+
+// Generate ground track points for a satellite (future only), split into orbit segments
 function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
   const now = new Date();
   const futurePoints = [];
+  const orbitSegments = []; // [{orbitNum, points: [[lat, lon], ...]}, ...]
+
+  // Compute orbit number from mean anomaly at epoch
+  // satrec.no = mean motion (rad/s), satrec.mo = mean anomaly at epoch (rad)
+  const epochTime = new Date(satrec.jdsatepoch * 86400 * 1000); // approximate
+  const epochMs = epochTime.getTime();
+  const secondsPerOrbit = (2 * Math.PI) / satrec.no;
+  
+  // Compute orbit number at 'now'
+  const elapsedSec = (now.getTime() - epochMs) / 1000;
+  const meanMotionAtNow = satrec.mo + satrec.no * elapsedSec;
+  const orbitNumNow = Math.floor(meanMotionAtNow / (2 * Math.PI));
 
   // Future track
+  let currentOrbit = orbitNumNow;
+  let currentSegment = [];
   for (let i = stepMinutes; i <= durationMinutes; i += stepMinutes) {
     const time = new Date(now.getTime() + i * 60 * 1000);
     const pos = getSatGroundPosition(satrec, time);
-    if (pos) futurePoints.push([pos.lat, pos.lon]);
+    if (pos) {
+      futurePoints.push([pos.lat, pos.lon]);
+      // Compute orbit number at this time
+      const elapsed = (time.getTime() - epochMs) / 1000;
+      const meanAnomaly = satrec.mo + satrec.no * elapsed;
+      const orbitNum = Math.floor(meanAnomaly / (2 * Math.PI));
+      if (orbitNum !== currentOrbit) {
+        if (currentSegment.length > 1) {
+          orbitSegments.push({ orbitNum: currentOrbit, points: currentSegment });
+        }
+        currentOrbit = orbitNum;
+        currentSegment = [];
+      }
+      currentSegment.push([pos.lat, pos.lon]);
+    }
+  }
+  // Push the last segment
+  if (currentSegment.length > 1) {
+    orbitSegments.push({ orbitNum: currentOrbit, points: currentSegment });
   }
 
-  return { future: futurePoints };
+  return { future: futurePoints, orbitSegments };
 }
 
 // Compute day/night terminator line
@@ -721,7 +760,7 @@ function updateOrbitalMap() {
     // Generate ground track
     const duration = parseInt(document.getElementById('mapTrackDuration').value) || 180;
     const track = generateGroundTrack(satrec, duration, 2);
-    orbitalMap.setGroundTrack(null, track.future);
+    orbitalMap.setGroundTrack(null, track.future, track.orbitSegments);
 
     // Compute terminator
     const terminator = computeTerminator(now);
