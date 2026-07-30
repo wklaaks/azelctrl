@@ -19,7 +19,7 @@ When chasing satellites, the polar plot tells you **where to point your antenna*
 
 ### The Constraints
 
-1. **ESP flash**: Single `index.html` from ESP8266/ESP32 with **~512KB flash** (PROGMEM). Current file is ~200KB. Headroom: ~300KB.
+1. **Storage**: HTML served from **ESP SPIFFS** (~3 MB filesystem). Current `index.html.gz` is ~46 KB. Ample headroom for embedded map data.
 2. **Offline-first**: AZELCtrl must remain fully usable when opened from the ESP with **no internet access**. This is the primary use case — the user is at their radio station, connected to the ESP via WiFi/AP, with no internet.
 3. **Current offline pattern**: All existing functionality works offline. TLEs and SatNOGS data are cached in `localStorage` after an initial online fetch. The polar plot is drawn with Canvas — no external dependencies.
 
@@ -36,16 +36,18 @@ A naive Leaflet + CDN tile approach breaks entirely offline:
 
 Instead of Leaflet (which requires CDN + tile servers), build a lightweight Canvas-based world map:
 
-| Resource | Source | Size Impact on ESP |
-|----------|--------|-------------------|
-| World coastline data | Embedded simplified GeoJSON | ~15KB |
-| Map rendering (Canvas) | Custom JS in index.html | ~8KB |
+| Resource | Source | Size Impact on SPIFFS |
+|----------|--------|----------------------|
+| World coastline data | Embedded simplified GeoJSON (1:10m) | ~500 KB |
+| Map rendering (Canvas) | Custom JS in index.html | ~8 KB |
 | Satellite positions | Computed client-side (satellite.js — already loaded) | 0 bytes |
 | Terminator line | Computed client-side (Julian date math) | 0 bytes |
 | Grid lines, labels | Computed/rendered client-side | 0 bytes |
-| Map container HTML | Added to index.html | ~1KB |
+| Map container HTML | Added to index.html | ~1 KB |
 
-**Total additional ESP storage: ~24KB** (well within the 300KB headroom).
+**Total additional SPIFFS storage: ~510 KB** (17% of 3 MB — leaves 2.5 MB for future features).
+
+**Coastline quality**: With 3 MB SPIFFS (instead of ~300 KB flash headroom), we can use Natural Earth 1:10m resolution coastlines instead of 1:500m. This means recognizable island shapes, peninsulas, bays, and country-level detail — not just blobby continent outlines. The Canvas renderer handles the extra points (2000-5000 per continent vs. 50-100) with no performance impact.
 
 ### How It Works
 
@@ -53,10 +55,10 @@ Instead of Leaflet (which requires CDN + tile servers), build a lightweight Canv
 ┌─────────────────────────────────────────────────┐
 │  Browser (client) — NO INTERNET NEEDED          │
 │  ┌───────────────────────────────────────────┐   │
-│  │  index.html (from ESP, ~224KB total)      │   │
+│  │  index.html (from ESP SPIFFS, ~730 KB total)│  │
 │  │  ┌─────────────────────────────────────┐  │   │
 │  │  │  Everything embedded in HTML:       │  │   │
-│  │  │  - World coastline (simplified)     │  │   │
+│  │  │  - World coastline (1:10m, ~500 KB) │  │   │
 │  │  │  - Canvas map renderer              │  │   │
 │  │  │  - satellite.js (already embedded)  │  │   │
 │  │  └─────────────────────────────────────┘  │   │
@@ -72,12 +74,12 @@ Instead of Leaflet (which requires CDN + tile servers), build a lightweight Canv
 └─────────────────────────────────────────────────┘
 ```
 
-**No network requests after page load.** Everything is computed and rendered from data embedded in the HTML file.
+**No network requests after page load.** Everything is computed and rendered from data embedded in the HTML file served from ESP SPIFFS.
 
 ### Offline-First Design Principles
 
 1. **Map works offline by default** — no CDN, no tile servers, no external dependencies
-2. **World data is embedded** — simplified coastline GeoJSON (~15KB) baked into the HTML
+2. **World data is embedded** — high-quality coastline GeoJSON (~500 KB, Natural Earth 1:10m) baked into the HTML
 3. **Same visual quality offline/online** — no degradation; the map looks the same regardless of connectivity
 4. **Optional enhancement online** — if internet IS available, offer to enhance with satellite imagery tiles (purely optional, map works fine without)
 5. **Consistent with existing AZELCtrl pattern** — just like TLEs: fetch once, cache forever, works offline
@@ -87,7 +89,7 @@ Instead of Leaflet (which requires CDN + tile servers), build a lightweight Canv
 | Factor | Leaflet (CDN + tiles) | Canvas (embedded) |
 |--------|----------------------|-------------------|
 | Works offline | ❌ No — requires CDN + tiles | ✅ Yes — everything embedded |
-| ESP storage | ~8KB (but broken offline) | ~24KB (fully functional) |
+| SPIFFS storage | ~8KB (but broken offline) | ~510KB (fully functional, high quality) |
 | External dependencies | Leaflet JS/CSS, tile servers | None |
 | Page load time | Multiple HTTP requests | Single file, instant |
 | Visual consistency | Degraded offline (blank) | Same appearance always |
@@ -95,14 +97,15 @@ Instead of Leaflet (which requires CDN + tile servers), build a lightweight Canv
 | Tile layer switching | Easy | N/A (single embedded style) |
 | Maintenance | CDN availability risk | Self-contained |
 
-**Canvas wins for offline-first.** The trade-off is that we need to implement our own pan/zoom, but for a satellite tracking map that's straightforward.
+**Canvas wins for offline-first.** The trade-off is that we need to implement our own pan/zoom, but for a satellite tracking map that's straightforward. With 3 MB SPIFFS, we can embed high-quality coastline data that makes the Canvas map genuinely useful.
 
 ### World Coastline Data
 
-Source: Natural Earth 1:110m simplified coastline (public domain)
-- Full resolution: ~200KB (too large)
-- Simplified to 1:500m resolution: ~15KB (acceptable)
-- Further simplified to key outlines only: ~8KB (ideal)
+Source: Natural Earth 1:10m simplified coastline (public domain)
+- **1:10m resolution**: ~500 KB (island-level detail, recognizable coastlines)
+- Further simplified to key outlines only if needed: ~150 KB (still high quality)
+
+With 3 MB SPIFFS storage, we have ample space for high-quality coastline data. The 1:10m resolution gives operators a map that actually looks useful — you can identify countries, see where the satellite is relative to land masses, and recognise familiar geography.
 
 The data is a JSON array of continent/region outlines as `[lat, lon]` coordinate pairs. We embed it as a JavaScript constant and render it on the Canvas.
 
@@ -117,6 +120,8 @@ const WORLD_OUTLINES = [
   // ... other continents
 ];
 ```
+
+**Simplification strategy**: Use Douglas-Peucker algorithm to reduce points while maintaining recognizable shapes. Target: 2000-5000 points per continent (vs. 50-100 in the old 1:500m approach).
 
 ### Optional Online Enhancement
 
@@ -202,24 +207,13 @@ class OrbitalMapRenderer {
 
 ### 2. Embedded World Coastline Data
 
-Source: Natural Earth 1:500m simplified coastline (public domain)
-- Further simplified to key continent outlines only
-- Stored as a JavaScript constant array of `[lat, lon]` coordinate pairs
-- ~15KB compressed, ~8KB if we only include major landmasses
+Source: Natural Earth 1:10m simplified coastline (public domain)
+- ~500 KB embedded as JavaScript constant
+- 2000-5000 points per continent for recognizable detail
+- Stored as `[lat, lon]` coordinate pairs
+- Canvas renders line segments — no performance impact at this scale
 
-```javascript
-const WORLD_OUTLINES = [
-  // North America (simplified)
-  [[71, -168], [71, -141], [60, -141], [50, -130], [48, -124],
-   [33, -117], [25, -80], [30, -82], [30, -89], [29, -90],
-   [26, -97], [20, -105], [25, -100], [30, -97], [32, -96],
-   [30, -90], [30, -88], [25, -80], [25, -80], [21, -87],
-   [30, -88], [30, -82], [25, -80], ...],
-  // ... Africa, South America, Europe, Asia, Australia, Antarctica
-];
-```
-
-**Simplification strategy**: Use Douglas-Peucker algorithm to reduce points while maintaining recognizable shapes. Target: 50-100 points per continent.
+**Simplification strategy**: Use Douglas-Peucker algorithm to reduce points while maintaining recognizable shapes. Target: 2000-5000 points per continent.
 
 ### 3. Orbital Ground Track Computation
 
@@ -345,15 +339,16 @@ Compact controls that match AZELCtrl's UI style:
 
 | Concern | Solution |
 |---------|----------|
-| Coastline rendering | ~15KB data, ~500 polygons — Canvas renders instantly |
+| Coastline rendering | ~500 KB data, ~15K total points — Canvas line segments render in <10ms |
 | Orbital computation | satellite.js is fast; 90 points × 2 = 180 propagations per update |
 | Map updates | Canvas re-render is fast (~16ms at 60fps) |
-| Memory | No external libraries; total map code ~24KB |
+| Memory | No external libraries; total map code ~510 KB in SPIFFS |
 | Battery (mobile) | 30-second update interval is conservative |
 
 ### 9. Feature Priorities
 
 **Phase 1 (MVP)**:
+- [ ] Generate high-quality coastline data (Natural Earth 1:10m → simplified JSON → embedded JS constant)
 - [ ] Canvas map with embedded coastline data
 - [ ] Past/future ground track (90 min each)
 - [ ] Current satellite position marker
@@ -442,10 +437,10 @@ Controls in header:
 
 ## What We're NOT Building
 
-- **No server-side map tiles** — all from free tile servers
+- **No server-side map tiles** — everything embedded, fully offline
 - **No 3D globe** — 2D map is simpler and fits the compact UI
 - **No real-time tracking of multiple satellites** — Phase 1 is single satellite
-- **No offline mode** — requires internet for tiles (same as current polar plot)
+- **No online dependency** — works 100% offline from ESP; no CDN, no tile servers
 - **No map editing or annotation** — read-only visualization
 
 ## References
@@ -454,17 +449,21 @@ Controls in header:
 - Ground Station's tile layers: `~/projects/ground-station/frontend/src/components/common/tile-layers.jsx`
 - Ground Station's terminator line: `~/projects/ground-station/frontend/src/components/common/terminator-line.jsx`
 - Ground Station's icons: `~/projects/ground-station/frontend/src/components/common/dataurl-icons.jsx`
-- Leaflet docs: https://leafletjs.com/reference.html
+- Natural Earth data: https://www.naturalearthdata.com/
 - satellite.js (already loaded): https://github.com/shashanksingh/satellite.js
 
 ## Next Steps
 
 1. Create the plan document (this file) ✓
-2. Add Leaflet CDN links to `<head>`
-3. Add map container HTML beneath polar plot
-4. Implement ground track computation (reuse satellite.js)
-5. Implement map initialization and rendering
-6. Add terminator line computation
-7. Style to match AZELCtrl dark theme
-8. Test with live satellite data
-9. Iterate on visual design based on feedback
+2. Generate high-quality coastline data:
+   - Download Natural Earth 1:10m coastline data
+   - Simplify with Douglas-Peucker algorithm (~500 KB target)
+   - Convert to embedded JavaScript `WORLD_OUTLINES` constant
+3. Add map container HTML beneath polar plot on Tracking tab
+4. Implement Canvas map renderer (equirectangular projection, pan/zoom)
+5. Implement ground track computation (reuse satellite.js propagation)
+6. Add satellite and ground station markers
+7. Implement map controls (reset view, center on sat, pan, zoom)
+8. Add day/night terminator overlay (Phase 2)
+9. Test with live satellite data
+10. Iterate on visual design based on feedback

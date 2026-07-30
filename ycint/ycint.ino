@@ -39,11 +39,19 @@
 #include <FS.h>
 
 // ==================== SPIFFS HTML ====================
-// The ESP can serve the HTML from SPIFFS (filesystem) instead of PROGMEM.
+// The ESP serves the HTML from SPIFFS (filesystem) if available,
+// otherwise falls back to the compiled-in copy in PROGMEM.
 // To upload: gzip -9 -c index.html > index.html.gz
 //            curl -F "file=@index.html.gz" http://<ESP_IP>/upload
-// The firmware checks SPIFFS first, falls back to PROGMEM if not found.
+// World map coastline data is served separately from SPIFFS (/world_coastline.js)
+// so the Map tab can show a warning if it's missing.
 const char* spiffsHtmlFile = "/index.html.gz";
+const char* spiffsCoastlineFile = "/world_coastline.js.gz";
+
+// Compiled-in HTML fallback (gzip-compressed) — stored in flash via ICACHE_RODATA_ATTR
+#include "index_gz.h"
+// The xxd-generated array is named index_html_gz; wrap it for PROGMEM access
+#define index_gz_size sizeof(index_html_gz)
 
 // ==================== EEPROM LAYOUT ====================
 // All settings in one contiguous block. Using 512 bytes = one full flash sector
@@ -1171,9 +1179,7 @@ p{font-size:18px}
 </body></html>
 )RAWHTML";
 
-// Satellite tracker HTML — gzip-compressed, embedded from index_gz.h
-#include "index_gz.h"
-
+// Satellite tracker HTML — served from SPIFFS (index.html.gz) with PROGMEM fallback
 
 // Helper: send PROGMEM content via web server
 void sendProgmemHTML(const char* pgmHtml) {
@@ -1182,16 +1188,14 @@ void sendProgmemHTML(const char* pgmHtml) {
   server.sendContent(pgmHtml);
 }
 
-// Serve gzip-compressed HTML from SPIFFS if available, otherwise PROGMEM
+// Serve gzip-compressed HTML from SPIFFS, fallback to PROGMEM
 void sendHtml() {
-  // Check SPIFFS first
   if (SPIFFS.begin() && SPIFFS.exists(spiffsHtmlFile)) {
     File f = SPIFFS.open(spiffsHtmlFile, "r");
     if (f.size() > 0) {
       server.setContentLength(f.size());
       server.sendHeader("Content-Encoding", "gzip");
       server.send(200, "text/html");
-      // Read and send in chunks to avoid blocking
       const size_t chunkSize = 1024;
       uint8_t buf[chunkSize];
       while (f.available()) {
@@ -1204,16 +1208,34 @@ void sendHtml() {
     }
     f.close();
   }
-  // Fallback to PROGMEM
-  sendGzippedHTML(index_html_gz, index_html_gz_len);
-}
-
-// Serve gzip-compressed HTML from PROGMEM (fallback)
-void sendGzippedHTML(const uint8_t* gzData, size_t gzLen) {
-  server.setContentLength(gzLen);
+  // Fallback: serve from PROGMEM
+  server.setContentLength(sizeof(index_html_gz));
   server.sendHeader("Content-Encoding", "gzip");
   server.send(200, "text/html");
-  server.sendContent_P((const char*)gzData, gzLen);
+  server.sendContent((const char*)index_html_gz, sizeof(index_html_gz));
+}
+
+// Serve world coastline data from SPIFFS (gzip-compressed, returns 404 if not found)
+void sendCoastlineData() {
+  if (SPIFFS.exists(spiffsCoastlineFile)) {
+    File f = SPIFFS.open(spiffsCoastlineFile, "r");
+    if (f.size() > 0) {
+      server.setContentLength(f.size());
+      server.sendHeader("Content-Encoding", "gzip");
+      server.send(200, "application/javascript");
+      const size_t chunkSize = 1024;
+      uint8_t buf[chunkSize];
+      while (f.available()) {
+        size_t toRead = f.available() < chunkSize ? f.available() : chunkSize;
+        f.read(buf, toRead);
+        server.sendContent((const char*)buf, toRead);
+      }
+      f.close();
+      return;
+    }
+    f.close();
+  }
+  server.send(404, "text/plain", "world_coastline.js.gz not found. Upload via Manage tab.");
 }
 
 // Upload a file to SPIFFS
@@ -5591,6 +5613,11 @@ void setupWebServer() {
   server.on("/upload", HTTP_POST, []() {
     // POST response is sent from handleUpload() callback
   }, handleUpload);
+  
+  // Serve world coastline data from SPIFFS
+  server.on("/world_coastline.js", []() {
+    sendCoastlineData();
+  });
   
   // Serve files from SPIFFS
   server.on("/files", HTTP_GET, []() {
