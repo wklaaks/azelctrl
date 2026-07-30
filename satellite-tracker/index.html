@@ -5842,6 +5842,7 @@ class OrbitalMapRenderer {
 
     ctx.beginPath();
     let started = false;
+    let prevX = 0;
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = this.project(ring[i][0], ring[i][1]);
       if (!started) {
@@ -5849,15 +5850,20 @@ class OrbitalMapRenderer {
         started = true;
       } else {
         // Detect world-edge wrap: if consecutive points jump across the map,
-        // break the path to avoid cross-map lines
-        const prevX = this.project(ring[i-1][0], ring[i-1][1])[0];
+        // close the current subpath and start a new one to avoid cross-map fills
         if (Math.abs(x - prevX) > w * 0.8) {
-          ctx.moveTo(x, y);  // wrap break — new subpath
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
       }
+      prevX = x;
     }
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
   }
