@@ -202,14 +202,23 @@ class OrbitalMapRenderer {
     }
     if (current.length > 2) subpaths.push(current);
 
-    // Fill each subpath individually
+    // Fill each subpath individually.
+    // Only call closePath() if the last point is close to the first point.
+    // If they are far apart, leave the path open — Canvas fill() still
+    // treats open paths as closed for filling, but does NOT draw the
+    // closing line, preventing triangle/horizontal-line artifacts.
     for (const subpath of subpaths) {
       ctx.beginPath();
       ctx.moveTo(subpath[0][0], subpath[0][1]);
       for (let i = 1; i < subpath.length; i++) {
         ctx.lineTo(subpath[i][0], subpath[i][1]);
       }
-      ctx.closePath();
+      // Only close the path if the last point is close to the first
+      const firstX = subpath[0][0];
+      const lastX = subpath[subpath.length - 1][0];
+      if (Math.abs(firstX - lastX) < w * 0.5) {
+        ctx.closePath();
+      }
       ctx.fill();
       ctx.stroke();
     }
