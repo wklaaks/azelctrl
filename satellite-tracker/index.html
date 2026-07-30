@@ -5866,33 +5866,93 @@ class OrbitalMapRenderer {
     }
     if (current.length > 2) subpaths.push(current);
 
-    // For each subpath, check if first and last points are far apart.
-    // If so, split at the midpoint to avoid fill() creating triangles
-    // when it treats the open path as closed (connecting last to first).
+    // Build final subpaths with canvas-edge close mode.
+    // 'direct' = normal closePath; 'left'/'right' = close via vertical edge;
+    // 'top'/'bottom' = close via horizontal edge (full-width polar rings).
     const finalSubpaths = [];
     for (const subpath of subpaths) {
+      // Compute subpath stats
+      let minX = Infinity, maxX = -Infinity;
+      let sumY = 0;
+      for (const p of subpath) {
+        if (p[0] < minX) minX = p[0];
+        if (p[0] > maxX) maxX = p[0];
+        sumY += p[1];
+      }
+      const avgY = sumY / subpath.length;
+      const span = maxX - minX;
       const firstX = subpath[0][0];
       const lastX = subpath[subpath.length - 1][0];
-      if (Math.abs(firstX - lastX) > w * 0.5) {
-        // Split at midpoint
-        const mid = Math.floor(subpath.length / 2);
-        const half1 = subpath.slice(0, mid + 1);
-        const half2 = subpath.slice(mid);
-        if (half1.length > 2) finalSubpaths.push(half1);
-        if (half2.length > 2) finalSubpaths.push(half2);
-      } else {
-        finalSubpaths.push(subpath);
+      const gap = Math.abs(firstX - lastX);
+
+      // Does this subpath touch the canvas edge?
+      const touchesLeft = minX < w * 0.02;
+      const touchesRight = maxX > w - w * 0.02;
+      const isFullWidth = span > w * 0.8;
+
+      let closeMode = 'direct';
+
+      if (gap > w * 0.5) {
+        // First and last points far apart — problem subpath
+        if (isFullWidth) {
+          // Spans entire width (Antarctica, Arctic) — close via top/bottom
+          closeMode = avgY < h / 2 ? 'top' : 'bottom';
+        } else if (touchesLeft || touchesRight) {
+          // Edge-touching via wrap (panning a landmass across edge)
+          closeMode = touchesLeft ? 'left' : 'right';
+        } else {
+          // Inland subpath — split at midpoint
+          const mid = Math.floor(subpath.length / 2);
+          const half1 = subpath.slice(0, mid + 1);
+          const half2 = subpath.slice(mid);
+          if (half1.length > 2) finalSubpaths.push({ points: half1, closeMode: 'direct' });
+          if (half2.length > 2) finalSubpaths.push({ points: half2, closeMode: 'direct' });
+          continue;
+        }
+      } else if (touchesLeft || touchesRight) {
+        // Edge-touching with small gap (panning artifact)
+        closeMode = touchesLeft ? 'left' : 'right';
+      } else if (isFullWidth) {
+        // Full-width but small gap — close via top/bottom
+        closeMode = avgY < h / 2 ? 'top' : 'bottom';
       }
+
+      finalSubpaths.push({ points: subpath, closeMode });
     }
 
-    // Fill each subpath as a separate closed polygon
-    for (const subpath of finalSubpaths) {
+    // Fill each subpath as a separate polygon, closing via the canvas edge
+    for (const { points: sp, closeMode } of finalSubpaths) {
       ctx.beginPath();
-      ctx.moveTo(subpath[0][0], subpath[0][1]);
-      for (let i = 1; i < subpath.length; i++) {
-        ctx.lineTo(subpath[i][0], subpath[i][1]);
+      ctx.moveTo(sp[0][0], sp[0][1]);
+      for (let i = 1; i < sp.length; i++) {
+        ctx.lineTo(sp[i][0], sp[i][1]);
       }
-      ctx.closePath();
+
+      const last = sp[sp.length - 1];
+      const first = sp[0];
+
+      switch (closeMode) {
+        case 'left':
+          ctx.lineTo(0, last[1]);
+          ctx.lineTo(0, first[1]);
+          break;
+        case 'right':
+          ctx.lineTo(w, last[1]);
+          ctx.lineTo(w, first[1]);
+          break;
+        case 'top':
+          ctx.lineTo(last[0], 0);
+          ctx.lineTo(first[0], 0);
+          break;
+        case 'bottom':
+          ctx.lineTo(last[0], h);
+          ctx.lineTo(first[0], h);
+          break;
+        default:
+          ctx.closePath();
+          break;
+      }
+
       ctx.fill();
       ctx.stroke();
     }

@@ -217,7 +217,36 @@ git commit -m "Fix: [describe the fix]"
 
 In the browser, do a hard reload (Cmd+Shift+R on macOS) of `http://192.168.88.154/` to ensure the new code is loaded.
 
-## Potential Approaches to Try
+## Resolved: Canvas-Edge Close (Approach G)
+
+The problem was implemented and committed on [date]. The fix replaces `closePath()` with canvas-edge-aware closing paths:
+
+### What changed in `_drawRing()`
+
+Instead of always calling `closePath()` (which draws a straight line from the last point to the first point, cutting across the map), the code now determines **how** to close each subpath:
+
+| Condition | Close Mode | Behavior |
+|-----------|-----------|----------|
+| Subpath touches left edge (`minX < w * 0.02`) | `left` | Go to `x=0`, then along left edge |
+| Subpath touches right edge (`maxX > w * 0.98`) | `right` | Go to `x=w`, then along right edge |
+| Subpath spans full width (`span > w * 0.8`) | `top` or `bottom` | Go to `y=0` or `y=h`, then along edge |
+| First/last gap > 0.5w (inland, not edge) | `direct` (midpoint split) | Same as before — split at midpoint |
+| Normal subpath | `direct` | `closePath()` as before |
+
+### Effective fixes
+
+- **Panning fix**: When a landmass (Alaska, etc.) crosses the left/right edge during panning, each split subpath now closes to the nearest canvas edge instead of drawing a diagonal line across the map. The fill extends cleanly to the edge.
+
+- **Antarctica fix**: The full-width ring spanning [0, w] is detected as `isFullWidth` and closed via the bottom edge (since avgY > h/2), filling Antarctica correctly.
+
+- **Arctic fix**: Same approach — closed via the top edge.
+
+### Files modified
+
+- `orbital-map.js` — `_drawRing()` method
+- `index.html` — inlined `_drawRing()` method
+
+Both files must be kept in sync. Verify with `python3 -c "..."` as shown above.
 
 ### Approach A: Fix the coastline data
 Instead of fixing the rendering, fix the data. The issue is that Antarctica's ring starts at lon=-180 and ends at lon=179.7. If we modify the ring to start at lon=0 (or any longitude that's not at the antimeridian), the first and last points would be close together after projection, and `closePath()` would work correctly.
