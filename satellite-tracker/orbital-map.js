@@ -179,36 +179,37 @@ class OrbitalMapRenderer {
     const w = this._logicalWidth || 800;
     const h = this._logicalHeight || 280;
 
-    // Use evenodd fill rule to handle world-edge wraps correctly
-    // When a ring crosses the antimeridian, we break it into subpaths
-    // without closing, and evenodd ensures no spurious fills
-    ctx.save();
     ctx.fillStyle = '#1a2a1a';
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    let started = false;
+
+    // Split ring into subpaths at world-edge wraps, fill each individually
+    // This prevents large triangular fill artifacts when a ring crosses
+    // the antimeridian (±180°) or when the map is panned to a non-zero center
+    const subpaths = [];
+    let current = [];
     let prevX = 0;
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = this.project(ring[i][0], ring[i][1]);
-      if (!started) {
-        ctx.moveTo(x, y);
-        started = true;
-      } else {
-        // Detect world-edge wrap: if consecutive points jump across the map,
-        // move to the new position without drawing a line
-        if (Math.abs(x - prevX) > w * 0.8) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+      if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
+        if (current.length > 2) subpaths.push(current);
+        current = [];
       }
+      current.push([x, y]);
       prevX = x;
     }
-    ctx.closePath();
-    ctx.fill("evenodd");
-    ctx.stroke();
-    ctx.restore();
+    if (current.length > 2) subpaths.push(current);
+
+    for (const subpath of subpaths) {
+      ctx.beginPath();
+      ctx.moveTo(subpath[0][0], subpath[0][1]);
+      for (let i = 1; i < subpath.length; i++) {
+        ctx.lineTo(subpath[i][0], subpath[i][1]);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   _drawTerminator() {
