@@ -765,7 +765,7 @@ function updateOrbitalMap() {
 
     // Compute terminator
     const terminator = computeTerminator(now);
-    orbitalMap.setTerminator(terminator, true);
+    orbitalMap.setTerminator(terminator, document.getElementById('mapShowDayNight').checked);
 
     // Update map footer
     const footer = document.getElementById('mapFooter');
