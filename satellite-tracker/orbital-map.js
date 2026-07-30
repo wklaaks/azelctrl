@@ -183,42 +183,57 @@ class OrbitalMapRenderer {
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
 
-    // Draw the ring, handling world-edge wraps by adjusting longitude
-    // so that consecutive projected points are always close together.
-    // Do NOT use closePath() — it can create triangles when the first
-    // and last points of a ring are far apart (e.g., Antarctica).
-    // Instead, manually connect last point to first only if they are close.
-    ctx.beginPath();
-    let prevX = 0;
-    let lonOffset = 0;
-    let firstX = 0, firstY = 0;
+    // Project all points
+    const points = [];
     for (let i = 0; i < ring.length; i++) {
-      const [lat, lon] = ring[i];
-      let adjustedLon = lon + lonOffset;
-      const [x, y] = this.project(lat, adjustedLon);
+      const [x, y] = this.project(ring[i][0], ring[i][1]);
+      points.push([x, y]);
+    }
+
+    // Split into subpaths at world-edge wraps
+    const subpaths = [];
+    let current = [];
+    let prevX = 0;
+    for (let i = 0; i < points.length; i++) {
+      const [x, y] = points[i];
       if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
-        if (x < prevX) lonOffset += 360;
-        else lonOffset -= 360;
-        const [x2, y2] = this.project(lat, lon + lonOffset);
-        ctx.moveTo(x2, y2);
-        prevX = x2;
+        if (current.length > 2) subpaths.push(current);
+        current = [];
+      }
+      current.push([x, y]);
+      prevX = x;
+    }
+    if (current.length > 2) subpaths.push(current);
+
+    // For each subpath, check if first and last points are far apart.
+    // If so, split at the midpoint to avoid closePath() creating triangles.
+    const finalSubpaths = [];
+    for (const subpath of subpaths) {
+      const firstX = subpath[0][0];
+      const lastX = subpath[subpath.length - 1][0];
+      if (Math.abs(firstX - lastX) > w * 0.5) {
+        // Split at midpoint
+        const mid = Math.floor(subpath.length / 2);
+        const half1 = subpath.slice(0, mid + 1);
+        const half2 = subpath.slice(mid);
+        if (half1.length > 2) finalSubpaths.push(half1);
+        if (half2.length > 2) finalSubpaths.push(half2);
       } else {
-        if (i === 0) {
-          ctx.moveTo(x, y);
-          firstX = x;
-          firstY = y;
-        } else {
-          ctx.lineTo(x, y);
-        }
-        prevX = x;
+        finalSubpaths.push(subpath);
       }
     }
-    // Only close the path if the last point is close to the first
-    if (Math.abs(prevX - firstX) < w * 0.5) {
+
+    // Fill each subpath as a separate closed polygon
+    for (const subpath of finalSubpaths) {
+      ctx.beginPath();
+      ctx.moveTo(subpath[0][0], subpath[0][1]);
+      for (let i = 1; i < subpath.length; i++) {
+        ctx.lineTo(subpath[i][0], subpath[i][1]);
+      }
       ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
     }
-    ctx.fill();
-    ctx.stroke();
   }
 
   _drawTerminator() {
