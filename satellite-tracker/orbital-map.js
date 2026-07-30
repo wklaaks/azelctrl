@@ -183,57 +183,20 @@ class OrbitalMapRenderer {
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
 
-    // Project all points
-    const points = [];
+    // Draw the entire ring as one continuous path.
+    // Use fill("evenodd") which handles self-intersecting paths correctly.
+    // evenodd fills a point if a ray from that point crosses the path
+    // an odd number of times — this prevents triangle artifacts when
+    // rings cross the antimeridian or span the full map width (e.g., Antarctica).
+    ctx.beginPath();
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = this.project(ring[i][0], ring[i][1]);
-      points.push([x, y]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
-
-    // Split into subpaths at world-edge wraps
-    const subpaths = [];
-    let current = [];
-    let prevX = 0;
-    for (let i = 0; i < points.length; i++) {
-      const [x, y] = points[i];
-      if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
-        if (current.length > 2) subpaths.push(current);
-        current = [];
-      }
-      current.push([x, y]);
-      prevX = x;
-    }
-    if (current.length > 2) subpaths.push(current);
-
-    // For each subpath, check if first and last points are far apart.
-    // If so, split at the midpoint to avoid closePath() creating triangles.
-    const finalSubpaths = [];
-    for (const subpath of subpaths) {
-      const firstX = subpath[0][0];
-      const lastX = subpath[subpath.length - 1][0];
-      if (Math.abs(firstX - lastX) > w * 0.5) {
-        // Split at midpoint
-        const mid = Math.floor(subpath.length / 2);
-        const half1 = subpath.slice(0, mid + 1);
-        const half2 = subpath.slice(mid);
-        if (half1.length > 2) finalSubpaths.push(half1);
-        if (half2.length > 2) finalSubpaths.push(half2);
-      } else {
-        finalSubpaths.push(subpath);
-      }
-    }
-
-    // Fill each subpath as a separate closed polygon
-    for (const subpath of finalSubpaths) {
-      ctx.beginPath();
-      ctx.moveTo(subpath[0][0], subpath[0][1]);
-      for (let i = 1; i < subpath.length; i++) {
-        ctx.lineTo(subpath[i][0], subpath[i][1]);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.closePath();
+    ctx.fill("evenodd");
+    ctx.stroke();
   }
 
   _drawTerminator() {
