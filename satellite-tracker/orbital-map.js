@@ -184,8 +184,7 @@ class OrbitalMapRenderer {
     ctx.lineWidth = 0.5;
 
     // Draw the ring as a single path, breaking at world-edge wraps
-    // Do NOT call closePath() — it creates triangles at map edges
-    // when a ring crosses the antimeridian
+    // Use fill("evenodd") to handle self-intersections correctly
     ctx.beginPath();
     let started = false;
     let prevX = 0;
@@ -205,9 +204,7 @@ class OrbitalMapRenderer {
       }
       prevX = x;
     }
-    // Fill without closePath — Canvas fills open paths as if closed
-    // but doesn't draw the closing line, avoiding triangle artifacts
-    ctx.fill();
+    ctx.fill("evenodd");
     ctx.stroke();
   }
 
