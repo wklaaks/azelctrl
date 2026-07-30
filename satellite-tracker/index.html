@@ -6085,14 +6085,15 @@ function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
   const orbitSegments = []; // [{orbitNum, points: [[lat, lon], ...]}, ...]
 
   // Compute orbit number from mean anomaly at epoch
-  // satrec.no = mean motion (rad/s), satrec.mo = mean anomaly at epoch (rad)
-  const epochTime = new Date(satrec.jdsatepoch * 86400 * 1000); // approximate
-  const epochMs = epochTime.getTime();
-  const secondsPerOrbit = (2 * Math.PI) / satrec.no;
-  
+  // satrec.no = mean motion (rad/min), satrec.mo = mean anomaly at epoch (rad)
+  // satrec.jdsatepoch = Julian date of epoch (days)
+  const epochMs = (satrec.jdsatepoch * 86400 * 1000) || now.getTime();
+  const no = satrec.no || 0; // rad/min
+  const mo = satrec.mo || 0; // rad
+
   // Compute orbit number at 'now'
-  const elapsedSec = (now.getTime() - epochMs) / 1000;
-  const meanMotionAtNow = satrec.mo + satrec.no * elapsedSec;
+  const elapsedMin = (now.getTime() - epochMs) / (1000 * 60);
+  const meanMotionAtNow = mo + no * elapsedMin;
   const orbitNumNow = Math.floor(meanMotionAtNow / (2 * Math.PI));
 
   // Future track
@@ -6104,8 +6105,8 @@ function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
     if (pos) {
       futurePoints.push([pos.lat, pos.lon]);
       // Compute orbit number at this time
-      const elapsed = (time.getTime() - epochMs) / 1000;
-      const meanAnomaly = satrec.mo + satrec.no * elapsed;
+      const elapsed = (time.getTime() - epochMs) / (1000 * 60);
+      const meanAnomaly = mo + no * elapsed;
       const orbitNum = Math.floor(meanAnomaly / (2 * Math.PI));
       if (orbitNum !== currentOrbit) {
         if (currentSegment.length > 1) {
