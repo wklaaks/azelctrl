@@ -5861,6 +5861,17 @@ class OrbitalMapRenderer {
       points.push([x, y]);
     }
 
+    // Compute ring winding direction via signed area of projected points.
+    // CW (negative area) means interior is RIGHT of travel direction.
+    // CCW (positive area) means interior is LEFT of travel direction.
+    // This determines which side of an edge-touching subpath is land.
+    let ringArea = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      ringArea += points[i][0] * points[j][1] - points[j][0] * points[i][1];
+    }
+    const isCW = ringArea < 0;
+
     // Split into subpaths at world-edge wraps
     const subpaths = [];
     let current = [];
@@ -5897,6 +5908,9 @@ class OrbitalMapRenderer {
       const firstX = subpath[0][0];
       const lastX = subpath[subpath.length - 1][0];
       const gap = Math.abs(firstX - lastX);
+      const firstY = subpath[0][1];
+      const lastY = subpath[subpath.length - 1][1];
+      const goingDown = firstY < lastY;
 
       const touchesLeft = minX < w * 0.02;
       const touchesRight = maxX > w - w * 0.02;
@@ -5910,8 +5924,14 @@ class OrbitalMapRenderer {
           // Spans entire width (Antarctica, Arctic) — close via top/bottom
           closeMode = avgY < h / 2 ? 'top' : 'bottom';
         } else if (touchesLeft || touchesRight) {
-          // Edge-touching via wrap (panning a landmass across edge)
-          closeMode = touchesLeft ? 'left' : 'right';
+          // Edge-touching via wrap (panning a landmass across edge).
+          // Edge-close fills the area between coastline and canvas edge.
+          // That area is land only when (isCW === goingDown): a CW ring
+          // going down has interior RIGHT=EAST(edge-ward at right edge),
+          // a CCW ring going down has interior LEFT=WEST(edge-ward at
+          // left edge). Otherwise the edge-close would fill ocean.
+          const useEdge = isCW === goingDown;
+          closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
         } else {
           // Inland subpath — split at midpoint
           const mid = Math.floor(subpath.length / 2);
@@ -5925,8 +5945,9 @@ class OrbitalMapRenderer {
         // Full-width polar ring — close via top/bottom
         closeMode = avgY < h / 2 ? 'top' : 'bottom';
       } else if (touchesLeft || touchesRight) {
-        // Edge-touching with small gap (panning artifact)
-        closeMode = touchesLeft ? 'left' : 'right';
+        // Edge-touching with small gap (panning artifact) — same winding rule
+        const useEdge = isCW === goingDown;
+        closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
       }
 
       finalSubpaths.push({ points: subpath, closeMode });
