@@ -376,13 +376,13 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 <!-- Tabs -->
 <div class="tabs">
+  <div class="tab" data-tab="map">Map</div>
   <div class="tab active" data-tab="tracking">Tracking</div>
   <div class="tab" data-tab="satellites">Satellites</div>
   <div class="tab" data-tab="manage">Manage</div>
-  <div class="tab" data-tab="passes">Pass Predictions</div>
+  <div class="tab" data-tab="passes">Passes</div>
   <div class="tab" data-tab="control">Control</div>
   <div class="tab" data-tab="settings">Settings</div>
-  <div class="tab" data-tab="map">Map</div>
 </div>
 
 <!-- Tab: Tracking -->
@@ -598,10 +598,10 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   </div>
 </div>
 
-<!-- Tab: Pass Predictions -->
+<!-- Tab: Passes -->
 <div class="tab-content" id="tab-passes">
   <div class="card">
-    <div class="card-title">Pass Predictions</div>
+    <div class="card-title">Passes</div>
     <div id="passInfo">Select a satellite to see pass predictions</div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
       <label style="font-size:0.8rem;color:var(--muted)">Lookahead:</label>
@@ -913,9 +913,9 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <!-- Tab: Map -->
 <div class="tab-content" id="tab-map">
   <div class="card" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-      <span>ORBITAL MAP</span>
-      <div style="display: flex; align-items: center; gap: 8px;">
+    <div class="card-title" style="display: flex; align-items: center; flex-shrink: 0;">
+      <span style="flex: 1;">ORBITAL MAP</span>
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center;">
         <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
           <input type="checkbox" id="mapShowDayNight" style="width: 14px; height: 14px; accent-color: var(--accent);">
           <span>Day/Night</span>
@@ -928,6 +928,16 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
           <input type="checkbox" id="mapShowGrid" checked style="width: 14px; height: 14px; accent-color: var(--accent);">
           <span>Grid</span>
         </label>
+        <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-left: 10px;">
+          <input type="checkbox" id="mapShowMoon" style="width: 14px; height: 14px; accent-color: var(--accent);">
+          <span>🌙 Moon</span>
+        </label>
+        <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
+          <input type="checkbox" id="mapShowSun" style="width: 14px; height: 14px; accent-color: var(--accent);">
+          <span>☀️ Sun</span>
+        </label>
+      </div>
+      <div style="flex: 1; display: flex; justify-content: flex-end;">
         <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
           <span>Duration:</span>
           <select id="mapTrackDuration" style="background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 0.75rem; padding: 2px 4px;">
@@ -959,7 +969,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 <!-- Footer -->
 <div class="footer">
-  AZELCtrl Satellite Tracker — All orbital computation runs in your browser via satellite.js
+  AZELCtrl Satellite Tracker — All orbital computation runs in your browser
   <span id="appVersion" style="margin-left: 12px; font-family: monospace; font-size: 0.65rem;"></span>
 </div>
 
@@ -3491,7 +3501,7 @@ document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   cachedLosTime = null;
   cachedIsOverhead = false;
   cachedNeverSets = false;
-  // Refresh Pass Predictions for new satellite
+  // Refresh passes for new satellite
   refreshPasses();
 });
 
@@ -5438,7 +5448,7 @@ setTimeout(() => {
 }, 500);
 
 // App version display (for cache-busting verification)
-document.getElementById('appVersion').textContent = 'v1.3.0';
+document.getElementById('appVersion').textContent = 'v1.5.0';
 
 // ==================== CONFIGURATION SAVE/LOAD ====================
 const CONFIG_KEYS = [
@@ -5645,6 +5655,20 @@ document.getElementById('mapShowGrid').addEventListener('change', (e) => {
     orbitalMap.render();
   }
 });
+document.getElementById('mapShowMoon').addEventListener('change', (e) => {
+  localStorage.setItem('mapShowMoon', e.target.checked ? '1' : '0');
+  if (orbitalMap) {
+    orbitalMap.setShowMoon(e.target.checked);
+    orbitalMap.render();
+  }
+});
+document.getElementById('mapShowSun').addEventListener('change', (e) => {
+  localStorage.setItem('mapShowSun', e.target.checked ? '1' : '0');
+  if (orbitalMap) {
+    orbitalMap.setShowSun(e.target.checked);
+    orbitalMap.render();
+  }
+});
 document.getElementById('mapTrackDuration').addEventListener('change', () => {
   stopMapUpdates();
   if (selectedSatIndex >= 0) {
@@ -5698,6 +5722,10 @@ class OrbitalMapRenderer {
     this.showGrid = true;
     this.showFootprint = true;
     this.footprintPoints = null; // [[lat, lon], ...] — visibility circle
+    this.showMoon = false;
+    this.moonPos = null; // [lat, lon]
+    this.showSun = false;
+    this.sunPos = null; // [lat, lon]
     // Offscreen canvas for caching the base layer (ocean + land)
     // Only redrawn when data or view changes — NOT on terminator/groundtrack toggles
     this._baseCanvas = null;
@@ -5846,6 +5874,27 @@ class OrbitalMapRenderer {
     this.showFootprint = show;
   }
 
+  // Toggle grid visibility
+  setShowGrid(show) {
+    this.showGrid = show;
+  }
+
+  // Set sun position and toggle
+  setSunPos(lat, lon) {
+    this.sunPos = [lat, lon];
+  }
+  setShowSun(show) {
+    this.showSun = show;
+  }
+
+  // Set moon position and toggle
+  setMoonPos(lat, lon) {
+    this.moonPos = [lat, lon];
+  }
+  setShowMoon(show) {
+    this.showMoon = show;
+  }
+
   // Render the full map
   render() {
     const w = this._logicalWidth || 800;
@@ -5905,7 +5954,9 @@ class OrbitalMapRenderer {
     }
 
     // 5. Draw grid lines
-    this._drawGrid();
+    if (this.showGrid) {
+      this._drawGrid();
+    }
 
     // 6. Draw markers
     if (this.stationPos) {
@@ -5913,6 +5964,14 @@ class OrbitalMapRenderer {
     }
     if (this.satPos) {
       this._drawMarker(this.satPos[0], this.satPos[1], '#38bdf8', 'diamond', 8);
+    }
+
+    // 7. Draw celestial bodies
+    if (this.showSun && this.sunPos) {
+      this._drawCelestialBody(this.sunPos[0], this.sunPos[1], '#fbbf24', '☀️');
+    }
+    if (this.showMoon && this.moonPos) {
+      this._drawCelestialBody(this.moonPos[0], this.moonPos[1], '#c0c0c0', '🌙');
     }
   }
 
@@ -6269,6 +6328,26 @@ class OrbitalMapRenderer {
 
     ctx.restore();
   }
+
+  _drawCelestialBody(lat, lon, color, icon) {
+    const ctx = this.ctx;
+    const [x, y] = this.project(lat, lon);
+    ctx.save();
+    // Glow
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    // Colored circle
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // White outline
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // --- Ground Track Computation ---
@@ -6307,9 +6386,10 @@ function getSatGroundPosition(satrec, date) {
     lat = Math.atan2(z + N * e2 * Math.sin(lat), rho);
   }
 
-  // Altitude (for display)
+  // Altitude (for display) — height above WGS84 ellipsoid
   const N = a / Math.sqrt(1 - e2 * Math.sin(lat) * Math.sin(lat));
-  const alt = (rho - N) * Math.cos(lat) + (z - N * (1 - e2) * Math.sin(lat)) * Math.sin(lat);
+  const R_ellip = Math.sqrt((N * Math.cos(lat))**2 + (N * (1 - e2) * Math.sin(lat))**2);
+  const alt = Math.sqrt(x * x + y * y + z * z) - R_ellip;
 
   return {
     lat: lat * 180 / Math.PI,
@@ -6466,7 +6546,73 @@ function computeTerminator(date) {
   // Sun's sub-point longitude (degrees)
   const sunLonDeg = (sunRADeg - GMSTdeg + 540) % 360 - 180;
 
-  return { points, sunLonDeg };
+  return { points, sunLonDeg, sunDecDeg };
+}
+
+// Compute approximate Moon sub-point (lat, lon in degrees)
+// Low-precision algorithm from the Astronomical Almanac
+function computeMoonPosition(date) {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate() + date.getUTCHours() / 24 + date.getUTCMinutes() / 1440;
+  let A = Math.floor(y);
+  let B = 2 - A + Math.floor(A / 4);
+  const JD = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + B - 1524.5;
+  const T = (JD - 2451545.0) / 36525;
+
+  // Moon's mean longitude (degrees)
+  const Lp = 218.3165 + 481267.8813 * T;
+  // Mean elongation of the Moon
+  const D = 297.8502 + 445267.1114 * T;
+  // Sun's mean anomaly
+  const M = 357.5291 + 35999.0503 * T;
+  // Moon's mean anomaly
+  const Mp = 134.9634 + 477198.8676 * T;
+  // Moon's argument of latitude
+  const F = 93.2720 + 483202.0175 * T;
+
+  const Drad = D * Math.PI / 180;
+  const Mrad = M * Math.PI / 180;
+  const Mprad = Mp * Math.PI / 180;
+  const Frad = F * Math.PI / 180;
+
+  // Longitude perturbations
+  const dLon = -1.274 * Math.sin(Mprad - Drad)
+             + 0.658 * Math.sin(2 * Drad)
+             - 0.186 * Math.sin(Mrad)
+             - 0.059 * Math.sin(2 * Mprad - 2 * Drad);
+  // Latitude perturbations
+  const dLat = -0.173 * Math.sin(Frad - 2 * Drad)
+             - 0.055 * Math.sin(Mprad - Frad - 2 * Drad)
+             - 0.046 * Math.sin(Mprad + Frad - 2 * Drad);
+
+  const moonLonDeg = ((Lp + dLon) % 360 + 360) % 360;
+  const moonLatDeg = dLat;
+
+  // Convert ecliptic to equatorial coordinates
+  const obliquity = 23.4393 - 0.0000004 * T;
+  const oblRad = obliquity * Math.PI / 180;
+  const moonLonRad = moonLonDeg * Math.PI / 180;
+  const moonLatRad = moonLatDeg * Math.PI / 180;
+
+  const alpha = Math.atan2(
+    Math.sin(moonLonRad) * Math.cos(oblRad) - Math.tan(moonLatRad) * Math.sin(oblRad),
+    Math.cos(moonLonRad)
+  );
+  const delta = Math.asin(
+    Math.sin(moonLatRad) * Math.cos(oblRad) + Math.cos(moonLatRad) * Math.sin(oblRad) * Math.sin(moonLonRad)
+  );
+
+  // GMST in degrees
+  const GMSTdeg = (280.46061837 + 360.98564736629 * (JD - 2451545.0) + 0.000387933 * T * T - 0.00000001507 * T * T * T) % 360;
+
+  // Moon sub-point: longitude = moon RA - GMST, latitude = moon declination
+  const moonRADeg = alpha * 180 / Math.PI;
+  const moonDecDeg = delta * 180 / Math.PI;
+  const moonSubLon = ((moonRADeg - GMSTdeg + 540) % 360 - 180);
+  const moonSubLat = moonDecDeg;
+
+  return { lat: moonSubLat, lon: moonSubLon };
 }
 
 // --- Map Integration ---
@@ -6651,6 +6797,19 @@ function initOrbitalMap() {
 
   // Resize canvas to match container width
   orbitalMap.resize();
+
+  // Load saved toggle states from localStorage
+  const savedMoon = localStorage.getItem('mapShowMoon');
+  if (savedMoon === '1') {
+    document.getElementById('mapShowMoon').checked = true;
+    orbitalMap.setShowMoon(true);
+  }
+  const savedSun = localStorage.getItem('mapShowSun');
+  if (savedSun === '1') {
+    document.getElementById('mapShowSun').checked = true;
+    orbitalMap.setShowSun(true);
+  }
+
   // Initial render
   orbitalMap.render();
 }
@@ -6696,6 +6855,17 @@ function updateOrbitalMap() {
     const terminator = computeTerminator(now);
     orbitalMap.setTerminator(terminator, document.getElementById('mapShowDayNight').checked);
 
+    // Set sun position from terminator data
+    if (terminator && terminator.sunDecDeg != null && terminator.sunLonDeg != null) {
+      orbitalMap.setSunPos(terminator.sunDecDeg, terminator.sunLonDeg);
+    }
+
+    // Compute moon position
+    const moonPos = computeMoonPosition(now);
+    if (moonPos) {
+      orbitalMap.setMoonPos(moonPos.lat, moonPos.lon);
+    }
+
     // Update map footer
     const footer = document.getElementById('mapFooter');
     if (footer && currentPos) {
@@ -6712,10 +6882,10 @@ function updateOrbitalMap() {
       const distKm = (2 * 6371 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(0);
 
       footer.innerHTML = `
-        <span>POS: ${currentPos.lat.toFixed(1)}°${currentPos.lat >= 0 ? 'N' : 'S'} ${Math.abs(currentPos.lon).toFixed(1)}°${currentPos.lon >= 0 ? 'E' : 'W'}</span>
-        <span>ALT: ${altKm} km</span>
-        <span>VEL: ${velKms} km/s</span>
-        <span>DIST: ${distKm} km</span>
+        <span><span style="color:#58a6ff;">POS</span>:${currentPos.lat.toFixed(1)}°${currentPos.lat >= 0 ? 'N' : 'S'} ${Math.abs(currentPos.lon).toFixed(1)}°${currentPos.lon >= 0 ? 'E' : 'W'}</span>
+        <span style="margin-left:12px;"><span style="color:#fbbf24;">ALT</span>:${altKm} km</span>
+        <span style="margin-left:12px;"><span style="color:#a78bfa;">VEL</span>:${velKms} km/s</span>
+        <span style="margin-left:12px;"><span style="color:#34d399;">DIST</span>:${distKm} km</span>
       `;
     }
 

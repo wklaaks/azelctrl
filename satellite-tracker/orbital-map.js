@@ -40,6 +40,10 @@ class OrbitalMapRenderer {
     this.showGrid = true;
     this.showFootprint = true;
     this.footprintPoints = null; // [[lat, lon], ...] — visibility circle
+    this.showMoon = false;
+    this.moonPos = null; // [lat, lon]
+    this.showSun = false;
+    this.sunPos = null; // [lat, lon]
     // Offscreen canvas for caching the base layer (ocean + land)
     // Only redrawn when data or view changes — NOT on terminator/groundtrack toggles
     this._baseCanvas = null;
@@ -188,6 +192,27 @@ class OrbitalMapRenderer {
     this.showFootprint = show;
   }
 
+  // Toggle grid visibility
+  setShowGrid(show) {
+    this.showGrid = show;
+  }
+
+  // Set sun position and toggle
+  setSunPos(lat, lon) {
+    this.sunPos = [lat, lon];
+  }
+  setShowSun(show) {
+    this.showSun = show;
+  }
+
+  // Set moon position and toggle
+  setMoonPos(lat, lon) {
+    this.moonPos = [lat, lon];
+  }
+  setShowMoon(show) {
+    this.showMoon = show;
+  }
+
   // Render the full map
   render() {
     const w = this._logicalWidth || 800;
@@ -247,7 +272,9 @@ class OrbitalMapRenderer {
     }
 
     // 5. Draw grid lines
-    this._drawGrid();
+    if (this.showGrid) {
+      this._drawGrid();
+    }
 
     // 6. Draw markers
     if (this.stationPos) {
@@ -255,6 +282,14 @@ class OrbitalMapRenderer {
     }
     if (this.satPos) {
       this._drawMarker(this.satPos[0], this.satPos[1], '#38bdf8', 'diamond', 8);
+    }
+
+    // 7. Draw celestial bodies
+    if (this.showSun && this.sunPos) {
+      this._drawCelestialBody(this.sunPos[0], this.sunPos[1], '#fbbf24', '☀️');
+    }
+    if (this.showMoon && this.moonPos) {
+      this._drawCelestialBody(this.moonPos[0], this.moonPos[1], '#c0c0c0', '🌙');
     }
   }
 
@@ -611,6 +646,26 @@ class OrbitalMapRenderer {
 
     ctx.restore();
   }
+
+  _drawCelestialBody(lat, lon, color, icon) {
+    const ctx = this.ctx;
+    const [x, y] = this.project(lat, lon);
+    ctx.save();
+    // Glow
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    // Colored circle
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // White outline
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // --- Ground Track Computation ---
@@ -649,9 +704,10 @@ function getSatGroundPosition(satrec, date) {
     lat = Math.atan2(z + N * e2 * Math.sin(lat), rho);
   }
 
-  // Altitude (for display)
+  // Altitude (for display) — height above WGS84 ellipsoid
   const N = a / Math.sqrt(1 - e2 * Math.sin(lat) * Math.sin(lat));
-  const alt = (rho - N) * Math.cos(lat) + (z - N * (1 - e2) * Math.sin(lat)) * Math.sin(lat);
+  const R_ellip = Math.sqrt((N * Math.cos(lat))**2 + (N * (1 - e2) * Math.sin(lat))**2);
+  const alt = Math.sqrt(x * x + y * y + z * z) - R_ellip;
 
   return {
     lat: lat * 180 / Math.PI,
