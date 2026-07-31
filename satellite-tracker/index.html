@@ -225,6 +225,28 @@ td.max-el-low { color: var(--muted); }
 .tle-input:focus { outline: none; border-color: var(--accent); }
 
 /* Settings */
+#tab-settings .setting-row input[type="file"] {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+#tab-settings .setting-row input[type="file"]::file-selector-button {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 3px 10px;
+  margin-right: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+#tab-settings .setting-row input[type="file"]::file-selector-button:hover {
+  background: #818cf8;
+}
 .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .setting-row:last-child { border-bottom: none; }
 .setting-label { font-size: 0.85rem; }
@@ -369,8 +391,6 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div class="conn-dot" id="connDot"></div>
       <span id="connLabel">Disconnected</span>
     </div>
-    <input type="text" class="device-input" id="deviceIp" placeholder="Device IP (e.g. 192.168.1.55)" title="Leave empty when served from device itself">
-    <button class="btn btn-sm" id="saveIpBtn">Save</button>
   </div>
 </div>
 
@@ -610,7 +630,6 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <option value="48" selected>48 hours</option>
         <option value="72">72 hours</option>
       </select>
-      <button class="btn btn-sm" id="refreshPassesBtn">Refresh</button>
     </div>
     <div id="passTable" style="margin-top:10px;"></div>
   </div>
@@ -838,7 +857,17 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
   </div>
 
   <div class="card">
-    <div class="card-title">ESP File Management</div>
+    <div class="card-title">ESP Management</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Device IP Address</div>
+        <div class="setting-desc">Leave empty when served from the device itself</div>
+      </div>
+      <div class="setting-control">
+        <input type="text" class="device-input" id="deviceIp" placeholder="Device IP (e.g. 192.168.1.55)" style="width:150px;">
+        <button class="btn btn-sm" id="saveIpBtn">Save</button>
+      </div>
+    </div>
     <div class="setting-row">
       <div>
         <div class="setting-label">Upload Web Interface to ESP</div>
@@ -5397,7 +5426,6 @@ function formatDate(date) {
   return date.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
 }
 
-document.getElementById('refreshPassesBtn').addEventListener('click', refreshPasses);
 document.getElementById('passLookahead').addEventListener('change', refreshPasses);
 
 // ==================== DIRECTIONAL CONTROL ====================
@@ -7208,9 +7236,9 @@ function updateOrbitalMap() {
     if (footer && currentPos) {
       const altKm = Math.max(0, currentPos.alt).toFixed(0);
       // Compute approximate velocity from orbital period
-      const periodMin = (2 * Math.PI / satrec.no) / 60; // minutes
+      const periodSec = (2 * Math.PI / satrec.no) * 60; // seconds
       const circumference = 2 * Math.PI * (6378 + parseFloat(altKm)); // km
-      const velKms = (circumference / periodMin / 60).toFixed(1);
+      const velKms = (circumference / periodSec).toFixed(1);
 
       // Great-circle distance to station
       const dLat = (currentPos.lat - stationLocation.lat) * Math.PI / 180;
