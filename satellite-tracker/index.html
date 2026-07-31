@@ -358,6 +358,12 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 <!-- Header -->
 <div class="header">
   <h1>AZELCtrl Satellite Tracker</h1>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <select id="trackSatSelect" style="min-width:130px;background:#0f2040;border:1px solid #1e4d8c;color:#e6edf3;font-size:0.85rem;font-weight:600;padding:4px 8px;border-radius:4px;">
+      <option value="-1">— select satellite —</option>
+    </select>
+    <div class="tle-age" id="currentTleAge"></div>
+  </div>
   <div class="header-controls">
     <div class="conn-status">
       <div class="conn-dot" id="connDot"></div>
@@ -381,16 +387,6 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 
 <!-- Tab: Tracking -->
 <div class="tab-content active" id="tab-tracking">
-  <div class="sat-info-bar">
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="font-size:1rem;color:var(--text);font-weight:600;text-transform:uppercase;">Satellite:</label>
-      <select id="trackSatSelect" class="input-sm" style="min-width:160px;background:#0f2040;border:1px solid #1e4d8c;color:#e6edf3;font-size:1rem;font-weight:600;padding:6px 10px;">
-        <option value="-1">— select satellite —</option>
-      </select>
-      <div class="tle-age" id="currentTleAge"></div>
-    </div>
-  </div>
-
   <!-- SatNOGS frequency info (shown below sat selector) -->
   <div class="card" id="trackingFreqCard" style="display:none;">
     <div id="trackingFreqInfo"></div>
@@ -923,6 +919,10 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
         <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
           <input type="checkbox" id="mapShowDayNight" style="width: 14px; height: 14px; accent-color: var(--accent);">
           <span>Day/Night</span>
+        </label>
+        <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
+          <input type="checkbox" id="mapShowFootprint" checked style="width: 14px; height: 14px; accent-color: var(--green);">
+          <span>Footprint</span>
         </label>
         <label style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px;">
           <input type="checkbox" id="mapShowGrid" checked style="width: 14px; height: 14px; accent-color: var(--accent);">
@@ -3491,6 +3491,8 @@ document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   cachedLosTime = null;
   cachedIsOverhead = false;
   cachedNeverSets = false;
+  // Refresh Pass Predictions for new satellite
+  refreshPasses();
 });
 
 function startTracking() {
@@ -5631,6 +5633,12 @@ document.getElementById('mapShowDayNight').addEventListener('change', (e) => {
     orbitalMap.render();
   }
 });
+document.getElementById('mapShowFootprint').addEventListener('change', (e) => {
+  if (orbitalMap) {
+    orbitalMap.setShowFootprint(e.target.checked);
+    orbitalMap.render();
+  }
+});
 document.getElementById('mapShowGrid').addEventListener('change', (e) => {
   if (orbitalMap) {
     orbitalMap.setShowGrid(e.target.checked);
@@ -5651,9 +5659,26 @@ document.getElementById('mapTrackDuration').addEventListener('change', () => {
 // ============================================================
 // Orbital Map — Canvas-based offline world map for AZELCtrl
 // ============================================================
-// Embeds world coastline data, renders satellite ground tracks
-// on a Canvas with equirectangular projection. No external deps.
+// Renders country polygons with per-country fill colors, satellite
+// ground tracks, day/night terminator on an equirectangular Canvas.
+// No external deps, fully offline.
 // ============================================================
+
+// --- Country color palette generator ---
+// Deterministic color from country ID. Produces a muted map-style
+// color with 360 possible hues, slight saturation/lightness variation.
+function _countryColor(id) {
+  // djb2 hash of the country ID string
+  let hash = 5381;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) + hash) + id.charCodeAt(i);
+    hash = hash & hash; // 32-bit
+  }
+  const h = Math.abs(hash) % 360;
+  const s = 48 + (Math.abs(hash >> 4) % 12);   // 48-59%
+  const l = 24 + (Math.abs(hash >> 8) % 12);   // 24-35%
+  return `hsl(${h}, ${s}%, ${l}%)`;
+}
 
 // --- Orbital Map Renderer ---
 class OrbitalMapRenderer {
@@ -5663,12 +5688,20 @@ class OrbitalMapRenderer {
     this.centerLat = 0;
     this.centerLon = 0;
     this.zoom = 1; // 1 = full world, 2 = 2x zoom, etc.
-    this.rings = []; // simplified coastline rings
+    this.countries = []; // [{id, n, r: [[lat,lon],...]}, ...]
+    this.rings = []; // fallback flat coastline rings (for backward compat)
     this.groundTrack = null; // { past: [[lat, lon], ...], future: [[lat, lon], ...] }
     this.satPos = null; // [lat, lon]
     this.stationPos = null; // [lat, lon]
     this.terminator = null; // [[lat, lon], ...]
     this.showTerminator = false;
+    this.showGrid = true;
+    this.showFootprint = true;
+    this.footprintPoints = null; // [[lat, lon], ...] — visibility circle
+    // Offscreen canvas for caching the base layer (ocean + land)
+    // Only redrawn when data or view changes — NOT on terminator/groundtrack toggles
+    this._baseCanvas = null;
+    this._baseDirty = true;
     this._initLines();
   }
 
@@ -5689,6 +5722,9 @@ class OrbitalMapRenderer {
       this.canvas.height = this._logicalHeight * dpr;
       // Reset transform and scale to DPR so drawing uses logical coords
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Invalidate base cache on resize
+      this._baseDirty = true;
+      this._baseCanvas = null;
       return true;
     }
     return false;
@@ -5722,9 +5758,17 @@ class OrbitalMapRenderer {
     return [lat, lon];
   }
 
-  // Set coastline data (array of rings, each ring is [[lat, lon], ...])
+  // Set country data (array of {id, n, r: [[lat,lon],...]})
+  setCountries(countries) {
+    this.countries = countries;
+    this.rings = []; // clear fallback when using country data
+    this._baseDirty = true;
+  }
+
+  // Set coastline data (fallback: array of rings, each ring is [[lat, lon], ...])
   setCoastline(rings) {
     this.rings = rings;
+    this._baseDirty = true;
   }
 
   // Set ground track
@@ -5753,45 +5797,86 @@ class OrbitalMapRenderer {
   centerOn(lat, lon) {
     this.centerLat = lat;
     this.centerLon = lon;
+    this._baseDirty = true;
   }
 
-  // Toggle terminator visibility
+  // Set show terminator flag (does NOT invalidate base — overlay only)
   setShowTerminator(show) {
     this.showTerminator = show;
   }
 
-  // Toggle grid visibility
-  setShowGrid(show) {
-    this.showGrid = show;
+  // Set satellite footprint (visibility circle)
+  setFootprint(satLat, satLon, altKm) {
+    if (!altKm || altKm <= 0.1) { // skip NaN, null, zero, micro-altitudes
+      this.footprintPoints = null;
+      return;
+    }
+    if (satLat == null || satLon == null || isNaN(satLat) || isNaN(satLon)) {
+      this.footprintPoints = null;
+      return;
+    }
+    const R = 6371; // Earth radius km
+    const ratio = R / (R + altKm);
+    // Clamp to [-1, 1] to prevent NaN from floating-point overshoot
+    const theta = Math.acos(Math.max(-1, Math.min(1, ratio))); // central angle in radians
+    const points = [];
+    const steps = 360; // 1° increments for smooth circle
+    const lat0 = satLat * Math.PI / 180;
+    const lon0 = satLon * Math.PI / 180;
+    const sinTheta = Math.sin(theta);
+    const cosTheta = Math.cos(theta);
+    for (let i = 0; i < steps; i++) {
+      const bearing = (i / steps) * 2 * Math.PI;
+      // Clamp asin argument to [-1, 1] to prevent NaN at poles
+      const asinArg = Math.max(-1, Math.min(1,
+        Math.sin(lat0) * cosTheta + Math.cos(lat0) * sinTheta * Math.cos(bearing)
+      ));
+      const lat1 = Math.asin(asinArg);
+      const lon1 = lon0 + Math.atan2(
+        Math.sin(bearing) * sinTheta * Math.cos(lat0),
+        cosTheta - Math.sin(lat0) * Math.sin(lat1)
+      );
+      points.push([lat1 * 180 / Math.PI, lon1 * 180 / Math.PI]);
+    }
+    this.footprintPoints = points;
+  }
+
+  // Toggle footprint visibility
+  setShowFootprint(show) {
+    this.showFootprint = show;
   }
 
   // Render the full map
   render() {
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this._logicalWidth || 800;
+    const h = this._logicalHeight || 280;
     const ctx = this.ctx;
+    const dpr = window.devicePixelRatio || 1;
 
-    // 1. Fill ocean background
-    ctx.fillStyle = '#0c1929';
-    ctx.fillRect(0, 0, w, h);
-
-    // 2. Draw land masses
-    ctx.fillStyle = '#1a2a1a';
-    ctx.strokeStyle = '#2a4a2a';
-    ctx.lineWidth = 0.5;
-    for (const ring of this.rings) {
-      this._drawRing(ring);
+    // --- Base layer (ocean + land) — cached in offscreen canvas ----------
+    // Only redrawn when data or view changes (pan, zoom, resize, data load).
+    // Terminator toggle, ground track updates, and marker updates skip this.
+    this._ensureBaseCanvas(w, h, dpr);
+    if (this._baseDirty) {
+      this._renderBase();
+      this._baseDirty = false;
     }
 
-    // 3. Draw day/night terminator
+    // Blit cached base to main canvas
+    ctx.drawImage(this._baseCanvas, 0, 0, w * dpr, h * dpr, 0, 0, w, h);
+
+    // 3. Draw day/night terminator (overlay — cheap, always redrawn)
     if (this.showTerminator && this.terminator && this.terminator.length > 0) {
       this._drawTerminator();
     }
 
+    // 3b. Draw satellite footprint (visibility circle)
+    if (this.showFootprint && this.footprintPoints && this.footprintPoints.length > 0) {
+      this._drawFootprint();
+    }
+
     // 4. Draw ground track
     if (this.groundTrack) {
-      const w = this._logicalWidth || 800;
-
       // Draw orbit segments with different colors
       if (this.groundTrack.orbitSegments && this.groundTrack.orbitSegments.length > 0) {
         for (const seg of this.groundTrack.orbitSegments) {
@@ -5820,9 +5905,7 @@ class OrbitalMapRenderer {
     }
 
     // 5. Draw grid lines
-    if (this.showGrid !== false) {
-      this._drawGrid();
-    }
+    this._drawGrid();
 
     // 6. Draw markers
     if (this.stationPos) {
@@ -5833,17 +5916,13 @@ class OrbitalMapRenderer {
     }
   }
 
-  _drawRing(ring) {
+  _drawRing(ring, mode = 'both') {
     const ctx = this.ctx;
     const n = ring.length;
     if (n < 3) return;
 
     const w = this._logicalWidth || 800;
     const h = this._logicalHeight || 280;
-
-    ctx.fillStyle = '#1a2a1a';
-    ctx.strokeStyle = '#2a4a2a';
-    ctx.lineWidth = 0.5;
 
     // --- Longitude unwrapping ---------------------------------------------
     // The old approach split each ring wherever its projected x jumped across
@@ -5922,22 +6001,90 @@ class OrbitalMapRenderer {
     // --- Fill: all seam copies in one path, one fill -----------------------
     // Same-winding subpaths union cleanly under the nonzero rule, so abutting
     // copies leave no hairline at the seam.
-    ctx.beginPath();
-    for (const dx of shifts) {
-      trace(dx, enclosesPole);
-      ctx.closePath();
+    if (mode !== 'stroke') {
+      ctx.beginPath();
+      for (const dx of shifts) {
+        trace(dx, enclosesPole);
+        ctx.closePath();
+      }
+      ctx.fill();
     }
-    ctx.fill();
 
     // --- Stroke: coastline only, never the polar closure -------------------
-    ctx.beginPath();
-    for (const dx of shifts) {
-      trace(dx, false);
-      // Pole-encirclers have no real last->first edge; closing it would draw a
-      // line straight across the map.
-      if (!enclosesPole) ctx.closePath();
+    if (mode !== 'fill') {
+      ctx.beginPath();
+      for (const dx of shifts) {
+        trace(dx, false);
+        // Pole-encirclers have no real last->first edge; closing it would draw a
+        // line straight across the map.
+        if (!enclosesPole) ctx.closePath();
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
+  }
+
+  // Ensure the offscreen base canvas exists and is sized correctly
+  _ensureBaseCanvas(w, h, dpr) {
+    const needW = w * dpr;
+    const needH = h * dpr;
+    if (!this._baseCanvas || this._baseCanvas.width !== needW || this._baseCanvas.height !== needH) {
+      this._baseCanvas = document.createElement('canvas');
+      this._baseCanvas.width = needW;
+      this._baseCanvas.height = needH;
+      this._baseDirty = true;
+    }
+  }
+
+  // Render the base layer (ocean + land) to the offscreen canvas
+  _renderBase() {
+    const bc = this._baseCanvas;
+    const dpr = window.devicePixelRatio || 1;
+    const w = bc.width / dpr;
+    const h = bc.height / dpr;
+
+    // Temporarily redirect this.ctx to the offscreen canvas so _drawRing
+    // (which reads this.ctx) draws to the cache instead of the main canvas.
+    const mainCtx = this.ctx;
+    this.ctx = bc.getContext('2d');
+
+    // Apply same DPR transform as main canvas
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 1. Fill ocean background
+    this.ctx.fillStyle = '#0c1929';
+    this.ctx.fillRect(0, 0, w, h);
+
+    // 2. Draw land masses
+    if (this.countries && this.countries.length > 0) {
+      // Fill each country with its deterministic color
+      for (const country of this.countries) {
+        if (!country.r || country.r.length === 0) continue;
+        this.ctx.fillStyle = _countryColor(country.id);
+        for (const ring of country.r) {
+          this._drawRing(ring, 'fill');
+        }
+      }
+      // Stroke all country boundaries
+      this.ctx.strokeStyle = '#2a4a2a';
+      this.ctx.lineWidth = 0.5;
+      for (const country of this.countries) {
+        if (!country.r || country.r.length === 0) continue;
+        for (const ring of country.r) {
+          this._drawRing(ring, 'stroke');
+        }
+      }
+    } else if (this.rings && this.rings.length > 0) {
+      // Fallback: flat coastline with single color
+      this.ctx.fillStyle = '#1a2a1a';
+      this.ctx.strokeStyle = '#2a4a2a';
+      this.ctx.lineWidth = 0.5;
+      for (const ring of this.rings) {
+        this._drawRing(ring, 'both');
+      }
+    }
+
+    // Restore main canvas context
+    this.ctx = mainCtx;
   }
 
   _drawTerminator() {
@@ -6009,6 +6156,24 @@ class OrbitalMapRenderer {
     }
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  _drawFootprint() {
+    const ctx = this.ctx;
+    ctx.save();
+
+    // Fill with translucent green — the area where satellite is visible
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.10)';
+    this._drawRing(this.footprintPoints, 'fill');
+
+    // Dashed outline
+    ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    this._drawRing(this.footprintPoints, 'stroke');
+    ctx.setLineDash([]);
+
     ctx.restore();
   }
 
@@ -6156,7 +6321,8 @@ function getSatGroundPosition(satrec, date) {
 // Orbit track colors — 5 distinct colors visible against dark background
 const ORBIT_COLORS = ['#ef4444', '#38bdf8', '#fbbf24', '#a78bfa', '#34d399'];
 
-// Generate ground track points for a satellite (future only), split into orbit segments
+// Generate ground track points for a satellite (future only), split into orbit segments.
+// Adjacent segments share their boundary point so there are no gaps in the rendered track.
 function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
   const now = new Date();
   const futurePoints = [];
@@ -6174,9 +6340,18 @@ function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
   const meanMotionAtNow = mo + no * elapsedMin;
   const orbitNumNow = Math.floor(meanMotionAtNow / (2 * Math.PI));
 
-  // Future track
+  // Future track — start from now (i=0) so there's no gap between the
+  // satellite position marker and the first orbit segment
   let currentOrbit = orbitNumNow;
   let currentSegment = [];
+
+  // Include the current position as the first point
+  const nowPos = getSatGroundPosition(satrec, now);
+  if (nowPos) {
+    currentSegment.push([nowPos.lat, nowPos.lon]);
+    futurePoints.push([nowPos.lat, nowPos.lon]);
+  }
+
   for (let i = stepMinutes; i <= durationMinutes; i += stepMinutes) {
     const time = new Date(now.getTime() + i * 60 * 1000);
     const pos = getSatGroundPosition(satrec, time);
@@ -6187,11 +6362,16 @@ function generateGroundTrack(satrec, durationMinutes = 180, stepMinutes = 2) {
       const meanAnomaly = mo + no * elapsed;
       const orbitNum = Math.floor(meanAnomaly / (2 * Math.PI));
       if (orbitNum !== currentOrbit) {
+        // Push the completed segment (must have at least 2 points)
         if (currentSegment.length > 1) {
           orbitSegments.push({ orbitNum: currentOrbit, points: currentSegment });
         }
         currentOrbit = orbitNum;
-        currentSegment = [];
+        // Start new segment with the LAST point of the previous segment
+        // so there's no gap between orbit colours
+        currentSegment = currentSegment.length > 0
+          ? [currentSegment[currentSegment.length - 1]]
+          : [];
       }
       currentSegment.push([pos.lat, pos.lon]);
     }
@@ -6311,41 +6491,41 @@ function initOrbitalMap() {
   // Initial resize (may be skipped if container is hidden — ResizeObserver will catch it)
   orbitalMap.resize();
 
-  // Load coastline data from SPIFFS
-  fetch('/world_coastline.js')
-    .then(r => {
-      if (!r.ok) throw new Error('world_coastline.js not found on SPIFFS');
-      return r.text();
-    })
-    .then(text => {
-      // Execute the coastline data file to define WORLD_OUTLINES
-      const script = document.createElement('script');
-      script.textContent = text;
-      document.head.appendChild(script);
-      // Now set the coastline
-      if (typeof WORLD_OUTLINES !== 'undefined') {
-        orbitalMap.setCoastline(WORLD_OUTLINES);
+  // Load map data from SPIFFS — the file at /world_coastline.js contains
+    // either WORLD_COUNTRIES (country-polygon data with colors) or
+    // WORLD_OUTLINES (flat coastline rings, fallback).
+    fetch('/world_coastline.js')
+      .then(r => {
+        if (!r.ok) throw new Error('world_coastline.js not found on SPIFFS');
+        return r.text();
+      })
+      .then(text => {
+        const script = document.createElement('script');
+        script.textContent = text;
+        document.head.appendChild(script);
+        if (typeof WORLD_COUNTRIES !== 'undefined') {
+          orbitalMap.setCountries(WORLD_COUNTRIES);
+        } else if (typeof WORLD_OUTLINES !== 'undefined') {
+          orbitalMap.setCoastline(WORLD_OUTLINES);
+        }
         orbitalMap.setStationPos(stationLocation.lat, stationLocation.lon);
         orbitalMap.centerOn(stationLocation.lat, stationLocation.lon);
         orbitalMap.render();
-      }
-    })
-    .catch(e => {
-      console.warn('Orbital map: coastline data not available:', e.message);
-      // Show message on the map
-      const container = document.getElementById('orbitalMapContainer');
-      if (container) {
-        const msg = document.createElement('div');
-        msg.className = 'banner warn';
-        msg.style.cssText = 'margin:12px;padding:16px;text-align:center;';
-        msg.innerHTML = `
-          <strong>World map data not found</strong><br>
-          <span style="font-size:0.8rem;">The file <code>world_coastline.js</code> is missing from the ESP filesystem.<br>
-          Upload it via the <strong>Manage</strong> tab to enable the orbital map.</span>
-        `;
-        container.querySelector('.orbital-map-footer').after(msg);
-      }
-    });
+      })
+      .catch(e => {
+        console.warn('Orbital map: map data not available:', e.message);
+        const container = document.getElementById('orbitalMapContainer');
+        if (container) {
+          const msg = document.createElement('div');
+          msg.className = 'banner warn';
+          msg.style.cssText = 'margin:12px;padding:16px;text-align:center;';
+          msg.innerHTML = `
+            <strong>World map data not found</strong><br>
+            <span style="font-size:0.8rem;">Upload <code>world_coastline.js.gz</code> via the <strong>Manage</strong> tab to enable the orbital map.</span>
+          `;
+          container.querySelector('.orbital-map-footer').after(msg);
+        }
+      });
 
   // Map controls
   const resetBtn = document.getElementById('mapResetBtn');
@@ -6391,6 +6571,7 @@ function initOrbitalMap() {
     const dLat = (dy / canvas.height) * 180 / orbitalMap.zoom;
     orbitalMap.centerLon = dragStartCenterLon + dLon;
     orbitalMap.centerLat = dragStartCenterLat + dLat;
+    orbitalMap._baseDirty = true;
     orbitalMap.render();
   });
 
@@ -6415,6 +6596,7 @@ function initOrbitalMap() {
     const [latAfter, lonAfter] = orbitalMap.unproject(mx, my);
     orbitalMap.centerLat -= (latAfter - latBefore);
     orbitalMap.centerLon -= (lonAfter - lonBefore);
+    orbitalMap._baseDirty = true;
     orbitalMap.render();
   }, { passive: false });
 
@@ -6448,6 +6630,7 @@ function initOrbitalMap() {
       const dLat = (dy / canvas.height) * 180 / orbitalMap.zoom;
       orbitalMap.centerLon = dragStartCenterLon + dLon;
       orbitalMap.centerLat = dragStartCenterLat + dLat;
+      orbitalMap._baseDirty = true;
       orbitalMap.render();
     } else if (e.touches.length === 2 && touchStartDist) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -6455,6 +6638,7 @@ function initOrbitalMap() {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const scale = dist / touchStartDist;
       orbitalMap.zoom = Math.max(1, Math.min(8, touchStartZoom * scale));
+      orbitalMap._baseDirty = true;
       orbitalMap.render();
     }
     e.preventDefault();
@@ -6495,6 +6679,12 @@ function updateOrbitalMap() {
     const currentPos = getSatGroundPosition(satrec, now);
     if (currentPos) {
       orbitalMap.setSatPos(currentPos.lat, currentPos.lon);
+    }
+    // Compute satellite footprint (visibility circle)
+    if (currentPos) {
+      orbitalMap.setFootprint(currentPos.lat, currentPos.lon, currentPos.alt);
+    } else {
+      orbitalMap.setFootprint(null, null, -1); // clear stale footprint
     }
 
     // Generate ground track
@@ -6563,20 +6753,19 @@ window.updateCurrentSatDisplay = function () {
 };
 
 // Re-wrap the satellite selection change handler
-const trackSatSelectEl = document.getElementById('trackSatSelect');
-if (trackSatSelectEl) {
-  trackSatSelectEl.addEventListener('change', () => {
-    // Give the original handler time to update selectedSatIndex
-    setTimeout(() => {
-      stopMapUpdates();
-      if (selectedSatIndex >= 0) {
-        startMapUpdates();
-      } else {
-        updateOrbitalMap(); // Clear map
-      }
-    }, 50);
-  });
-}
+const trackSatSelect = document.getElementById('trackSatSelect');
+const origOnChange = trackSatSelect.onchange;
+trackSatSelect.addEventListener('change', () => {
+  // Give the original handler time to update selectedSatIndex
+  setTimeout(() => {
+    stopMapUpdates();
+    if (selectedSatIndex >= 0) {
+      startMapUpdates();
+    } else {
+      updateOrbitalMap(); // Clear map
+    }
+  }, 50);
+});
 
 // Initialize map on page load
 window.addEventListener('DOMContentLoaded', () => {
@@ -6585,6 +6774,7 @@ window.addEventListener('DOMContentLoaded', () => {
     startMapUpdates();
   }
 });
+
 </script>
 
 </body>
