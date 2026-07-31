@@ -183,6 +183,16 @@ class OrbitalMapRenderer {
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
 
+    // Check if this ring's longitude range wraps the globe (e.g., Antarctica).
+    // Globe-wrapping rings always need polar edge-close (top/bottom) regardless
+    // of centerLon, since closePath() would cut through the polar region.
+    let lonMin = Infinity, lonMax = -Infinity;
+    for (const p of ring) {
+      if (p[1] < lonMin) lonMin = p[1];
+      if (p[1] > lonMax) lonMax = p[1];
+    }
+    const wrapsGlobe = (lonMax - lonMin) > 300;
+
     // Project all points
     const points = [];
     for (let i = 0; i < ring.length; i++) {
@@ -208,6 +218,9 @@ class OrbitalMapRenderer {
     // Build final subpaths with canvas-edge close mode.
     // 'direct' = normal closePath; 'left'/'right' = close via vertical edge;
     // 'top'/'bottom' = close via horizontal edge (full-width polar rings).
+    // IMPORTANT: isFullWidth is checked BEFORE edge-touch so that globe-wrapping
+    // polar rings (Antarctica) always get top/bottom close, even when their
+    // projected x range happens to touch the left or right edge.
     const finalSubpaths = [];
     for (const subpath of subpaths) {
       // Compute subpath stats
@@ -224,10 +237,9 @@ class OrbitalMapRenderer {
       const lastX = subpath[subpath.length - 1][0];
       const gap = Math.abs(firstX - lastX);
 
-      // Does this subpath touch the canvas edge?
       const touchesLeft = minX < w * 0.02;
       const touchesRight = maxX > w - w * 0.02;
-      const isFullWidth = span > w * 0.8;
+      const isFullWidth = span > w * 0.8 || wrapsGlobe;
 
       let closeMode = 'direct';
 
@@ -248,19 +260,23 @@ class OrbitalMapRenderer {
           if (half2.length > 2) finalSubpaths.push({ points: half2, closeMode: 'direct' });
           continue;
         }
+      } else if (isFullWidth) {
+        // Full-width polar ring — close via top/bottom
+        // Checked BEFORE edge-touch so Antarctica always gets polar close
+        closeMode = avgY < h / 2 ? 'top' : 'bottom';
       } else if (touchesLeft || touchesRight) {
         // Edge-touching with small gap (panning artifact)
         closeMode = touchesLeft ? 'left' : 'right';
-      } else if (isFullWidth) {
-        // Full-width but small gap — close via top/bottom
-        closeMode = avgY < h / 2 ? 'top' : 'bottom';
       }
 
       finalSubpaths.push({ points: subpath, closeMode });
     }
 
-    // Fill each subpath as a separate polygon, closing via the canvas edge
+    // Fill each subpath as a separate polygon, closing via the canvas edge.
+    // Stroke only the coastline (without the edge-close lines) to avoid
+    // visible horizontal/vertical lines along the canvas edge.
     for (const { points: sp, closeMode } of finalSubpaths) {
+      // Fill path — includes edge-close for edge-touching subpaths
       ctx.beginPath();
       ctx.moveTo(sp[0][0], sp[0][1]);
       for (let i = 1; i < sp.length; i++) {
@@ -291,8 +307,17 @@ class OrbitalMapRenderer {
           ctx.closePath();
           break;
       }
-
       ctx.fill();
+
+      // Stroke path — coastline only, no edge-close lines
+      ctx.beginPath();
+      ctx.moveTo(sp[0][0], sp[0][1]);
+      for (let i = 1; i < sp.length; i++) {
+        ctx.lineTo(sp[i][0], sp[i][1]);
+      }
+      if (closeMode === 'direct') {
+        ctx.closePath();
+      }
       ctx.stroke();
     }
   }
