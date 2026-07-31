@@ -234,8 +234,11 @@ class OrbitalMapRenderer {
       const avgY = sumY / subpath.length;
       const span = maxX - minX;
       const firstX = subpath[0][0];
+      const firstY = subpath[0][1];
       const lastX = subpath[subpath.length - 1][0];
+      const lastY = subpath[subpath.length - 1][1];
       const gap = Math.abs(firstX - lastX);
+      const goUp = firstY > lastY;
 
       const touchesLeft = minX < w * 0.02;
       const touchesRight = maxX > w - w * 0.02;
@@ -248,9 +251,11 @@ class OrbitalMapRenderer {
         if (isFullWidth) {
           // Spans entire width (Antarctica, Arctic) — close via top/bottom
           closeMode = avgY < h / 2 ? 'top' : 'bottom';
-        } else if (touchesLeft || touchesRight) {
-          // Edge-touching via wrap (panning a landmass across edge)
-          closeMode = touchesLeft ? 'left' : 'right';
+        } else if (touchesLeft && goUp) {
+          // Edge-touching via wrap — land is toward edge (going upward)
+          closeMode = 'left';
+        } else if (touchesRight && goUp) {
+          closeMode = 'right';
         } else {
           // Inland subpath — split at midpoint
           const mid = Math.floor(subpath.length / 2);
@@ -264,9 +269,15 @@ class OrbitalMapRenderer {
         // Full-width polar ring — close via top/bottom
         // Checked BEFORE edge-touch so Antarctica always gets polar close
         closeMode = avgY < h / 2 ? 'top' : 'bottom';
-      } else if (touchesLeft || touchesRight) {
-        // Edge-touching with small gap (panning artifact)
-        closeMode = touchesLeft ? 'left' : 'right';
+      } else if (touchesLeft && goUp) {
+        // Edge-touching at left edge, coastline goes UPWARD
+        // (firstY > lastY) — land is toward the edge, fill is correct.
+        // When coastline goes DOWNWARD the land is inward and edge-close
+        // would fill the ocean side — fall back to closePath.
+        closeMode = 'left';
+      } else if (touchesRight && goUp) {
+        // Edge-touching at right edge, coastline goes UPWARD — same logic
+        closeMode = 'right';
       }
 
       finalSubpaths.push({ points: subpath, closeMode });
