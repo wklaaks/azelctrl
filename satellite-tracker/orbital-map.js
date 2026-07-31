@@ -234,11 +234,8 @@ class OrbitalMapRenderer {
       const avgY = sumY / subpath.length;
       const span = maxX - minX;
       const firstX = subpath[0][0];
-      const firstY = subpath[0][1];
       const lastX = subpath[subpath.length - 1][0];
-      const lastY = subpath[subpath.length - 1][1];
       const gap = Math.abs(firstX - lastX);
-      const goUp = firstY > lastY;
 
       const touchesLeft = minX < w * 0.02;
       const touchesRight = maxX > w - w * 0.02;
@@ -251,11 +248,9 @@ class OrbitalMapRenderer {
         if (isFullWidth) {
           // Spans entire width (Antarctica, Arctic) — close via top/bottom
           closeMode = avgY < h / 2 ? 'top' : 'bottom';
-        } else if (touchesLeft && goUp) {
-          // Edge-touching via wrap — land is toward edge (going upward)
-          closeMode = 'left';
-        } else if (touchesRight && goUp) {
-          closeMode = 'right';
+        } else if (touchesLeft || touchesRight) {
+          // Edge-touching via wrap (panning a landmass across edge)
+          closeMode = touchesLeft ? 'left' : 'right';
         } else {
           // Inland subpath — split at midpoint
           const mid = Math.floor(subpath.length / 2);
@@ -267,17 +262,10 @@ class OrbitalMapRenderer {
         }
       } else if (isFullWidth) {
         // Full-width polar ring — close via top/bottom
-        // Checked BEFORE edge-touch so Antarctica always gets polar close
         closeMode = avgY < h / 2 ? 'top' : 'bottom';
-      } else if (touchesLeft && goUp) {
-        // Edge-touching at left edge, coastline goes UPWARD
-        // (firstY > lastY) — land is toward the edge, fill is correct.
-        // When coastline goes DOWNWARD the land is inward and edge-close
-        // would fill the ocean side — fall back to closePath.
-        closeMode = 'left';
-      } else if (touchesRight && goUp) {
-        // Edge-touching at right edge, coastline goes UPWARD — same logic
-        closeMode = 'right';
+      } else if (touchesLeft || touchesRight) {
+        // Edge-touching with small gap (panning artifact)
+        closeMode = touchesLeft ? 'left' : 'right';
       }
 
       finalSubpaths.push({ points: subpath, closeMode });
@@ -299,20 +287,20 @@ class OrbitalMapRenderer {
 
       switch (closeMode) {
         case 'left':
-          ctx.lineTo(0, last[1]);
-          ctx.lineTo(0, first[1]);
-          break;
+          ctx.lineTo(2, last[1]);     // 2px inset from left edge
+          ctx.lineTo(2, first[1]);    // prevents rectangular ocean patches
+          break;                      // when land is inward of coastline
         case 'right':
-          ctx.lineTo(w, last[1]);
-          ctx.lineTo(w, first[1]);
+          ctx.lineTo(w - 2, last[1]); // 2px inset from right edge
+          ctx.lineTo(w - 2, first[1]);
           break;
         case 'top':
-          ctx.lineTo(last[0], 0);
-          ctx.lineTo(first[0], 0);
+          ctx.lineTo(last[0], 2);     // 2px inset from top
+          ctx.lineTo(first[0], 2);
           break;
         case 'bottom':
-          ctx.lineTo(last[0], h);
-          ctx.lineTo(first[0], h);
+          ctx.lineTo(last[0], h - 2); // 2px inset from bottom
+          ctx.lineTo(first[0], h - 2);
           break;
         default:
           ctx.closePath();
