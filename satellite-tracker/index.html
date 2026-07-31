@@ -5872,6 +5872,40 @@ class OrbitalMapRenderer {
     }
     const isCW = ringArea < 0;
 
+    // Unwrap the projected ring horizontally so the point-in-ring test is
+    // valid across the antimeridian discontinuity (consecutive points can
+    // jump from x≈0 to x≈w, which is not a real edge of the polygon).
+    const unwrapped = [];
+    {
+      let off = 0;
+      for (let i = 0; i < points.length; i++) {
+        let x = points[i][0];
+        if (i > 0) {
+          if (x - unwrapped[i - 1][0] > w * 0.5) off -= w;
+          else if (unwrapped[i - 1][0] - x > w * 0.5) off += w;
+          x += off;
+        }
+        unwrapped.push([x, points[i][1]]);
+      }
+    }
+
+    // Test whether a point is inside the ring (unwrapped winding number).
+    const pointInRing = (px, py) => {
+      let wn = 0;
+      let ux1 = unwrapped[0][0], uy1 = unwrapped[0][1];
+      for (let i = 1; i <= unwrapped.length; i++) {
+        const p = unwrapped[i % unwrapped.length];
+        const ux2 = p[0], uy2 = p[1];
+        if (uy1 <= py) {
+          if (uy2 > py && (ux2 - ux1) * (py - uy1) - (px - ux1) * (uy2 - uy1) > 0) wn++;
+        } else {
+          if (uy2 <= py && (ux2 - ux1) * (py - uy1) - (px - ux1) * (uy2 - uy1) < 0) wn--;
+        }
+        ux1 = ux2; uy1 = uy2;
+      }
+      return wn !== 0;
+    };
+
     // Split into subpaths at world-edge wraps
     const subpaths = [];
     let current = [];
@@ -5925,12 +5959,11 @@ class OrbitalMapRenderer {
           closeMode = avgY < h / 2 ? 'top' : 'bottom';
         } else if (touchesLeft || touchesRight) {
           // Edge-touching via wrap (panning a landmass across edge).
-          // Edge-close fills the area between coastline and canvas edge.
-          // That area is land only when (isCW === goingDown): a CW ring
-          // going down has interior RIGHT=EAST(edge-ward at right edge),
-          // a CCW ring going down has interior LEFT=WEST(edge-ward at
-          // left edge). Otherwise the edge-close would fill ocean.
-          const useEdge = isCW === goingDown;
+          // Use point-in-ring test: if the area between the coastline and
+          // the canvas edge is inside the ring, edge-close fills the land.
+          // Otherwise it would fill the ocean — use closePath instead.
+          const testX = touchesLeft ? minX - 5 : maxX + 5;
+          const useEdge = pointInRing(testX, avgY);
           closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
         } else {
           // Inland subpath — split at midpoint
@@ -5945,8 +5978,9 @@ class OrbitalMapRenderer {
         // Full-width polar ring — close via top/bottom
         closeMode = avgY < h / 2 ? 'top' : 'bottom';
       } else if (touchesLeft || touchesRight) {
-        // Edge-touching with small gap (panning artifact) — same winding rule
-        const useEdge = isCW === goingDown;
+        // Edge-touching with small gap (panning artifact) — same point-in-ring test
+        const testX = touchesLeft ? minX - 5 : maxX + 5;
+        const useEdge = pointInRing(testX, avgY);
         closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
       }
 
