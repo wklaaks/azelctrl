@@ -5835,7 +5835,8 @@ class OrbitalMapRenderer {
 
   _drawRing(ring) {
     const ctx = this.ctx;
-    if (ring.length < 3) return;
+    const n = ring.length;
+    if (n < 3) return;
 
     const w = this._logicalWidth || 800;
     const h = this._logicalHeight || 280;
@@ -5844,165 +5845,99 @@ class OrbitalMapRenderer {
     ctx.strokeStyle = '#2a4a2a';
     ctx.lineWidth = 0.5;
 
-    // Check if this ring's longitude range wraps the globe (e.g., Antarctica).
-    // Globe-wrapping rings always need polar edge-close (top/bottom) regardless
-    // of centerLon, since closePath() would cut through the polar region.
-    let lonMin = Infinity, lonMax = -Infinity;
-    for (const p of ring) {
-      if (p[1] < lonMin) lonMin = p[1];
-      if (p[1] > lonMax) lonMax = p[1];
-    }
-    const wrapsGlobe = (lonMax - lonMin) > 300;
-
-    // Project all points
-    const points = [];
-    for (let i = 0; i < ring.length; i++) {
-      const [x, y] = this.project(ring[i][0], ring[i][1]);
-      points.push([x, y]);
-    }
-
-    // Compute ring winding direction via signed area of projected points.
-    // CW (negative area) means interior is RIGHT of travel direction.
-    // CCW (positive area) means interior is LEFT of travel direction.
-    // This determines which side of an edge-touching subpath is land.
-    let ringArea = 0;
-    for (let i = 0; i < points.length; i++) {
-      const j = (i + 1) % points.length;
-      ringArea += points[i][0] * points[j][1] - points[j][0] * points[i][1];
-    }
-    const isCW = ringArea < 0;
-
-    // Split into subpaths at world-edge wraps
-    const subpaths = [];
-    let current = [];
-    let prevX = 0;
-    for (let i = 0; i < points.length; i++) {
-      const [x, y] = points[i];
-      if (i > 0 && Math.abs(x - prevX) > w * 0.8) {
-        if (current.length > 2) subpaths.push(current);
-        current = [];
+    // --- Longitude unwrapping ---------------------------------------------
+    // The old approach split each ring wherever its projected x jumped across
+    // the map seam, then guessed how to close each fragment (via the canvas
+    // edge, the poles, or closePath). Every guess was wrong for some ring at
+    // some centerLon, producing either triangular gaps or ocean filled with
+    // land colour.
+    //
+    // Instead, walk the ring in CONTINUOUS unwrapped longitude: accumulate the
+    // shortest step between consecutive points so the polygon never jumps the
+    // seam. The result is one unbroken polygon that may extend outside [0, w].
+    // Draw it up to three times, offset by -w / 0 / +w, so whatever straddles
+    // the seam reappears on the opposite side. No splitting, no close-mode
+    // heuristics — every ring is filled as the single closed polygon it is.
+    const xs = new Array(n);
+    const ys = new Array(n);
+    let u = ring[0][1] - this.centerLon;
+    while (u < -180) u += 360;
+    while (u > 180) u -= 360;
+    let minU = u, maxU = u, sumLat = 0;
+    const u0 = u;
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        // Shortest longitude step from the previous point
+        let d = ring[i][1] - ring[i - 1][1];
+        while (d < -180) d += 360;
+        while (d > 180) d -= 360;
+        u += d;
       }
-      current.push([x, y]);
-      prevX = x;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      sumLat += ring[i][0];
+      xs[i] = ((u + 180) / 360) * w;
+      ys[i] = ((90 - ring[i][0]) / 180) * h;
     }
-    if (current.length > 2) subpaths.push(current);
+    // Shortest closing step from the last point back to the first
+    let dClose = ring[0][1] - ring[n - 1][1];
+    while (dClose < -180) dClose += 360;
+    while (dClose > 180) dClose -= 360;
 
-    // Build final subpaths with canvas-edge close mode.
-    // 'direct' = normal closePath; 'left'/'right' = close via vertical edge;
-    // 'top'/'bottom' = close via horizontal edge (full-width polar rings).
-    // IMPORTANT: isFullWidth is checked BEFORE edge-touch so that globe-wrapping
-    // polar rings (Antarctica) always get top/bottom close, even when their
-    // projected x range happens to touch the left or right edge.
-    const finalSubpaths = [];
-    for (const subpath of subpaths) {
-      // Compute subpath stats
-      let minX = Infinity, maxX = -Infinity;
-      let sumY = 0;
-      for (const p of subpath) {
-        if (p[0] < minX) minX = p[0];
-        if (p[0] > maxX) maxX = p[0];
-        sumY += p[1];
-      }
-      const avgY = sumY / subpath.length;
-      const span = maxX - minX;
-      const firstX = subpath[0][0];
-      const lastX = subpath[subpath.length - 1][0];
-      const gap = Math.abs(firstX - lastX);
-      const firstY = subpath[0][1];
-      const lastY = subpath[subpath.length - 1][1];
-      const goingDown = firstY < lastY;
-
-      const touchesLeft = minX < w * 0.02;
-      const touchesRight = maxX > w - w * 0.02;
-      const isFullWidth = span > w * 0.8 || wrapsGlobe;
-
-      let closeMode = 'direct';
-
-      if (gap > w * 0.5) {
-        // First and last points far apart — problem subpath
-        if (isFullWidth) {
-          // Spans entire width (Antarctica, Arctic) — close via top/bottom
-          closeMode = avgY < h / 2 ? 'top' : 'bottom';
-        } else if (touchesLeft || touchesRight) {
-          // Edge-touching via wrap (panning a landmass across edge).
-          // Edge-close fills the area between coastline and canvas edge.
-          // That area is land only when (isCW === goingDown): a CW ring
-          // going down has interior RIGHT=EAST(edge-ward at right edge),
-          // a CCW ring going down has interior LEFT=WEST(edge-ward at
-          // left edge). Otherwise the edge-close would fill ocean.
-          const useEdge = isCW === goingDown;
-          closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
-        } else {
-          // Inland subpath — split at midpoint
-          const mid = Math.floor(subpath.length / 2);
-          const half1 = subpath.slice(0, mid + 1);
-          const half2 = subpath.slice(mid);
-          if (half1.length > 2) finalSubpaths.push({ points: half1, closeMode: 'direct' });
-          if (half2.length > 2) finalSubpaths.push({ points: half2, closeMode: 'direct' });
-          continue;
-        }
-      } else if (isFullWidth) {
-        // Full-width polar ring — close via top/bottom
-        closeMode = avgY < h / 2 ? 'top' : 'bottom';
-      } else if (touchesLeft || touchesRight) {
-        // Edge-touching with small gap (panning artifact) — same winding rule
-        const useEdge = isCW === goingDown;
-        closeMode = useEdge ? (touchesLeft ? 'left' : 'right') : 'direct';
-      }
-
-      finalSubpaths.push({ points: subpath, closeMode });
+    // Total longitude wound by the ring. A ring that winds a full turn
+    // encircles a pole (Antarctica) — it has no last->first edge in unwrapped
+    // space, so it must be closed through the pole, off-canvas, and never with
+    // a line across the map.
+    const uEnd = u + dClose;
+    const winding = uEnd - u0;
+    const enclosesPole = Math.abs(winding) > 180;
+    const polarY = (sumLat / n) < 0 ? h + 8 : -8;
+    const xEnd = ((uEnd + 180) / 360) * w;
+    if (enclosesPole) {
+      // The closure reaches the wrapped-around first point, one full turn out
+      if (uEnd < minU) minU = uEnd;
+      if (uEnd > maxU) maxU = uEnd;
     }
 
-    // Fill each subpath as a separate polygon, closing via the canvas edge.
-    // Stroke only the coastline (without the edge-close lines) to avoid
-    // visible horizontal/vertical lines along the canvas edge.
-    // 2px inset from canvas edge prevents rectangular ocean patches when
-    // the edge-close happens to fill the ocean side of the coastline.
-    for (const { points: sp, closeMode } of finalSubpaths) {
-      // Fill path — includes edge-close for edge-touching subpaths
-      ctx.beginPath();
-      ctx.moveTo(sp[0][0], sp[0][1]);
-      for (let i = 1; i < sp.length; i++) {
-        ctx.lineTo(sp[i][0], sp[i][1]);
-      }
-
-      const last = sp[sp.length - 1];
-      const first = sp[0];
-
-      switch (closeMode) {
-        case 'left':
-          ctx.lineTo(2, last[1]);     // 2px inset from left edge
-          ctx.lineTo(2, first[1]);    // prevents rectangular ocean patches
-          break;                      // when land is inward of coastline
-        case 'right':
-          ctx.lineTo(w - 2, last[1]); // 2px inset from right edge
-          ctx.lineTo(w - 2, first[1]);
-          break;
-        case 'top':
-          ctx.lineTo(last[0], 2);     // 2px inset from top
-          ctx.lineTo(first[0], 2);
-          break;
-        case 'bottom':
-          ctx.lineTo(last[0], h - 2); // 2px inset from bottom
-          ctx.lineTo(first[0], h - 2);
-          break;
-        default:
-          ctx.closePath();
-          break;
-      }
-      ctx.fill();
-
-      // Stroke path — coastline only, no edge-close lines
-      ctx.beginPath();
-      ctx.moveTo(sp[0][0], sp[0][1]);
-      for (let i = 1; i < sp.length; i++) {
-        ctx.lineTo(sp[i][0], sp[i][1]);
-      }
-      if (closeMode === 'direct') {
-        ctx.closePath();
-      }
-      ctx.stroke();
+    // Copies to draw: cull any that fall entirely off-canvas
+    const shifts = [];
+    for (let s = -1; s <= 1; s++) {
+      if (minU + s * 360 <= 180 && maxU + s * 360 >= -180) shifts.push(s * w);
     }
+    if (shifts.length === 0) return;
+
+    // Trace the ring (and, for pole-encirclers, the closure through the pole)
+    const trace = (dx, closeThroughPole) => {
+      ctx.moveTo(xs[0] + dx, ys[0]);
+      for (let i = 1; i < n; i++) ctx.lineTo(xs[i] + dx, ys[i]);
+      if (closeThroughPole) {
+        // Continue to the wrapped first point, then out past the pole and back.
+        // Spans exactly one full turn (w px), so seam copies abut with no gap.
+        ctx.lineTo(xEnd + dx, ys[0]);
+        ctx.lineTo(xEnd + dx, polarY);
+        ctx.lineTo(xs[0] + dx, polarY);
+      }
+    };
+
+    // --- Fill: all seam copies in one path, one fill -----------------------
+    // Same-winding subpaths union cleanly under the nonzero rule, so abutting
+    // copies leave no hairline at the seam.
+    ctx.beginPath();
+    for (const dx of shifts) {
+      trace(dx, enclosesPole);
+      ctx.closePath();
+    }
+    ctx.fill();
+
+    // --- Stroke: coastline only, never the polar closure -------------------
+    ctx.beginPath();
+    for (const dx of shifts) {
+      trace(dx, false);
+      // Pole-encirclers have no real last->first edge; closing it would draw a
+      // line straight across the map.
+      if (!enclosesPole) ctx.closePath();
+    }
+    ctx.stroke();
   }
 
   _drawTerminator() {
