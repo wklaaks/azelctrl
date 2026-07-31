@@ -219,27 +219,56 @@ In the browser, do a hard reload (Cmd+Shift+R on macOS) of `http://192.168.88.15
 
 ## Resolved: Canvas-Edge Close (Approach G)
 
-The problem was implemented and committed on [date]. The fix replaces `closePath()` with canvas-edge-aware closing paths:
+The fix replaces `closePath()` with canvas-edge-aware closing paths. Three iterations were tested:
 
-### What changed in `_drawRing()`
+### v1: Direct edge-close (commit c7d219c)
 
-Instead of always calling `closePath()` (which draws a straight line from the last point to the first point, cutting across the map), the code now determines **how** to close each subpath:
+For each edge-touching subpath, instead of `closePath()` (which draws a diagonal line from last point to first point), close by going to the nearest canvas edge and along it:
 
 | Condition | Close Mode | Behavior |
 |-----------|-----------|----------|
 | Subpath touches left edge (`minX < w * 0.02`) | `left` | Go to `x=0`, then along left edge |
 | Subpath touches right edge (`maxX > w * 0.98`) | `right` | Go to `x=w`, then along right edge |
 | Subpath spans full width (`span > w * 0.8`) | `top` or `bottom` | Go to `y=0` or `y=h`, then along edge |
-| First/last gap > 0.5w (inland, not edge) | `direct` (midpoint split) | Same as before — split at midpoint |
+| First/last gap > 0.5w (inland, not edge) | `direct` (midpoint split) | Split at midpoint |
 | Normal subpath | `direct` | `closePath()` as before |
 
-### Effective fixes
+**Result**: Improved panning considerably — landmasses crossing the edge were now filled correctly instead of showing triangular gaps. But two issues remained:
+- Horizontal/vertical border-colored lines appeared at the canvas edge (the edge-close path was being stroked)
+- For some subpaths, the edge-close filled the ocean instead of the land (rectangular green patches in the ocean)
+- The Canada-USA border line disappeared at the edge crossing
 
-- **Panning fix**: When a landmass (Alaska, etc.) crosses the left/right edge during panning, each split subpath now closes to the nearest canvas edge instead of drawing a diagonal line across the map. The fill extends cleanly to the edge.
+### v2: Separate stroke + wrapsGlobe (commit 561b92d)
 
-- **Antarctica fix**: The full-width ring spanning [0, w] is detected as `isFullWidth` and closed via the bottom edge (since avgY > h/2), filling Antarctica correctly.
+Two fixes:
 
-- **Arctic fix**: Same approach — closed via the top edge.
+1. **Separate fill and stroke paths** — The edge-close lines (to x=0 or x=w) were being stroked in the border color. Fixed by building a separate stroke path that follows only the coastline (no edge-close lines). For edge-close modes, the stroke path is left open.
+
+2. **`isFullWidth` priority + `wrapsGlobe`** — Two sub-issues:
+   - `isFullWidth` was checked AFTER `touchesLeft`/`touchesRight` in the `else if` chain. At centerLon=-30, Antarctica's projected minX=1 < 16 triggered `touchesLeft` first, giving it `'left'` close mode instead of `'bottom'`.
+   - `isFullWidth` relied solely on projected x span, which depends on centerLon. When panning, Antarctica's projected span narrows (e.g., [267, 733] at centerLon=30), dropping below 0.8w. Added a `wrapsGlobe` check on the original longitude range (> 300°). Now `isFullWidth = span > 0.8w || wrapsGlobe`.
+
+**Result**: Horizontal lines fixed. Antarctica fixed at all centerLon values. Ocean-fill issue and border disappearance remained.
+
+### v3: 2px inset + winding-aware attempts (commits 91d508b, 679b771, e1ac8a5, 6d738cd, 89ca95d)
+
+Three sub-attempts to fix the ocean-fill issue:
+
+1. **2px inset** (commit 679b771) — Changed edge-close from x=0 to x=2 (and x=w to x=w-2). This reduces the ocean-fill patch from a large rectangle to a 2px strip at the edge. Barely visible, but the ocean color is still replaced with land color in that strip.
+
+2. **`goUp` guard** (commit 91d508b, reverted) — Only edge-close when the subpath goes UPWARD (firstY > lastY). For downward subpaths, fall back to closePath. **Failed**: For large subpaths (e.g., North America's west coast at centerLon=50, spanning 163px), closePath created a 121px diagonal line through the continent, causing large portions of the landmass to disappear.
+
+3. **Winding formula** (commit e1ac8a5, reverted) — Edge-close only when `isCW === goingDown`. Correct for some cases but wrong for others (the relationship between winding, direction, and edge position is more complex).
+
+4. **Point-in-ring test** (commit 6d738cd, reverted) — For each edge-touching subpath, test a point between the coastline and the canvas edge against the ring's unwrapped projected points using the winding number algorithm. If inside → edge-close. If outside → closePath. **Failed**: Still caused landmass disappearance for some subpaths. The test point (5px from the edge) might be inside the ring for some subpaths where the fill should go to the edge, but the winding number test can be unreliable near the ring boundary.
+
+### Current state (commit 89ca95d, reverted to 679b771)
+
+The current deployed code uses **v1 + v2 + 2px inset**:
+- Edge-close for all edge-touching subpaths (no landmass disappearance)
+- Separate fill/stroke paths (no horizontal lines)
+- `wrapsGlobe` + `isFullWidth` priority (Antarctica correct at all centerLon)
+- 2px inset from canvas edge (reduces ocean-fill visual impact)
 
 ### Files modified
 
@@ -247,6 +276,36 @@ Instead of always calling `closePath()` (which draws a straight line from the la
 - `index.html` — inlined `_drawRing()` method
 
 Both files must be kept in sync. Verify with `python3 -c "..."` as shown above.
+
+## Remaining Issue
+
+### Ocean-fill artifact
+
+When a landmass crosses the map edge during panning, the 0.8w split creates subpaths at the edge. Edge-close fills the area between the coastline and the canvas edge. For some subpaths, this area is the **ocean** side of the coastline, not the land side. The result: a rectangular patch of ocean is filled with the land color.
+
+**Why this happens**: The canvas-edge close unconditionally goes to `x=2` (or `x=w-2`) and fills the area between the coastline and that line. Whether this area is land or ocean depends on:
+- The ring's winding direction (CW or CCW)
+- The subpath's direction at the edge (upward or downward)
+- Which edge (left or right)
+- The specific geometry of the coastline at that edge
+
+**Why it's hard to fix**: Any attempt to selectively skip edge-close (using `goUp`, winding formulas, or point-in-ring tests) causes **landmass disappearance** for large subpaths where `closePath()` would create a diagonal line cutting through the continent. The edge-close approach preserves the landmass shape at the cost of a small ocean-fill artifact. The closePath approach avoids the ocean-fill but loses landmass area.
+
+**Current mitigation**: 2px inset (edge-close goes to x=2 instead of x=0). This reduces the ocean-fill patch to a 2px strip at the edge.
+
+### Possible future approaches
+
+1. **Data rotation** (Approach A) — Rotate ring data so no ring starts/ends at the antimeridian. This would prevent the 0.8w split from creating edge-touching subpaths at centerLon=0. However, it doesn't fix the issue when panning (centerLon ≠ 0), because the antimeridian in projected space moves.
+
+2. **Polar stereographic inset** — Use a different projection for polar regions (below lat -60° or above lat 60°) to avoid the equirectangular distortion that causes the wrapping issue.
+
+3. **Pre-process rings at render time** (Approach C) — Before rendering, detect rings that cross the map edge and split them into separate non-wrapping rings. Each resulting ring would be fully visible and correctly fillable with closePath().
+
+4. **SVG rendering** (Approach F) — SVG handles path filling correctly even with antimeridian crossings. Would require rewriting the map rendering pipeline.
+
+5. **Double-width rendering** — Render the map at 2x width, showing both the "front" and "back" of the globe. Then pan by adjusting the viewport within this double-width bitmap. This avoids the wrapping issue entirely because the shifted copy ensures continuity at the edges. Requires more memory and rendering time.
+
+6. **Accept the artifact** — The 2px inset reduces the ocean-fill to a thin strip. On most maps, this is barely visible against the dark ocean background (#0c1929). The trade-off is between this small artifact and the far more visible landmass disappearance that occurs with other approaches.
 
 ### Approach A: Fix the coastline data
 Instead of fixing the rendering, fix the data. The issue is that Antarctica's ring starts at lon=-180 and ends at lon=179.7. If we modify the ring to start at lon=0 (or any longitude that's not at the antimeridian), the first and last points would be close together after projection, and `closePath()` would work correctly.
