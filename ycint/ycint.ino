@@ -91,7 +91,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "1.5.1"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -1190,6 +1190,8 @@ void sendProgmemHTML(const char* pgmHtml) {
 
 // Serve gzip-compressed HTML from SPIFFS, fallback to PROGMEM
 void sendHtml() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.keepAlive(false);
   if (SPIFFS.begin() && SPIFFS.exists(spiffsHtmlFile)) {
     File f = SPIFFS.open(spiffsHtmlFile, "r");
     if (f.size() > 0) {
@@ -1217,6 +1219,8 @@ void sendHtml() {
 
 // Serve world coastline data from SPIFFS (gzip-compressed, returns 404 if not found)
 void sendCoastlineData() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.keepAlive(false);
   if (SPIFFS.exists(spiffsCoastlineFile)) {
     File f = SPIFFS.open(spiffsCoastlineFile, "r");
     if (f.size() > 0) {
@@ -1332,6 +1336,8 @@ void deleteSpiffsFile() {
 
 // Serve files from SPIFFS via /files/ path
 void serveSpiffsFile(const String& path) {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.keepAlive(false);
   // Remove leading /files/ prefix
   String spiffsPath = path;
   if (spiffsPath.startsWith("/files/")) {
@@ -5606,8 +5612,17 @@ String webLastMove = "";
 unsigned long webMoveTime = 0;
 
 void setupWebServer() {
+  // Disable keep-alive — Chrome opens speculative parallel connections that
+  // overwhelm the ESP8266's lwIP stack, causing ERR_CONNECTION_RESET
+  server.keepAlive(false);
+  
   server.on("/", []() {
     sendHtml();
+  });
+  
+  // Serve favicon from SPIFFS (catches automatic browser /favicon.ico request)
+  server.on("/favicon.ico", []() {
+    serveSpiffsFile("/files/favicon.ico");
   });
   
   server.on("/upload", HTTP_POST, []() {
@@ -6039,7 +6054,10 @@ void loop() {
   
   // Handle web server
   if (!captivePortalActive) {
-    server.handleClient();
+    // Drain multiple pending clients — Chrome opens speculative parallel connections
+    for (int i = 0; i < 3; i++) {
+      server.handleClient();
+    }
   } else {
     tickCaptivePortal();
   }
