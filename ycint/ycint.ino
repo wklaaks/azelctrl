@@ -1204,6 +1204,8 @@ void sendHtml() {
         size_t toRead = f.available() < chunkSize ? f.available() : chunkSize;
         f.read(buf, toRead);
         server.sendContent((const char*)buf, toRead);
+        yield();
+        ESP.wdtFeed();
       }
       f.close();
       return;
@@ -1214,7 +1216,16 @@ void sendHtml() {
   server.setContentLength(sizeof(index_html_gz));
   server.sendHeader("Content-Encoding", "gzip");
   server.send(200, "text/html");
-  server.sendContent((const char*)index_html_gz, sizeof(index_html_gz));
+  // Send in chunks with yield() to prevent watchdog timeout
+  const size_t progmemChunk = 1024;
+  size_t sent = 0;
+  while (sent < sizeof(index_html_gz)) {
+    size_t toSend = min(progmemChunk, sizeof(index_html_gz) - sent);
+    server.sendContent((const char*)(index_html_gz + sent), toSend);
+    sent += toSend;
+    yield();
+    ESP.wdtFeed();
+  }
 }
 
 // Serve world coastline data from SPIFFS (gzip-compressed, returns 404 if not found)
@@ -1233,6 +1244,8 @@ void sendCoastlineData() {
         size_t toRead = f.available() < chunkSize ? f.available() : chunkSize;
         f.read(buf, toRead);
         server.sendContent((const char*)buf, toRead);
+        yield();
+        ESP.wdtFeed();
       }
       f.close();
       return;
@@ -4611,11 +4624,15 @@ void actionWifiModeSta() {
   saveWifiMode();
   // Show Station Settings screen
   showStationSettings();
+  Serial.println("WIFI: Back from Station Settings");
   // Back from station settings — return to setup
   updateSetupLabels();
+  Serial.println("WIFI: updateSetupLabels done");
   updateSetupTimers();
+  Serial.println("WIFI: updateSetupTimers done");
   currentMenu = &setupMenu;
   currentMenu->init();
+  Serial.println("WIFI: SETUP menu initialized");
 }
 
 void actionWifiModeAp() {
@@ -6085,6 +6102,14 @@ void loop() {
   
   // Handle buttons
   handleButtons();
+  
+  // Debug: check if main loop is running after SETUP menu init
+  static unsigned long lastLoopPrint = 0;
+  if (currentMenu && millis() - lastLoopPrint > 3000) {
+    lastLoopPrint = millis();
+    Serial.print("LOOP: currentMenu=");
+    Serial.println((uint32_t)currentMenu, HEX);
+  }
   
   // Calibration mode
   if (calState != CAL_IDLE) {
