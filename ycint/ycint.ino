@@ -4628,12 +4628,9 @@ void actionWifiModeSta() {
   saveWifiMode();
   // Show Station Settings screen
   showStationSettings();
-  Serial.println("WIFI: Back from Station Settings");
   // Back from station settings — return to setup
   updateSetupLabels();
-  Serial.println("WIFI: updateSetupLabels done");
   updateSetupTimers();
-  Serial.println("WIFI: updateSetupTimers done");
   currentMenu = &setupMenu;
   currentMenu->init();
   Serial.println("WIFI: SETUP menu initialized");
@@ -6102,26 +6099,6 @@ void loop() {
   
   // Handle buttons
   handleButtons();
-  
-  // Debug: check if main loop is running after SETUP menu init
-  static unsigned long lastLoopPrint = 0;
-  if (currentMenu && millis() - lastLoopPrint > 3000) {
-    lastLoopPrint = millis();
-    Serial.print("LOOP: currentMenu=");
-    Serial.print((uint32_t)currentMenu, HEX);
-    Serial.print(" timer=");
-    Serial.print(currentMenu->timerRemaining());
-    Serial.print(" calState=");
-    Serial.print(calState);
-    Serial.print(" captPortal=");
-    Serial.print(captivePortalActive);
-    Serial.print(" wifiState=");
-    Serial.print(wifiState);
-    Serial.print(" pause=");
-    Serial.print(isPausing);
-    Serial.println();
-    Serial.flush();
-  }
   
   // Calibration mode
   if (calState != CAL_IDLE) {
