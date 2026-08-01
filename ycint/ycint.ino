@@ -4172,6 +4172,9 @@ void actionCalibrateSkip() {
   // Update setup menu labels to reflect calibration status
   updateSetupLabels();
 
+  // Refresh auto-timer logic — calibration is now done, no need to prompt for it
+  updateSetupTimers();
+
   // Return to Setup screen
   currentMenu = &setupMenu;
   currentMenu->init();
