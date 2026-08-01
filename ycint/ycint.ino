@@ -4833,8 +4833,7 @@ void showStationSettings() {
               stopCaptivePortal();
               loadWifiCredentials();
               choice = 1;
-              showStationSettings();
-              return;
+              break;  // Return to outer loop with Connect option selected — avoid recursive call
             }
             if (!digitalRead(BTN2)) {
               if (btn2Hold == 0) btn2Hold = millis();
@@ -6108,7 +6107,19 @@ void loop() {
   if (currentMenu && millis() - lastLoopPrint > 3000) {
     lastLoopPrint = millis();
     Serial.print("LOOP: currentMenu=");
-    Serial.println((uint32_t)currentMenu, HEX);
+    Serial.print((uint32_t)currentMenu, HEX);
+    Serial.print(" timer=");
+    Serial.print(currentMenu->timerRemaining());
+    Serial.print(" calState=");
+    Serial.print(calState);
+    Serial.print(" captPortal=");
+    Serial.print(captivePortalActive);
+    Serial.print(" wifiState=");
+    Serial.print(wifiState);
+    Serial.print(" pause=");
+    Serial.print(isPausing);
+    Serial.println();
+    Serial.flush();
   }
   
   // Calibration mode
