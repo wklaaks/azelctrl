@@ -1217,10 +1217,12 @@ void sendHtml() {
   server.sendHeader("Content-Encoding", "gzip");
   server.send(200, "text/html");
   // Send in chunks, reading from PROGMEM properly with memcpy_P
-  const size_t progmemChunk = 512;
+  // Abort early if client disconnects
+  const size_t progmemChunk = 256;
   uint8_t sendBuf[progmemChunk];
   size_t sent = 0;
   while (sent < sizeof(index_html_gz)) {
+    if (!server.client().connected()) break;
     size_t toSend = min(progmemChunk, sizeof(index_html_gz) - sent);
     memcpy_P(sendBuf, index_html_gz + sent, toSend);
     server.sendContent((const char*)sendBuf, toSend);
@@ -5683,9 +5685,9 @@ void setupWebServer() {
       serveSpiffsFile(server.uri());
       return;
     }
-    // Redirect all other unknown requests to main page
-    Serial.println("Web: notFound -> redirecting to main page");
-    sendHtml();
+    // For any other unknown request, send a minimal redirect to main page
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
   });
   
   server.on("/cmd", []() {
