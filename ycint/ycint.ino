@@ -3859,7 +3859,7 @@ MenuItem calPotsItems[] = {
 Menu bootMenu("Boot", bootItems, 2, nullptr);
 Menu setupMenu("SETUP", setupItems, 5, &bootMenu);
 Menu wifiModeMenu("WiFi Mode", wifiModeItems, 3, &networkMenu);
-Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, nullptr);
+Menu wifiConnectMenu("WiFi Connect", wifiConnectItems, 6, &setupMenu);
 Menu apModeMenu("AP Mode", apModeItems, 2, &wifiModeMenu);
 Menu calPotsMenu("Voltage Calibration", calPotsItems, 3, &setupMenu);
 
@@ -4168,7 +4168,10 @@ void actionCalibrateSkip() {
   EEPROM.commit();
   
   Serial.println("CAL: Calibration saved (Az=El=0-3.2V)");
-  
+
+  // Update setup menu labels to reflect calibration status
+  updateSetupLabels();
+
   // Return to Setup screen
   currentMenu = &setupMenu;
   currentMenu->init();
