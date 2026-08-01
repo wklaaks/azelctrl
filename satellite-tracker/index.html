@@ -7,6 +7,8 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>AZELCtrl — Satellite (computed) Tracker</title>
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="icon" type="image/x-icon" sizes="32x32" href="/favicon.ico">
 <!-- satellite.js for orbital propagation -->
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
 <style>
@@ -300,6 +302,43 @@ td.max-el-low { color: var(--muted); }
 .modal-close:hover { color: var(--text); }
 .modal .card { margin-bottom: 12px; }
 
+/* 3-choice modal dialog overlay */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-dialog {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.modal-dialog h3 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+.modal-dialog p {
+  margin: 0 0 16px 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.modal-dialog .opt-list {
+  padding-left: 1.2em;
+  margin: 8px 0;
+  line-height: 1.7;
+}
 
 /* SatNOGS status dots */
 .sat-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
@@ -2966,6 +3005,12 @@ document.getElementById('trackSatSelect').addEventListener('keydown', (e) => {
       stopTracking();
     }
     localStorage.setItem('selectedSatIndex', selectedSatIndex);
+    // Invalidate AOS/LOS cache so Tracking tab recomputes for new satellite
+    cachedTime = null;
+    cachedAosTime = null;
+    cachedLosTime = null;
+    cachedIsOverhead = false;
+    cachedNeverSets = false;
     updateTrackSatSelect();
     updateCurrentSatDisplay();
     refreshPasses();
@@ -3542,7 +3587,37 @@ document.getElementById('trackSatSelect').addEventListener('change', (e) => {
   refreshPasses();
 });
 
-function startTracking() {
+// ==================== 3-CHOICE MODAL DIALOG ====================
+// Returns a Promise that resolves to 'yes', 'no', or 'cancel'
+function showChoiceDialog(title, message, opts = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('elfChoiceDialog');
+    document.getElementById('elfDialogTitle').textContent = title;
+    document.getElementById('elfDialogMessage').innerHTML = message;
+
+    // Customize button labels if provided
+    if (opts.yesLabel) document.getElementById('elfDialogYes').textContent = opts.yesLabel;
+    if (opts.noLabel) document.getElementById('elfDialogNo').textContent = opts.noLabel;
+    if (opts.cancelLabel) document.getElementById('elfDialogCancel').textContent = opts.cancelLabel;
+
+    overlay.style.display = 'flex';
+
+    function cleanup(result) {
+      overlay.style.display = 'none';
+      // Reset button labels to defaults for next use
+      document.getElementById('elfDialogYes').textContent = 'Yes, enable & track';
+      document.getElementById('elfDialogNo').textContent = 'No, track without ELF';
+      document.getElementById('elfDialogCancel').textContent = 'Cancel';
+      resolve(result);
+    }
+
+    document.getElementById('elfDialogYes').onclick = () => cleanup('yes');
+    document.getElementById('elfDialogNo').onclick = () => cleanup('no');
+    document.getElementById('elfDialogCancel').onclick = () => cleanup('cancel');
+  });
+}
+
+async function startTracking() {
   if (selectedSatIndex < 0 || selectedSatIndex >= satellites.length) {
     // Check if Sun or Moon is selected (special negative indices)
     if (selectedSatIndex === -2 || selectedSatIndex === -3) {
@@ -3591,14 +3666,24 @@ function startTracking() {
             hour: '2-digit', minute: '2-digit'
           });
           
-          const confirmed = confirm(
-            `ELF Mode Required for Continuous Tracking\n\n` +
-            `The satellite pass (${aosStr} → ${losStr}) crosses the ${boundaryLabel} wrap boundary.\n\n` +
-            `Without ELF mode, the rotator will need to perform a full 360° rotation during the pass, losing the satellite.\n\n` +
-            `Enable ELF mode now?`
+          const choice = await showChoiceDialog(
+                      'ELF Mode Required',
+                      `The satellite pass (${aosStr} → ${losStr}) crosses the <b>${boundaryLabel}</b> wrap boundary.<br><br>` +
+                      `Without ELF mode, the rotator will need to perform a full 360° rotation during the pass, losing the satellite.<br><br>` +
+                      `<b>Choose an option:</b><br>` +
+                      `<div class="opt-list">` +
+                      `• <b>Yes, enable &amp; track</b> — enables ELF mode and starts tracking<br>` +
+                      `• <b>No, track without ELF</b> — starts tracking without ELF (360° rotation at the boundary)<br>` +
+                      `• <b>Cancel</b> — cancels, does not start tracking` +
+                      `</div>`,
+            {
+              yesLabel: 'Yes, enable & track',
+              noLabel: 'No, track without ELF',
+              cancelLabel: 'Cancel',
+            }
           );
-          
-          if (confirmed) {
+
+          if (choice === 'yes') {
             setElfMode(true).then(() => {
               elfMode = true;
               document.getElementById('elfToggle').checked = true;
@@ -3607,7 +3692,12 @@ function startTracking() {
               alert('Failed to enable ELF mode: ' + err.message);
             });
             return;
+          } else if (choice === 'no') {
+            // Track without ELF — rotator will do a 360° at the boundary
+            beginTracking(sat, satrec, now, minEl);
+            return;
           } else {
+            // 'cancel' — do nothing
             return;
           }
         }
@@ -7311,6 +7401,19 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 </script>
+
+<!-- 3-choice modal dialog for ELF mode decision -->
+<div id="elfChoiceDialog" class="modal-overlay" style="display:none;">
+  <div class="modal-dialog">
+    <h3 id="elfDialogTitle">ELF Mode Required</h3>
+    <p id="elfDialogMessage">The satellite pass crosses the wrap boundary.</p>
+    <div class="modal-buttons">
+      <button id="elfDialogYes" class="btn btn-primary">Yes, enable &amp; track</button>
+      <button id="elfDialogNo" class="btn btn-success">No, track without ELF</button>
+      <button id="elfDialogCancel" class="btn btn-danger">Cancel</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
