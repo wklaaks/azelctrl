@@ -795,7 +795,7 @@ void loadWifiCredentials() {
 void saveWifiCredentials(const char* ssid, const char* pass) {
   // Zero out only the credential area (bytes 0-66), not the entire EEPROM
   // Bytes 67+ contain calibration data and must not be touched
-  for (int i = 0; i < EEPROM_SIZE; i++) EEPROM.write(i, 0);
+  for (int i = 0; i <= 66; i++) EEPROM.write(i, 0);
   
   uint8_t ssidLen = (uint8_t)min(strlen(ssid), (size_t)32);
   EEPROM.write(EEPROM_SSID_LEN, ssidLen);
