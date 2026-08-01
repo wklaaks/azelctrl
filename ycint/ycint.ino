@@ -756,7 +756,6 @@ private:
 // Forward declaration
 extern Menu* currentMenu;
 extern bool skipBtnProcessing;
-extern bool btn1WasPressed;
 extern bool hamlibServerEnabled;
 extern char setupWifiLabel[];
 extern MenuItem networkItems[];
@@ -4527,13 +4526,16 @@ void actionBootSetup() {
 void actionSetupRotator() {
   Serial.println("SETUP: Rotator setup");
   setupRotatorModel();
+  // Wait for Btn1 to be fully released after long-press selection in setupRotatorModel
+  // (setupRotatorModel returns immediately on long-press without waiting for release)
+  while (digitalRead(BTN1)) { delay(10); }
+  delay(50);
   // Go back to setup menu
   updateSetupLabels();
   updateSetupTimers();
   currentMenu = &setupMenu;
   currentMenu->init();
-  skipBtnProcessing = true;  // Skip next button cycle — Btn1 may still be held from long-press
-  btn1WasPressed = false;    // Reset to avoid interpreting the release as a short-press navigation
+  skipBtnProcessing = true;  // Skip next button cycle as safety
 }
 
 void actionSetupWifi() {
