@@ -756,6 +756,7 @@ private:
 // Forward declaration
 extern Menu* currentMenu;
 extern bool skipBtnProcessing;
+extern bool btn1WasPressed;
 extern bool hamlibServerEnabled;
 extern char setupWifiLabel[];
 extern MenuItem networkItems[];
@@ -4532,6 +4533,7 @@ void actionSetupRotator() {
   currentMenu = &setupMenu;
   currentMenu->init();
   skipBtnProcessing = true;  // Skip next button cycle — Btn1 may still be held from long-press
+  btn1WasPressed = false;    // Reset to avoid interpreting the release as a short-press navigation
 }
 
 void actionSetupWifi() {
