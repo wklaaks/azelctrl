@@ -6080,10 +6080,7 @@ void loop() {
   
   // Handle web server
   if (!captivePortalActive) {
-    // Drain multiple pending clients — Chrome opens speculative parallel connections
-    for (int i = 0; i < 3; i++) {
-      server.handleClient();
-    }
+    server.handleClient();
   } else {
     tickCaptivePortal();
   }
