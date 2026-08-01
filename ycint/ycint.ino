@@ -338,13 +338,13 @@ void processProtocolCommand(const char* cmd, int len) {
 }
 
 
-// EEPROM storage for protocol settings (byte 67+)
-#define EEPROM_PROTO_BAUD_IDX 67
-#define EEPROM_PROTO_SHOW_CMDS 68
-#define EEPROM_PROTO_REVERSE_DELAY 70
-#define EEPROM_PROTO_MAGIC    69
+// EEPROM storage for protocol settings (bytes 100-104 — must not overlap with calibration at 67-83)
+#define EEPROM_PROTO_BAUD_IDX 100
+#define EEPROM_PROTO_SHOW_CMDS 101
+#define EEPROM_PROTO_REVERSE_DELAY 103
+#define EEPROM_PROTO_MAGIC    102
 #define EEPROM_PROTO_MAGIC_VAL 0xB7
-#define EEPROM_PROTO_VARIANT 71
+#define EEPROM_PROTO_VARIANT 104
 
 // Load protocol settings from EEPROM
 void loadProtocolSettings() {

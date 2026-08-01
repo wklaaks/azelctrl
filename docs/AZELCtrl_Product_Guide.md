@@ -1,6 +1,6 @@
 # AZELCtrl — Complete Product Guide
 
-**Version 1.0**  
+**Version 1.5.1**  
 **Author: ZS6TW**  
 **Date: July 2026**
 
@@ -384,12 +384,14 @@ Configuration data is persisted in EEPROM across power cycles:
 
 | Bytes | Size | Content | Magic |
 |-------|------|---------|-------|
-| 0–66 | 67 | WiFi SSID and password | 0xAA |
-| 67–83 | 17 | Calibration values (min/max voltages) | 0xCA |
-| 84–85 | 2 | WiFi mode (STA/AP/Disabled) | — |
-| 86–87 | 2 | Network configuration | — |
-| 88–89 | 2 | Rotator model (N360/S360/N450/S450) | — |
+| 0–66 | 67 | WiFi SSID (data at 1–32) and password (data at 34–65) | 0xAA at byte 66 |
+| 67–83 | 17 | Calibration min/max voltages (4× float: Az min, Az max, El min, El max) | 0xCA at byte 83 |
+| 84–85 | 2 | WiFi mode (STA/AP/Disabled) | 0x4D at byte 85 |
+| 86–87 | 2 | Network settings (Hamlib Server toggle) | 0x4E at byte 87 |
+| 88–89 | 2 | Rotator model (N360/S360/N450/S450) | 0x5A at byte 89 |
 | 90 | 1 | ELF mode enabled/disabled | — |
+| 91–99 | 9 | AP password (8 chars) | 0x41 ('A') at byte 99 |
+| 100–104 | 5 | Protocol settings — baud index, show commands, reverse delay, protocol variant | 0xB7 at byte 102 |
 
 ### 4.8 Safety Mechanisms
 
@@ -522,7 +524,7 @@ On power-up, AZELCtrl displays a splash screen for 3 seconds:
 ```
 AZELCtrl
 
-Ver: 1.0.0
+Ver: 1.5.1
 Date: Jul 19 2026
 By: ZS6TW
 ```
@@ -1430,6 +1432,15 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 - **Hamlib Server**: SETUP → "Network" → select "Hamlib Server" → toggle Yes/No.
 - **Rotator Variant**: SETUP → select "Rot Variant" → choose N360/S360/N450/S450.
 - **ELF Mode**: From main screen, cycle to "ELF" → press Btn2 → toggle On/Off → respond to "Elevate To?" prompt.
+- **WiFi Credentials (Captive Portal)**: SETUP → "Network" → "WiFi Mode" → "Station" → "Set WiFi Creds" → connect phone/laptop to AZELCTRL_XXXX → open browser to configure → press Btn1 to return.
+- **Review Saved Credentials**: SETUP → "Network" → "WiFi Mode" → "Station" → "Review Creds" to view saved SSID and masked password.
+- **Connect/Disconnect WiFi**: SETUP → "Network" → "WiFi Mode" → "Station" → scroll to "Connect WiFi" → press Btn2. Label changes to "Disconnect WiFi" when connected.
+- **Show IP Address**: SETUP → "Network" → "WiFi Mode" → "Station" → "Show IP".
+- **AP Mode (Field)**: SETUP → "Network" → "WiFi Mode" → "Station" → "AP Mode (Field)" — starts AP mode immediately without changing the saved WiFi mode. The "AP Mode" menu also provides "AP Status" and "Regen AP Password" options.
+- **Regen AP Password**: SETUP → "Network" → "WiFi Mode" → "Access Point" → "Regen AP Password" → press Btn1 repeatedly for entropy → note the new password.
+- **Calibrate Pots**: SETUP → "Rot Calibrate" → select Azimuth or Elevation → follow the sweep prompts. See section 6.6.
+- **Skip Calibration**: SETUP → "Rot Calibrate" → "Skip (Az=El=3.2V)" — sets fixed 0–3.2V range without sweeping.
+- **Wipe All Settings**: SETUP → "Wipe all settings" → "Continue" to erase all EEPROM data and reboot.
 
 ## 9. Troubleshooting
 
@@ -1528,14 +1539,50 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 
 | Command | Description | Example | Response |
 |---------|-------------|---------|----------|
-| `C` | Query position | `C\r` | `C125.45\r` (Az=125°, El=45°) |
-| `Maaa` | Move azimuth | `M180\r` | `OK\r` |
-| `Waaa eee` | Move to position | `W180 045\r` | `OK\r` |
-| `L` | Azimuth left | `L\r` | `OK\r` |
-| `R` | Azimuth right | `R\r` | `OK\r` |
+| `C` | Query position (azimuth, elevation) | `C\r` | `C125.45\r` (Az=125°, El=45°) |
+| `C1` | Position with rate of change | `C1\r` | `AZ=125 EL=045 RATE=00.0\r` |
+| `C2` | Position with status | `C2\r` | `AZ=125 EL=045\r` |
+| `C3` | Position with full status | `C3\r` | `AZ=125 EL=045 STATUS=0\r` |
+| `H` | Query azimuth heading | `H\r` | `H125\r` |
+| `Hnnn` | Set azimuth to nnn° | `H180\r` | `OK\r` |
+| `Mnnn` | Move azimuth to nnn° | `M180\r` | `OK\r` |
+| `Wnnn eee` | Move to azimuth nnn, elevation eee | `W180 045\r` | `OK\r` |
+| `V` | Query elevation | `V\r` | `V45\r` |
+| `Vnnn` | Set elevation to nnn° | `V90\r` | `OK\r` |
+| `L` | Azimuth left (CCW) | `L\r` | `OK\r` |
+| `R` | Azimuth right (CW) | `R\r` | `OK\r` |
 | `U` | Elevation up | `U\r` | `OK\r` |
 | `D` | Elevation down | `D\r` | `OK\r` |
-| `S` | Stop | `S\r` | `OK\r` |
+| `S` | Stop all movement | `S\r` | `OK\r` |
+| `A` | All stop (alternate) | `A\r` | `OK\r` |
+| `E` | Stop elevation only | `E\r` | `OK\r` |
+| `Z` | Stop azimuth only | `Z\r` | `OK\r` |
+| `Xnn` | Set speed (1=slow, 4=fast) | `X4\r` | `OK\r` |
+
+#### Easycom (EasyComm 2/3) Commands
+
+| Command | Description | Example | Response |
+|---------|-------------|---------|----------|
+| `AZ` | Query azimuth | `AZ\r` | `AZ125.0\r` |
+| `AZ xxx.x` | Set azimuth | `AZ 180.0\r` | `OK\r` |
+| `EL` | Query elevation | `EL\r` | `EL45.0\r` |
+| `EL yy.y` | Set elevation | `EL 90.0\r` | `OK\r` |
+| `ML` | Move azimuth left (CCW) | `ML\r` | `OK\r` |
+| `MR` | Move azimuth right (CW) | `MR\r` | `OK\r` |
+| `MU` | Move elevation up | `MU\r` | `OK\r` |
+| `MD` | Move elevation down | `MD\r` | `OK\r` |
+| `S` | All stop | `S\r` | `OK\r` |
+| `SA` | Stop azimuth only | `SA\r` | `OK\r` |
+| `SE` | Stop elevation only | `SE\r` | `OK\r` |
+| `VL` | Velocity — move left | `VL\r` | `OK\r` |
+| `VR` | Velocity — move right | `VR\r` | `OK\r` |
+| `VU` | Velocity — move up | `VU\r` | `OK\r` |
+| `VD` | Velocity — move down | `VD\r` | `OK\r` |
+| `VE` | Query firmware version | `VE\r` | `VEYCINT/1.0\r` |
+| `GS` | Get status (1=Idle, 2=Moving) | `GS\r` | `GS1\r` |
+| `AO` | AOS acknowledge | `AO\r` | `OK\r` |
+| `LO` | LOS acknowledge | `LO\r` | `OK\r` |
+| `\?` | Backslash query (rotctl identification) | `\?\r` | `\?EASYCOM,ROTATOR\r` |
 
 #### rotctl Commands
 
@@ -1549,12 +1596,14 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 
 | Bytes | Size | Content | Magic Byte |
 |-------|------|---------|------------|
-| 0–66 | 67 | WiFi SSID and password | 0xAA at byte 0 |
-| 67–83 | 17 | Calibration min/max voltages | 0xCA at byte 67 |
-| 84–85 | 2 | WiFi mode (STA/AP/Disabled) | — |
-| 86–87 | 2 | Network configuration | — |
-| 88–89 | 2 | Rotator model (N360/S360/N450/S450) | — |
+| 0–66 | 67 | WiFi SSID (data at 1–32) and password (data at 34–65) | 0xAA at byte 66 |
+| 67–83 | 17 | Calibration min/max voltages (4× float) | 0xCA at byte 83 |
+| 84–85 | 2 | WiFi mode (STA/AP/Disabled) | 0x4D at byte 85 |
+| 86–87 | 2 | Network settings (Hamlib Server toggle) | 0x4E at byte 87 |
+| 88–89 | 2 | Rotator model (N360/S360/N450/S450) | 0x5A at byte 89 |
 | 90 | 1 | ELF mode enabled/disabled | — |
+| 91–99 | 9 | AP password (8 chars) | 0x41 ('A') at byte 99 |
+| 100–104 | 5 | Protocol settings — baud index, show commands, reverse delay, protocol variant | 0xB7 at byte 102 |
 
 ---
 
