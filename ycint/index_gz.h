@@ -1,4 +1,4 @@
-// Auto-generated -- do not edit manually
+// Auto-generated — do not edit manually
 // Source: index.html
 // Compressed with gzip -9
 

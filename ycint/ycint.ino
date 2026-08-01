@@ -4624,6 +4624,13 @@ void actionSetupWipe() {
 
 void actionWifiModeSta() {
   Serial.println("WIFI: Mode set to Station");
+  
+  // If currently in AP mode, clean up DNS and WiFi before switching
+  if (wifiState == WIFI_AP_MODE) {
+    Serial.println("WIFI: Stopping AP mode before switching to Station");
+    stopApMode();
+  }
+  
   deviceWifiMode = MODE_STA;
   saveWifiMode();
   // Show Station Settings screen
@@ -4647,6 +4654,11 @@ void actionWifiModeAp() {
 
 void actionWifiModeDisable() {
   Serial.println("WIFI: Mode set to Disabled");
+  
+  // If currently in AP mode, clean up DNS and WiFi before switching
+  if (wifiState == WIFI_AP_MODE) {
+    stopApMode();
+  }
   
   // Disconnect if currently connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -5639,6 +5651,11 @@ String webLastMove = "";
 unsigned long webMoveTime = 0;
 
 void setupWebServer() {
+  // Guard — prevent handler accumulation on multiple calls
+  static bool webServerStarted = false;
+  if (webServerStarted) return;
+  webServerStarted = true;
+  
   // Disable keep-alive — Chrome opens speculative parallel connections that
   // overwhelm the ESP8266's lwIP stack, causing ERR_CONNECTION_RESET
   server.keepAlive(false);
@@ -6039,7 +6056,14 @@ void setup() {
 
   // If mandatory settings missing, show "Missing Settings" then go straight to setup
   if (!allSetupComplete()) {
-    Serial.println("BOOT: Mandatory settings incomplete - showing missing settings notice");
+    Serial.println("BOOT: Mandatory settings incomplete - auto-starting AP mode");
+    
+    // Auto-start AP mode so the user can connect via WiFi immediately to
+    // upload supporting files (index.html.gz, favicon.ico, world_coastline.js)
+    // via the web interface even before completing the OLED setup menu.
+    startApMode();
+    
+    Serial.println("BOOT: Showing missing settings notice");
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
