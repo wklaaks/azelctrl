@@ -1216,12 +1216,14 @@ void sendHtml() {
   server.setContentLength(sizeof(index_html_gz));
   server.sendHeader("Content-Encoding", "gzip");
   server.send(200, "text/html");
-  // Send in chunks with yield() to prevent watchdog timeout
-  const size_t progmemChunk = 1024;
+  // Send in chunks, reading from PROGMEM properly with memcpy_P
+  const size_t progmemChunk = 512;
+  uint8_t sendBuf[progmemChunk];
   size_t sent = 0;
   while (sent < sizeof(index_html_gz)) {
     size_t toSend = min(progmemChunk, sizeof(index_html_gz) - sent);
-    server.sendContent((const char*)(index_html_gz + sent), toSend);
+    memcpy_P(sendBuf, index_html_gz + sent, toSend);
+    server.sendContent((const char*)sendBuf, toSend);
     sent += toSend;
     yield();
     ESP.wdtFeed();
