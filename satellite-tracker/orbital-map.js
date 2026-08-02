@@ -92,7 +92,9 @@ class OrbitalMapRenderer {
     while (lonShift < -180) lonShift += 360;
     while (lonShift > 180) lonShift -= 360;
     // Map to canvas coordinates: -180 → left edge, +180 → right edge
-    const x = ((lonShift + 180) / 360) * w;
+    // Zoom scales the visible longitude range: zoom=1 shows full 360°, zoom=2 shows 180°, etc.
+    const visibleLonRange = 360 / this.zoom;
+    const x = ((lonShift + visibleLonRange / 2) / visibleLonRange) * w;
     const y = ((90 - lat) / 180) * h;
     return [x, y];
   }
@@ -147,10 +149,12 @@ class OrbitalMapRenderer {
   }
 
   // Set zoom level and center on station location
-  setZoomLevel(zoom) {
+  setZoomLevel(zoom, centerLat, centerLon) {
+    console.log('setZoomLevel called:', {zoom, centerLat, centerLon, prevZoom: this.zoom});
     this.zoom = zoom;
-    this.centerOn(stationLocation.lat, stationLocation.lon);
+    this.centerOn(centerLat, centerLon);
     this._baseDirty = true;
+    console.log('setZoomLevel done:', {zoom: this.zoom, centerLat: this.centerLat, centerLon: this.centerLon, baseDirty: this._baseDirty});
   }
 
   // Set show terminator flag (does NOT invalidate base — overlay only)
@@ -222,6 +226,7 @@ class OrbitalMapRenderer {
 
   // Render the full map
   render() {
+    console.log('render called:', {zoom: this.zoom, centerLat: this.centerLat, centerLon: this.centerLon, baseDirty: this._baseDirty, logicalWidth: this._logicalWidth, logicalHeight: this._logicalHeight});
     const w = this._logicalWidth || 800;
     const h = this._logicalHeight || 280;
     const ctx = this.ctx;
@@ -323,6 +328,7 @@ class OrbitalMapRenderer {
     // heuristics — every ring is filled as the single closed polygon it is.
     const xs = new Array(n);
     const ys = new Array(n);
+    const visibleLonRange = 360 / this.zoom;
     let u = ring[0][1] - this.centerLon;
     while (u < -180) u += 360;
     while (u > 180) u -= 360;
@@ -339,7 +345,7 @@ class OrbitalMapRenderer {
       if (u < minU) minU = u;
       if (u > maxU) maxU = u;
       sumLat += ring[i][0];
-      xs[i] = ((u + 180) / 360) * w;
+      xs[i] = ((u + visibleLonRange / 2) / visibleLonRange) * w;
       ys[i] = ((90 - ring[i][0]) / 180) * h;
     }
     // Shortest closing step from the last point back to the first
@@ -355,7 +361,7 @@ class OrbitalMapRenderer {
     const winding = uEnd - u0;
     const enclosesPole = Math.abs(winding) > 180;
     const polarY = (sumLat / n) < 0 ? h + 8 : -8;
-    const xEnd = ((uEnd + 180) / 360) * w;
+    const xEnd = ((uEnd + visibleLonRange / 2) / visibleLonRange) * w;
     if (enclosesPole) {
       // The closure reaches the wrapped-around first point, one full turn out
       if (uEnd < minU) minU = uEnd;
@@ -364,8 +370,9 @@ class OrbitalMapRenderer {
 
     // Copies to draw: cull any that fall entirely off-canvas
     const shifts = [];
+    const halfRange = visibleLonRange / 2;
     for (let s = -1; s <= 1; s++) {
-      if (minU + s * 360 <= 180 && maxU + s * 360 >= -180) shifts.push(s * w);
+      if (minU + s * visibleLonRange <= halfRange && maxU + s * visibleLonRange >= -halfRange) shifts.push(s * w);
     }
     if (shifts.length === 0) return;
 
@@ -954,14 +961,16 @@ function initOrbitalMap() {
   }
 
   // Zoom level buttons
-  const zoomBtns = document.querySelectorAll('.map-zoom-btn');
-  zoomBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!orbitalMap) return;
-      const zoom = parseFloat(btn.getAttribute('data-zoom'));
-      orbitalMap.setZoomLevel(zoom);
-      orbitalMap.render();
-    });
+  ['mapZoom100', 'mapZoom75', 'mapZoom50', 'mapZoom25'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (!orbitalMap) return;
+        const zoom = parseFloat(btn.getAttribute('data-zoom'));
+        orbitalMap.setZoomLevel(zoom, stationLocation.lat, stationLocation.lon);
+        orbitalMap.render();
+      });
+    }
   });
 
   // Pan with mouse drag
