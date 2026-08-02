@@ -6556,7 +6556,9 @@ class OrbitalMapRenderer {
     // Zoom scales the visible longitude range: zoom=1 shows full 360°, zoom=2 shows 180°, etc.
     const visibleLonRange = 360 / this.zoom;
     const x = ((lonShift + visibleLonRange / 2) / visibleLonRange) * w;
-    const y = ((90 - lat) / 180) * h;
+    // Zoom also scales the visible latitude range: zoom=1 shows ±90°, zoom=2 shows ±45°, etc.
+    const visibleLatRange = 180 / this.zoom;
+    const y = ((visibleLatRange / 2 - lat) / visibleLatRange) * h;
     return [x, y];
   }
 
@@ -6790,6 +6792,7 @@ class OrbitalMapRenderer {
     const xs = new Array(n);
     const ys = new Array(n);
     const visibleLonRange = 360 / this.zoom;
+    const visibleLatRange = 180 / this.zoom;
     let u = ring[0][1] - this.centerLon;
     while (u < -180) u += 360;
     while (u > 180) u -= 360;
@@ -6807,7 +6810,7 @@ class OrbitalMapRenderer {
       if (u > maxU) maxU = u;
       sumLat += ring[i][0];
       xs[i] = ((u + visibleLonRange / 2) / visibleLonRange) * w;
-      ys[i] = ((90 - ring[i][0]) / 180) * h;
+      ys[i] = ((visibleLatRange / 2 - ring[i][0]) / visibleLatRange) * h;
     }
     // Shortest closing step from the last point back to the first
     let dClose = ring[0][1] - ring[n - 1][1];
@@ -6820,8 +6823,10 @@ class OrbitalMapRenderer {
     // a line across the map.
     const uEnd = u + dClose;
     const winding = uEnd - u0;
-    const enclosesPole = Math.abs(winding) > 180;
+    const enclosesPole = Math.abs(winding) > visibleLonRange;
     const polarY = (sumLat / n) < 0 ? h + 8 : -8;
+    // With zoom, the pole may be off-screen. Clamp polarY to canvas bounds.
+    const clampedPolarY = Math.max(-8, Math.min(h + 8, polarY));
     const xEnd = ((uEnd + visibleLonRange / 2) / visibleLonRange) * w;
     if (enclosesPole) {
       // The closure reaches the wrapped-around first point, one full turn out
@@ -6862,8 +6867,8 @@ class OrbitalMapRenderer {
         // Continue to the wrapped first point, then out past the pole and back.
         // Spans exactly one full turn (w px), so seam copies abut with no gap.
         ctx.lineTo(xEnd + dx, ys[0]);
-        ctx.lineTo(xEnd + dx, polarY);
-        ctx.lineTo(xs[0] + dx, polarY);
+        ctx.lineTo(xEnd + dx, clampedPolarY);
+        ctx.lineTo(xs[0] + dx, clampedPolarY);
       }
     };
 
