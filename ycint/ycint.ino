@@ -170,6 +170,7 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 Adafruit_ADS1115 ads;
 ESP8266WebServer server(80);
 DNSServer dnsServer;
+bool webServerGuardReset = false;  // Allows re-registration after captive portal stops
 
 // ==================== STATE ====================
 float currentAz = 0.0, currentEl = 0.0;
@@ -1020,6 +1021,9 @@ void stopCaptivePortal() {
   captivePortalActive = false;
   dnsServer.stop();
   server.stop();
+  // Reset web server guard so the normal routes are re-registered on next setupWebServer() call
+  webServerGuardReset = true;
+  setupWebServer();
 }
 
 // ==================== ROTCTL TCP SERVER ====================
@@ -5653,8 +5657,9 @@ unsigned long webMoveTime = 0;
 void setupWebServer() {
   // Guard — prevent handler accumulation on multiple calls
   static bool webServerStarted = false;
-  if (webServerStarted) return;
+  if (webServerStarted && !webServerGuardReset) return;
   webServerStarted = true;
+  webServerGuardReset = false;
   
   // Disable keep-alive — Chrome opens speculative parallel connections that
   // overwhelm the ESP8266's lwIP stack, causing ERR_CONNECTION_RESET
@@ -5938,6 +5943,380 @@ void setupWebServer() {
 
   // SatNOGS proxy endpoint
   server.on("/satnogs-proxy", HTTP_GET, handleSatNOGSProxy);
+
+  // ====================== CONFIGURATION API ENDPOINTS ======================
+  // All endpoints return JSON with CORS headers for use by the web UI.
+
+  // CORS preflight handler for all /api/ routes
+  server.on("/api/settings", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+
+  // GET /api/settings — return all current settings as JSON
+  server.on("/api/settings", HTTP_GET, []() {
+    const char* modelNames[4] = {"N360", "S360", "N450", "S450"};
+    const char* protocolNames[3] = {"GS232A", "GS232B", "EASYCOM"};
+    const char* wifiModeNames[3] = {"STA", "AP", "DISABLED"};
+    const char* calStatus = (calAzValid && calElValid) ? "calibrated" : "uncalibrated";
+
+    String json = "{";
+    // Rotator
+    json += "\"rotator\":{\"model\":\"" + String(modelNames[rotModel]) + "\"},";
+    // Calibration
+    json += "\"calibration\":{\"status\":\"" + String(calStatus) + "\",";
+    json += "\"azMinV\":" + String(calAzMinV, 3) + ",\"azMaxV\":" + String(calAzMaxV, 3) + ",";
+    json += "\"elMinV\":" + String(calElMinV, 3) + ",\"elMaxV\":" + String(calElMaxV, 3) + "},";
+    // WiFi
+    json += "\"wifi\":{\"mode\":\"" + String(wifiModeNames[deviceWifiMode]) + "\",";
+    json += "\"ssid\":\"" + savedSsid + "\",";
+    json += "\"password\":\"" + maskPassword(savedPass) + "\",";
+    json += "\"apSsid\":\"" + String(apSsid) + "\",";
+    json += "\"apPassword\":\"" + String(apPassword) + "\",";
+    json += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + "},";
+    // Protocol
+    json += "\"protocol\":{\"variant\":\"" + String(protocolNames[currentProtocol]) + "\",";
+    json += "\"baud\":" + String(getProtocolBaud()) + ",";
+    json += "\"baudIndex\":" + String(protocolBaudIndex) + ",";
+    json += "\"showCommands\":" + String(protocolShowCommands ? "true" : "false") + ",";
+    json += "\"reverseDelay\":" + String(protocolReverseDelay) + "},";
+    // Network
+    json += "\"network\":{\"hamlibEnabled\":" + String(hamlibServerEnabled ? "true" : "false") + "},";
+    // ELF
+    json += "\"elf\":" + String(elfMode ? "true" : "false") + ",";
+    // Firmware
+    json += "\"firmware\":{\"version\":\"" + String(FIRMWARE_VERSION) + "\",";
+    json += "\"date\":\"" + String(FIRMWARE_DATE) + "\"},";
+    // Tracking position
+    json += "\"position\":{\"az\":" + String(currentAz, 1) + ",\"el\":" + String(currentEl, 1) + "}";
+    json += "}";
+
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Cache-Control", "no-cache");
+    server.send(200, "application/json", json);
+  });
+
+  // POST /api/settings/rotator — set rotator model
+  // Body: {"model":"N360"} or {"model":"S360"} or {"model":"N450"} or {"model":"S450"}
+  server.on("/api/settings/rotator", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    int idx = body.indexOf("\"model\"");
+    if (idx < 0) { server.send(400, "application/json", "{\"error\":\"missing model\"}"); return; }
+    int colon = body.indexOf(':', idx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t' || body[start] == '\"')) start++;
+    int end = start;
+    while (end < (int)body.length() && body[end] != '\"') end++;
+    String modelStr = body.substring(start, end);
+    
+    RotModel newModel = ROT_N360;
+    if (modelStr == "S360") newModel = ROT_S360;
+    else if (modelStr == "N450") newModel = ROT_N450;
+    else if (modelStr == "S450") newModel = ROT_S450;
+    else if (modelStr != "N360") {
+      server.send(400, "application/json", "{\"error\":\"invalid model\"}");
+      return;
+    }
+    
+    if (newModel != rotModel) {
+      rotModel = newModel;
+      saveRotatorModel(true);  // Clear calibration on model change
+      Serial.print("API: Rotator model set to "); Serial.println(modelStr);
+    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true,\"model\":\"" + modelStr + "\"}");
+  });
+
+  // POST /api/settings/wifi-mode — switch WiFi mode
+  // Body: {"mode":"AP"} or {"mode":"STA"} or {"mode":"DISABLED"}
+  server.on("/api/settings/wifi-mode", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    int idx = body.indexOf("\"mode\"");
+    if (idx < 0) { server.send(400, "application/json", "{\"error\":\"missing mode\"}"); return; }
+    int colon = body.indexOf(':', idx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t' || body[start] == '\"')) start++;
+    int end = start;
+    while (end < (int)body.length() && body[end] != '\"') end++;
+    String modeStr = body.substring(start, end);
+
+    if (modeStr == "AP") {
+      if (wifiState == WIFI_AP_MODE) {
+        server.send(200, "application/json", "{\"ok\":true,\"mode\":\"AP\",\"notice\":\"already in AP mode\"}");
+        return;
+      }
+      // Switch to AP mode
+      if (wifiState != WIFI_AP_MODE) {
+        stopApMode();
+        WiFi.mode(WIFI_OFF);
+        delay(100);
+      }
+      deviceWifiMode = MODE_AP;
+      saveWifiMode();
+      startApMode();
+      Serial.println("API: WiFi mode switched to AP");
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(200, "application/json", "{\"ok\":true,\"mode\":\"AP\",\"notice\":\"Reconnect to AZELCTRL_XXXX SSID at 192.168.4.1\"}");
+    } else if (modeStr == "STA") {
+      if (wifiState == WIFI_AP_MODE) { stopApMode(); WiFi.mode(WIFI_OFF); delay(100); }
+      deviceWifiMode = MODE_STA;
+      saveWifiMode();
+      if (hasWifiCredentials()) {
+        connectWifiSta();
+        Serial.println("API: WiFi mode switched to STA — connecting...");
+        server.sendHeader("Access-Control-Allow-Origin", "*");
+        server.send(200, "application/json", "{\"ok\":true,\"mode\":\"STA\",\"notice\":\"Connecting to home WiFi. Reconnect to your LAN and find the new IP.\"}");
+      } else {
+        server.sendHeader("Access-Control-Allow-Origin", "*");
+        server.send(200, "application/json", "{\"ok\":true,\"mode\":\"STA\",\"notice\":\"No WiFi credentials saved. Use Set SSID and Password.\"}");
+      }
+    } else if (modeStr == "DISABLED") {
+      if (wifiState == WIFI_AP_MODE) { stopApMode(); }
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_OFF);
+      deviceWifiMode = MODE_DISABLED;
+      saveWifiMode();
+      Serial.println("API: WiFi mode set to DISABLED");
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(200, "application/json", "{\"ok\":true,\"mode\":\"DISABLED\"}");
+    } else {
+      server.send(400, "application/json", "{\"error\":\"invalid mode\"}");
+    }
+  });
+
+  // POST /api/settings/wifi-sta — set WiFi station SSID and password
+  // Body: {"ssid":"MyNetwork","password":"MyPassword"}
+  server.on("/api/settings/wifi-sta", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    
+    // Extract ssid
+    int ssidIdx = body.indexOf("\"ssid\"");
+    if (ssidIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing ssid\"}"); return; }
+    int ssidColon = body.indexOf(':', ssidIdx);
+    int ssidStart = ssidColon + 1;
+    while (ssidStart < (int)body.length() && (body[ssidStart] == ' ' || body[ssidStart] == '\t' || body[ssidStart] == '\"')) ssidStart++;
+    int ssidEnd = ssidStart;
+    while (ssidEnd < (int)body.length() && body[ssidEnd] != '\"') ssidEnd++;
+    String newSsid = body.substring(ssidStart, ssidEnd);
+    
+    // Extract password
+    int passIdx = body.indexOf("\"password\"");
+    if (passIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing password\"}"); return; }
+    int passColon = body.indexOf(':', passIdx);
+    int passStart = passColon + 1;
+    while (passStart < (int)body.length() && (body[passStart] == ' ' || body[passStart] == '\t' || body[passStart] == '\"')) passStart++;
+    int passEnd = passStart;
+    while (passEnd < (int)body.length() && body[passEnd] != '\"') passEnd++;
+    String newPass = body.substring(passStart, passEnd);
+    
+    saveWifiCredentials(newSsid.c_str(), newPass.c_str());
+    wifiConnectItems[2].visible = true;
+    Serial.print("API: WiFi STA credentials saved (SSID: "); Serial.print(newSsid); Serial.println(")");
+    
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/settings/protocol — set protocol parameters
+  // Body: {"variant":"GS232A","baudIndex":4,"showCommands":true,"reverseDelay":1}
+  server.on("/api/settings/protocol", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    bool changed = false;
+    
+    // Protocol variant
+    int varIdx = body.indexOf("\"variant\"");
+    if (varIdx >= 0) {
+      int colon = body.indexOf(':', varIdx);
+      int start = colon + 1;
+      while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t' || body[start] == '\"')) start++;
+      int end = start;
+      while (end < (int)body.length() && body[end] != '\"') end++;
+      String varStr = body.substring(start, end);
+      ProtocolVariant newVar = PROTO_GS232A;
+      if (varStr == "GS232B") newVar = PROTO_GS232B;
+      else if (varStr == "EASYCOM") newVar = PROTO_EASYCOM;
+      else if (varStr != "GS232A") { server.send(400, "application/json", "{\"error\":\"invalid variant\"}"); return; }
+      currentProtocol = newVar;
+      changed = true;
+    }
+    
+    // Baud index (0-4)
+    int baudIdx = body.indexOf("\"baudIndex\"");
+    if (baudIdx >= 0) {
+      int colon = body.indexOf(':', baudIdx);
+      int start = colon + 1;
+      while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+      int newBaudIdx = body.substring(start).toInt();
+      if (newBaudIdx < 0 || newBaudIdx >= PROTOCOL_BAUD_COUNT) {
+        server.send(400, "application/json", "{\"error\":\"invalid baudIndex\"}"); return;
+      }
+      protocolBaudIndex = newBaudIdx;
+      applyProtocolBaud();
+      changed = true;
+    }
+    
+    // Show commands
+    int showIdx = body.indexOf("\"showCommands\"");
+    if (showIdx >= 0) {
+      int colon = body.indexOf(':', showIdx);
+      int start = colon + 1;
+      while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+      protocolShowCommands = (body.substring(start, start + 4) == "true");
+      changed = true;
+    }
+    
+    // Reverse delay (0-3)
+    int revIdx = body.indexOf("\"reverseDelay\"");
+    if (revIdx >= 0) {
+      int colon = body.indexOf(':', revIdx);
+      int start = colon + 1;
+      while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+      int newDelay = body.substring(start).toInt();
+      if (newDelay < 0 || newDelay > 3) {
+        server.send(400, "application/json", "{\"error\":\"invalid reverseDelay\"}"); return;
+      }
+      protocolReverseDelay = newDelay;
+      changed = true;
+    }
+    
+    if (changed) {
+      saveProtocolSettings();
+      Serial.println("API: Protocol settings saved");
+    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/settings/hamlib — enable/disable Hamlib TCP server
+  // Body: {"enabled":true} or {"enabled":false}
+  server.on("/api/settings/hamlib", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    int enIdx = body.indexOf("\"enabled\"");
+    if (enIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing enabled\"}"); return; }
+    int colon = body.indexOf(':', enIdx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+    bool enabled = (body.substring(start, start + 4) == "true");
+    
+    hamlibServerEnabled = enabled;
+    saveNetworkSettings();
+    if (enabled) {
+      if (WiFi.status() == WL_CONNECTED) startRotctlServer();
+    } else {
+      stopRotctlServer();
+    }
+    Serial.print("API: Hamlib server "); Serial.println(enabled ? "enabled" : "disabled");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/settings/calibrate — set calibration values or skip
+  // Body: {"action":"skip"} — use default 3.2V range
+  // Body: {"action":"set","azMinV":0.0,"azMaxV":3.2,"elMinV":0.0,"elMaxV":3.2}
+  server.on("/api/settings/calibrate", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    
+    int actIdx = body.indexOf("\"action\"");
+    if (actIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing action\"}"); return; }
+    int colon = body.indexOf(':', actIdx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t' || body[start] == '\"')) start++;
+    int end = start;
+    while (end < (int)body.length() && body[end] != '\"') end++;
+    String action = body.substring(start, end);
+    
+    if (action == "skip") {
+      // Same as actionCalibrateSkip()
+      calAzMinV = 0.0F; calAzMaxV = 3.2F;
+      calElMinV = 0.0F; calElMaxV = 3.2F;
+      calAzValid = true; calElValid = true;
+      uint8_t* bytes;
+      bytes = (uint8_t*)&calAzMinV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MIN + i, bytes[i]);
+      bytes = (uint8_t*)&calAzMaxV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MAX + i, bytes[i]);
+      bytes = (uint8_t*)&calElMinV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MIN + i, bytes[i]);
+      bytes = (uint8_t*)&calElMaxV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MAX + i, bytes[i]);
+      EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
+      EEPROM.commit();
+      Serial.println("API: Calibration skipped (default 3.2V range)");
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(200, "application/json", "{\"ok\":true,\"status\":\"skipped\",\"azMinV\":0.0,\"azMaxV\":3.2,\"elMinV\":0.0,\"elMaxV\":3.2}");
+    } else if (action == "set") {
+      // Parse voltage values from JSON
+      auto parseFloat = [&](const String& key) -> float {
+        int idx = body.indexOf("\"" + key + "\"");
+        if (idx < 0) return -1.0F;
+        int c = body.indexOf(':', idx);
+        int s = c + 1;
+        while (s < (int)body.length() && (body[s] == ' ' || body[s] == '\t')) s++;
+        int e = s;
+        while (e < (int)body.length() && (body[e] == '.' || body[e] == '-' || isdigit(body[e]))) e++;
+        return body.substring(s, e).toFloat();
+      };
+      float azMin = parseFloat("azMinV");
+      float azMax = parseFloat("azMaxV");
+      float elMin = parseFloat("elMinV");
+      float elMax = parseFloat("elMaxV");
+      if (azMin < 0 || azMax < 0 || elMin < 0 || elMax < 0) {
+        server.send(400, "application/json", "{\"error\":\"missing voltage values\"}"); return;
+      }
+      calAzMinV = azMin; calAzMaxV = azMax;
+      calElMinV = elMin; calElMaxV = elMax;
+      calAzValid = true; calElValid = true;
+      uint8_t* bytes;
+      bytes = (uint8_t*)&calAzMinV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MIN + i, bytes[i]);
+      bytes = (uint8_t*)&calAzMaxV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_AZ_MAX + i, bytes[i]);
+      bytes = (uint8_t*)&calElMinV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MIN + i, bytes[i]);
+      bytes = (uint8_t*)&calElMaxV;
+      for (int i = 0; i < 4; i++) EEPROM.write(CAL_EEPROM_EL_MAX + i, bytes[i]);
+      EEPROM.write(CAL_EEPROM_MAGIC, CAL_EEPROM_MAGIC_VAL);
+      EEPROM.commit();
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(200, "application/json", "{\"ok\":true,\"status\":\"set\"}");
+    } else {
+      server.send(400, "application/json", "{\"error\":\"unknown action\"}");
+    }
+  });
+
+  // POST /api/settings/ap-password — change AP password
+  // Body: {"password":"newpass"}
+  server.on("/api/settings/ap-password", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    int passIdx = body.indexOf("\"password\"");
+    if (passIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing password\"}"); return; }
+    int colon = body.indexOf(':', passIdx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t' || body[start] == '\"')) start++;
+    int end = start;
+    while (end < (int)body.length() && body[end] != '\"') end++;
+    String newPass = body.substring(start, end);
+    if (newPass.length() < 8 || newPass.length() > 8) {
+      server.send(400, "application/json", "{\"error\":\"password must be exactly 8 characters\"}"); return;
+    }
+    strncpy(apPassword, newPass.c_str(), 8);
+    apPassword[8] = '\0';
+    for (int i = 0; i < 8; i++) EEPROM.write(AP_PASS_EEPROM_START + i, apPassword[i]);
+    EEPROM.write(AP_PASS_EEPROM_MAGIC, AP_PASS_EEPROM_MAGIC_VAL);
+    EEPROM.commit();
+    Serial.print("API: AP password changed to "); Serial.println(apPassword);
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
 
   server.begin();
   Serial.println("HTTP server started on port 80");

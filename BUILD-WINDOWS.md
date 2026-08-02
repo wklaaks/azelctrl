@@ -34,7 +34,7 @@ From the AZELCtrl release page you will need **four files**:
 
 | File | Purpose |
 |------|---------|
-| `azelctrl-firmware.bin` | The compiled firmware (~520 KB) — this is the main program |
+| `azelctrl-firmware.bin` | The compiled firmware (~572 KB) — this is the main program |
 | `index.html.gz` | The satellite tracker web interface (gzip-compressed) |
 | `favicon.ico` | Browser tab icon (~1 KB) |
 | `world_coastline.js` | World map coastline data for the orbital map |
@@ -283,7 +283,7 @@ curl -F "file=@world_coastline.js" http://192.168.88.154/upload
 
 | File | Flashing/Upload Method | Field Name | Destination | Size (approx) |
 |------|----------------------|------------|-------------|---------------|
-| `azelctrl-firmware.bin` | ESPHome Web / Arduino IDE / Flash Tool | — | Flashed at 0x0 | ~520 KB |
+| `azelctrl-firmware.bin` | ESPHome Web / Arduino IDE / Flash Tool | — | Flashed at 0x0 | ~572 KB |
 | `index.html.gz` | Web: "Upload Web Interface" or `curl -F "html=@..."` | `html` | SPIFFS: `/index.html.gz` | ~46 KB |
 | `favicon.ico` | Web: "Upload Any File" or `curl -F "file=@..."` | `file` | SPIFFS: `/favicon.ico` | ~1 KB |
 | `world_coastline.js` | Web: "Upload Any File" or `curl -F "file=@..."` | `file` | SPIFFS: `/world_coastline.js` | ~1.5 MB |

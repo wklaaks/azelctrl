@@ -1,6 +1,6 @@
 # AZELCtrl — Satellite Rotator Controller User Manual
 
-**Version:** 1.5.1  
+**Version:** 1.5.2  
 **Device:** Yaesu Rotator Controller with ESP8266  
 **Target:** Amateur Radio Satellite Tracking & EME (Moonbounce)
 
@@ -37,7 +37,7 @@ The web interface is served directly from the ESP8266 over WiFi. The device can 
 - Polar plot showing satellite paths across the sky
 - Offline world map with satellite footprint, ground track, and terminator
 - Hybrid tracking algorithm with kinematic rendezvous and angle-based leading
-- ELF (Extended Linear Freedom) mode for continuous passes across the 180° wrap boundary
+- ELF (Elevation Flip Mode) mode for continuous passes across the 180° wrap boundary
 - Frequency display with Doppler shift calculation from SatNOGS database
 
 ---
@@ -46,12 +46,15 @@ The web interface is served directly from the ESP8266 over WiFi. The device can 
 
 ### 2.1 Connecting to the Device
 
-1. Power on the AZELCtrl unit.
-2. Connect your computer or tablet to the **AZELCTRL** WiFi network (password: `password`).
-3. Open a browser and navigate to **http://192.168.4.1**.
-4. To use your home WiFi, go to **Settings → WiFi Configuration** and enter your network credentials. After saving, the device will reboot and connect to your network.
+On first boot (or after a factory reset), the ESP automatically starts in **Access Point (AP) mode** — no button pressing needed.
 
-> **Tip:** When served from the device itself, leave the **Device IP Address** field empty in Settings. The IP is only needed when accessing through a separate proxy server.
+1. Power on the AZELCtrl unit.
+2. On your computer or phone, open **WiFi settings**.
+3. Look for a network named **`AZELCTRL_XXXX`** (where `XXXX` is a 4-digit hex code unique to your device, e.g. `AZELCTRL_A3F1`). Connect to it — password: **`yaesu123`**.
+4. Open a browser and navigate to **http://192.168.4.1**.
+5. Once connected, go to the **Settings** tab to configure your rotator model, calibration, and home WiFi credentials.
+
+> **Tip:** The web interface is fully functional even while navigating the device's OLED menus — both work independently.
 
 ### 2.2 Home Screen
 
@@ -93,7 +96,7 @@ The header bar is visible on all screens.
 | **Manage** | Add, remove, and refresh TLE data for satellites |
 | **Passes** | Predict upcoming passes for the selected satellite |
 | **Control** | Manual rotator control and calibration |
-| **Settings** | Station location, tracking preferences, ESP management, debug options |
+| **Settings** | Station location, tracking preferences, device configuration (rotator model, calibration, WiFi, protocol, network), ESP management, debug options |
 
 ---
 
@@ -153,7 +156,7 @@ The primary tab for operating the rotator. It contains:
 
 ### ELF Mode Toggle
 
-**ELF (Extended Linear Freedom)** mode disables the 180° azimuth soft-stop, allowing the rotator to rotate continuously for passes that cross the 180°/0° wrap boundary. Enable this before starting a pass that crosses the boundary.
+**ELF (Elevation Flip Mode)** mode disables the 180° azimuth soft-stop, allowing the rotator to rotate continuously for passes that cross the 180°/0° wrap boundary. Enable this before starting a pass that crosses the boundary.
 
 ### Start / Stop Button
 
@@ -317,6 +320,39 @@ Click **Start Calibration** to enter calibration mode. Follow the on-screen inst
 | **Lead Angle** | Degrees ahead to aim — the antenna moves this many degrees along the satellite's path before waiting. Higher = less movement but lower accuracy. |
 | **Dead Zone** | Tolerance around the target before commanding a new position. Higher = fewer commands, smoother movements. |
 
+### Controller
+
+| Field | Description |
+|-------|-------------|
+| **Rotator Model** | Select your rotator variant: **N360** (0–360° North-center), **S360** (0–360° South-center), **N450** (0–450° North-center), or **S450** (0–450° South-center). Click **Set** to apply. Changing the model clears calibration data. |
+| **Calibration** | Displays the current calibration status. **Load from ESP** refreshes the displayed voltage values. **Skip Calibration** sets a default 0–3.2V range (usable for testing). You can also manually enter **Az Min/Max** and **El Min/Max** voltages and click **Set** to apply custom calibration. |
+
+> Calibration defines the voltage range that corresponds to your rotator's full mechanical travel. A proper calibration sweep (via the Control tab or OLED menu) is recommended for accurate tracking.
+
+### WiFi
+
+| Field | Description |
+|-------|-------------|
+| **WiFi Mode** | Select **Access Point** (ESP creates its own WiFi network), **Station** (connects to your home WiFi), or **Disabled** (WiFi off). Click **Apply** to switch. A confirmation dialog warns you that you will be disconnected from the ESP during the switch. |
+| **Station SSID / Password** | Enter your home WiFi network name and password, then click **Save**. These are stored on the ESP. |
+| **AP Password** | Change the 8-character password used to connect to the ESP's AP network. Must be exactly 8 characters. |
+| **Current AP SSID** | Displays the ESP's AP network name (read-only). |
+
+### PC Interface
+
+| Field | Description |
+|-------|-------------|
+| **Protocol Variant** | Select the serial protocol: **GS-232A**, **GS-232B**, or **Easycom**. Click **Set** to apply all protocol changes at once. |
+| **Baud Rate** | Serial baud rate for the PC interface: 9600, 19200, 38400, 57600, or 115200. Changes take effect immediately. |
+| **Show Commands** | When enabled, received commands are displayed on the OLED screen. |
+| **Reverse Delay** | Seconds to wait before reversing motor direction (0–3s). Prevents gear backlash. |
+
+### Network
+
+| Field | Description |
+|-------|-------------|
+| **Hamlib TCP Server** | Toggle the Hamlib `rotctld`-compatible server on port 4533. Enable this to control the rotator from Hamlib-compatible applications (e.g., Gpredict, PstRotator) over TCP. |
+
 ### ESP Management
 
 | Feature | Description |
@@ -325,20 +361,6 @@ Click **Start Calibration** to enter calibration mode. Follow the on-screen inst
 | **Upload Web Interface** | Select a .html.gz file and click **Upload HTML** to update the web interface without reflashing. |
 | **Upload Any File** | Upload images, SVGs, or other assets. Files are accessible at /files/filename. |
 | **Files on ESP** | Click **List Files** to see all files stored on the ESP filesystem. You can delete individual files. |
-
-### WiFi Configuration
-
-| Field | Description |
-|-------|-------------|
-| **Mode** | **STA** (connect to home WiFi) or **AP** (broadcast AZELCTRL network). |
-| **WiFi SSID** | Your home WiFi network name (required in STA mode). |
-| **WiFi Password** | Your home WiFi password. |
-
-Click **Save WiFi** to apply changes. The device will reboot into the selected mode.
-
-### Rotator Model
-
-Reads the firmware's configured rotator model from the ESP. Click **Refresh** to update after changing the model on the ESP side.
 
 ### Debug
 
@@ -370,6 +392,13 @@ The system computes rise/set times astronomically and updates every polling inte
 - If in AP mode: connect to the **AZELCTRL** WiFi network.
 - If in STA mode: the device will announce its IP on the serial console, or check your router's DHCP client list.
 - IP address is typically 192.168.88.154 when connected through the default home network.
+
+### Chrome: page does not load (blank / ERR_CONNECTION_RESET)
+Recent Chrome versions (v94+) may block plain HTTP connections to local network devices. Safari and Firefox are unaffected.
+
+**Fix:** In Chrome, navigate to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` and add `http://192.168.88.154` to the list (or your device's IP if different). Enable the flag and restart Chrome.
+
+If the page still doesn't load, check `chrome://flags/#block-insecure-private-network-requests` is set to **Disabled**.
 
 ### Browser shows old version
 Hard refresh (Cmd+Shift+R / Ctrl+F5) to clear the browser cache. The version number is shown in the footer.

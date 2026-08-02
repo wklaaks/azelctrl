@@ -388,6 +388,32 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
 .freq-table .freq-ul-col { min-width: 100px; padding-right: 4px; }
 .freq-table .freq-tx-col { min-width: 85px; padding-left: 4px; }
 .freq-table .freq-mode-col { min-width: 40px; text-align: right; }
+.freq-table .freq-ctcss-col { min-width: 70px; text-align: right; }
+.freq-table .freq-wake-col { min-width: 80px; text-align: right; }
+
+/* Hide Wake Tone column on narrow screens */
+@media (max-width: 700px) {
+  .freq-table .freq-wake-col { display: none; }
+}
+.freq-table .freq-tone-input,
+.freq-table .freq-wake-input {
+  width: 60px;
+  max-width: 60px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  text-align: right;
+  padding: 2px 4px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 3px;
+  background: var(--bg-secondary, #1a1a1a);
+  color: var(--text-primary, #fff);
+  box-sizing: border-box;
+}
+.freq-table .freq-tone-input:focus,
+.freq-table .freq-wake-input:focus {
+  outline: 2px solid var(--accent-color, #4a90d9);
+  border-color: var(--accent-color, #4a90d9);
+}
 
 /* No data indicator */
 .no-data { color: var(--muted); font-style: italic; font-size: 0.75rem; }
@@ -886,11 +912,165 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     <div class="setting-row">
       <div>
         <div class="setting-label">Rotator Model</div>
-        <div class="setting-desc">Read from ESP on startup. Click to refresh if you changed the model on the ESP.</div>
+        <div class="setting-desc">Set rotator variant (clears calibration on change)</div>
       </div>
       <div class="setting-control">
-        <span id="rotatorModelDisplay" style="font-family:monospace;font-size:0.9rem;color:var(--muted);">—</span>
-        <button class="btn btn-sm" id="refreshRotatorModelBtn" style="background:#6366f1;color:#fff;border-color:#6366f1;">Refresh</button>
+        <select id="rotatorModelSelect" style="min-width:100px;">
+          <option value="N360">N360</option>
+          <option value="S360">S360</option>
+          <option value="N450">N450</option>
+          <option value="S450">S450</option>
+        </select>
+        <button class="btn btn-sm btn-success" id="setRotatorBtn" style="margin-left:4px;">Set</button>
+        <button class="btn btn-sm" id="refreshRotatorModelBtn" style="margin-left:4px;">Refresh</button>
+        <span id="rotatorModelStatus" style="font-size:0.7rem;color:var(--muted);margin-left:4px;"></span>
+        <div id="rotatorModelDisplay" style="font-size:0.75rem;color:var(--muted);margin-top:4px;"></div>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Calibration</div>
+        <div class="setting-desc" id="calibrationDesc">Status: unknown</div>
+      </div>
+      <div class="setting-control" style="flex-direction:column;align-items:stretch;gap:4px;">
+        <div style="display:flex;gap:4px;align-items:center;">
+          <button class="btn btn-sm" id="skipCalBtn" style="background:#7c3aed;color:#fff;border-color:#7c3aed;">Skip Calibration</button>
+          <button class="btn btn-sm" id="loadCalBtn" style="background:#6366f1;color:#fff;border-color:#6366f1;">Load from ESP</button>
+          <span id="calStatus" style="font-size:0.7rem;color:var(--muted);"></span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:0.75rem;">
+          <label>Az Min: <input type="text" id="calAzMinV" style="width:50px;font-size:0.7rem;" placeholder="0.0"></label>
+          <label>Az Max: <input type="text" id="calAzMaxV" style="width:50px;font-size:0.7rem;" placeholder="3.2"></label>
+          <label>El Min: <input type="text" id="calElMinV" style="width:50px;font-size:0.7rem;" placeholder="0.0"></label>
+          <label>El Max: <input type="text" id="calElMaxV" style="width:50px;font-size:0.7rem;" placeholder="3.2"></label>
+          <button class="btn btn-sm" id="setCalBtn" style="background:#059669;color:#fff;border-color:#047857;">Set</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">WiFi</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">WiFi Mode</div>
+        <div class="setting-desc" id="wifiModeDesc">Current: unknown</div>
+      </div>
+      <div class="setting-control" style="flex-direction:column;align-items:stretch;gap:4px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <select id="wifiModeSelect" style="min-width:100px;">
+            <option value="AP">Access Point</option>
+            <option value="STA">Station</option>
+            <option value="DISABLED">Disabled</option>
+          </select>
+          <button class="btn btn-sm" id="setWifiModeBtn" style="background:#d97706;color:#fff;border-color:#d97706;">Apply</button>
+          <span id="wifiModeStatus" style="font-size:0.7rem;color:var(--muted);"></span>
+        </div>
+        <div id="wifiModeNotice" style="display:none;font-size:0.7rem;color:var(--warn);background:rgba(255,165,0,0.1);padding:4px 8px;border-radius:4px;"></div>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Station SSID</div>
+        <div class="setting-desc">Home WiFi network name</div>
+      </div>
+      <div class="setting-control">
+        <input type="text" id="staSsid" placeholder="MyNetwork" style="width:150px;">
+        <input type="password" id="staPass" placeholder="Password" style="width:120px;">
+        <button class="btn btn-sm btn-success" id="setStaBtn">Save</button>
+        <span id="staStatus" style="font-size:0.7rem;color:var(--muted);"></span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">AP Password</div>
+        <div class="setting-desc">Must be exactly 8 characters</div>
+      </div>
+      <div class="setting-control">
+        <input type="password" id="apPass" placeholder="yaesu123" style="width:100px;" maxlength="8">
+        <button class="btn btn-sm" id="setApPassBtn" style="background:#7c3aed;color:#fff;border-color:#7c3aed;">Set</button>
+        <span id="apPassStatus" style="font-size:0.7rem;color:var(--muted);"></span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Current AP SSID</div>
+        <div class="setting-desc" id="apSsidDisplay">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">PC Interface</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Protocol Variant</div>
+      </div>
+      <div class="setting-control">
+        <select id="protocolVariantSelect" style="min-width:100px;">
+          <option value="GS232A">GS-232A</option>
+          <option value="GS232B">GS-232B</option>
+          <option value="EASYCOM">Easycom</option>
+        </select>
+        <button class="btn btn-sm btn-success" id="setProtocolBtn">Set</button>
+        <span id="protocolStatus" style="font-size:0.7rem;color:var(--muted);"></span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Baud Rate</div>
+      </div>
+      <div class="setting-control">
+        <select id="baudRateSelect" style="min-width:100px;">
+          <option value="4">115200</option>
+          <option value="3">57600</option>
+          <option value="2">38400</option>
+          <option value="1">19200</option>
+          <option value="0">9600</option>
+        </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Show Commands</div>
+        <div class="setting-desc">Display received commands on OLED</div>
+      </div>
+      <div class="setting-control">
+        <label class="toggle-switch">
+          <input type="checkbox" id="showCommandsToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Reverse Delay</div>
+        <div class="setting-desc">Seconds to wait before reversing direction</div>
+      </div>
+      <div class="setting-control">
+        <select id="reverseDelaySelect" style="min-width:60px;">
+          <option value="0">0s</option>
+          <option value="1" selected>1s</option>
+          <option value="2">2s</option>
+          <option value="3">3s</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Network</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Hamlib TCP Server</div>
+        <div class="setting-desc">Enable Hamlib rotctld-compatible server on port 4533</div>
+      </div>
+      <div class="setting-control">
+        <label class="toggle-switch">
+          <input type="checkbox" id="hamlibToggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span id="hamlibStatus" style="font-size:0.7rem;color:var(--muted);margin-left:4px;"></span>
       </div>
     </div>
   </div>
@@ -1161,7 +1341,9 @@ async function fetchSatNOGSData(noradId) {
         downlink_high: tx.downlink_high,
         mode: tx.mode,
         alive: tx.alive,
-        status: tx.status
+        status: tx.status,
+        tone: tx.tone || null,
+        wake_tone: tx.wake_tone || null
       })),
       lastUpdated: Date.now(),
       hasActiveTransmitters: txList.length > 0
@@ -1456,7 +1638,9 @@ async function refreshSatNOGSFrequencies(noradIds) {
           downlink_high: tx.downlink_high,
           mode: tx.mode,
           alive: tx.alive,
-          status: tx.status
+          status: tx.status,
+          tone: tx.tone || null,
+          wake_tone: tx.wake_tone || null
         })),
         lastUpdated: Date.now(),
         hasActiveTransmitters: true
@@ -1642,11 +1826,31 @@ function formatTransmitterInfo(tx) {
   const dl = formatFreqRange(tx.downlink_low, tx.downlink_high);
   const ul = formatFreqRange(tx.uplink_low, tx.uplink_high);
   const mode = tx.mode || '';
+  const sat = satellites[selectedSatIndex];
+  const tone = resolveCtcss(sat ? sat.norad : null, tx);
   let parts = [];
   if (dl) parts.push(`DL: ${dl} MHz`);
   if (ul) parts.push(`UL: ${ul} MHz`);
   if (mode) parts.push(mode);
+  if (tone) parts.push(`CTCSS: ${tone} Hz`);
   return parts.join(' | ');
+}
+
+// Helper: format CTCSS tone value
+// Accepts a tone value (from the 'tone' field if present) and/or a description
+// string to parse CTCSS from (e.g., "FM Voice Repeater CTCSS 67.0 Hz")
+function formatTone(tone, description) {
+  // First try the dedicated tone field
+  if (tone !== null && tone !== undefined && tone !== '') {
+    const t = parseFloat(tone);
+    if (!isNaN(t)) return t.toFixed(1);
+  }
+  // Fall back to parsing from description
+  if (description) {
+    const match = description.match(/CTCSS\s+(\d+(?:\.\d+)?)/i);
+    if (match) return parseFloat(match[1]).toFixed(1);
+  }
+  return null;
 }
 
 // Refresh SatNOGS data for all satellites
@@ -1779,7 +1983,9 @@ async function altSyncFrequencies() {
         invert: row['invert'] === 'true',
         alive: row['alive'] === 'true',
         description: row['description'] || '',
-        type: row['type'] || ''
+        type: row['type'] || '',
+        tone: row['tone'] || null,
+        wake_tone: row['wake_tone'] || null
       }));
       const data = {
         ...existing,
@@ -1995,6 +2201,63 @@ function toggleFreqHidden(norad, tx) {
     hiddenFreqs.add(key);
   }
   saveHiddenFreqs();
+}
+
+// User-edited CTCSS and Wake Tone values, stored in localStorage
+// Keyed by "norad:freqKey" to match the hidden freqs pattern
+const userToneOverrides = JSON.parse(localStorage.getItem('userToneOverrides') || '{}');
+const userWakeOverrides = JSON.parse(localStorage.getItem('userWakeOverrides') || '{}');
+
+function saveUserToneOverrides() {
+  localStorage.setItem('userToneOverrides', JSON.stringify(userToneOverrides));
+}
+function saveUserWakeOverrides() {
+  localStorage.setItem('userWakeOverrides', JSON.stringify(userWakeOverrides));
+}
+
+// Get user-edited CTCSS tone (overrides SATNOGS value if present)
+function getUserCtcss(norad, tx) {
+  const key = freqKey(norad, tx);
+  return userToneOverrides[key] || null;
+}
+// Get user-edited Wake Tone (overrides SATNOGS value if present)
+function getUserWakeTone(norad, tx) {
+  const key = freqKey(norad, tx);
+  return userWakeOverrides[key] || null;
+}
+
+// Set user-edited CTCSS tone
+function setUserCtcss(norad, tx, value) {
+  const key = freqKey(norad, tx);
+  if (value === '' || value === null) {
+    delete userToneOverrides[key];
+  } else {
+    userToneOverrides[key] = value;
+  }
+  saveUserToneOverrides();
+}
+// Set user-edited Wake Tone
+function setUserWakeTone(norad, tx, value) {
+  const key = freqKey(norad, tx);
+  if (value === '' || value === null) {
+    delete userWakeOverrides[key];
+  } else {
+    userWakeOverrides[key] = value;
+  }
+  saveUserWakeOverrides();
+}
+
+// Resolve final CTCSS: user override takes precedence, then SATNOGS tone, then description
+function resolveCtcss(norad, tx) {
+  const userVal = getUserCtcss(norad, tx);
+  if (userVal !== null) return userVal;
+  return formatTone(tx.tone, tx.description);
+}
+// Resolve final Wake Tone: user override takes precedence, then SATNOGS wake_tone field
+function resolveWakeTone(norad, tx) {
+  const userVal = getUserWakeTone(norad, tx);
+  if (userVal !== null) return userVal;
+  return tx.wake_tone || null;
 }
 
 // Filter transmitters by hidden state
@@ -2603,6 +2866,7 @@ function renderPassTable() {
     let dlFreq = '<span class="no-data">—</span>';
     let ulFreq = '<span class="no-data">—</span>';
     let modeCell = '<span class="no-data">—</span>';
+    let ctcssCell = '<span class="no-data">—</span>';
     let freqHideCell = '<td style="width:0;padding:0;"></td>';
     
     if (showFreqs && satNOGS && satNOGS.transmitters && satNOGS.transmitters.length > 0) {
@@ -2621,6 +2885,7 @@ function renderPassTable() {
         dlFreq = '<span class="no-data">—</span>';
         ulFreq = '<span class="no-data">—</span>';
         modeCell = '<span class="no-data">—</span>';
+        ctcssCell = '<span class="no-data">—</span>';
       } else {
         // If multi-transmitter and this is a specific row, use that transmitter
         const tx = (totalTx > 1 && txIndex < visTx.length) 
@@ -2633,6 +2898,8 @@ function renderPassTable() {
         dlFreq = dl ? `<span style="font-family:monospace;">${dl}</span>` : '<span class="no-data">—</span>';
         ulFreq = ul ? `<span style="font-family:monospace;">${ul}</span>` : '<span class="no-data">—</span>';
         modeCell = tx.mode ? `<span style="font-family:monospace;">${tx.mode}</span>` : '<span class="no-data">—</span>';
+        const txTone = resolveCtcss(p.sat.norad, tx);
+        ctcssCell = txTone ? `<span style="font-family:monospace;">${txTone}</span>` : '<span class="no-data">—</span>';
       }
       
       // Freq-hide toggle button
@@ -2687,6 +2954,7 @@ function renderPassTable() {
       row += '<td class="freq-cell" style="width:100px;">' + dlFreq + '</td>' +
         '<td class="freq-cell" style="width:100px;">' + ulFreq + '</td>' +
         '<td class="freq-cell" style="width:50px;">' + modeCell + '</td>' +
+        '<td class="freq-cell" style="width:60px;">' + ctcssCell + '</td>' +
         freqHideCell;
     } else {
       row += '<td style="width:0;padding:0;"></td>';
@@ -2712,6 +2980,7 @@ function renderPassTable() {
     html += '<th style="width:100px;">DL Freq</th>' +
       '<th style="width:100px;">UL Freq</th>' +
       '<th style="width:50px;">Mode</th>' +
+      '<th style="width:60px;">CTCSS</th>' +
       (!freqHideOn ? '<th style="width:28px;">FH</th>' : '<th style="width:0;padding:0;"></th>');
   } else {
     html += '<th style="width:0;padding:0;"></th>';
@@ -2923,12 +3192,27 @@ function updateTrackingFreqInfo(sat) {
   html += '<tr><th class="freq-dl-col">DL Freq MHz</th><th class="freq-rx-col">RX Doppler</th>';
   html += '<th class="freq-gap"></th>';
   html += '<th class="freq-ul-col">UL Freq MHz</th><th class="freq-tx-col">TX Comp</th>';
-  html += '<th class="freq-mode-col">Mode</th></tr>';
+  html += '<th class="freq-mode-col">Mode</th>';
+  
+  // Check if any visible transmitter has FM mode with uplink freq — only show tone columns then
+  const showToneCols = visTx.some(tx => {
+    const mode = (tx.mode || '').toLowerCase();
+    return mode.includes('fm') && (tx.uplink_low || tx.uplink_high);
+  });
+  if (showToneCols) {
+    html += '<th class="freq-ctcss-col">CTCSS</th><th class="freq-wake-col">Wake Tone</th>';
+  }
+
+  const selSat = satellites[selectedSatIndex];
+  const selNorad = selSat ? selSat.norad : null;
 
   for (const tx of visTx) {
     const dlRange = formatFreqRange(tx.downlink_low, tx.downlink_high);
     const ulRange = formatFreqRange(tx.uplink_low, tx.uplink_high);
     const mode = tx.mode || '';
+    const tone = resolveCtcss(selNorad, tx);
+    const wakeTone = resolveWakeTone(selNorad, tx);
+    const isFMWithUL = mode.toLowerCase().includes('fm') && (tx.uplink_low || tx.uplink_high);
 
     // Get center frequencies for Doppler calculation
     const dlCenterHz = getCenterFreq(tx.downlink_low, tx.downlink_high);
@@ -2953,11 +3237,78 @@ function updateTrackingFreqInfo(sat) {
     html += `<td class="freq-ul-col">${ulRange ? ulRange : '—'}</td>`;
     html += `<td class="freq-tx-col">${txCompHtml}</td>`;
     html += `<td class="freq-mode-col">${mode || '—'}</td>`;
+    if (showToneCols) {
+      const txKey = freqKey(selNorad, tx);
+      if (isFMWithUL) {
+        const ctcssCell = tone
+          ? `<input type="text" class="freq-tone-input" data-key="${txKey}" value="${tone}" title="Hz">`
+          : `<input type="text" class="freq-tone-input" data-key="${txKey}" value="" placeholder="Hz" title="Hz">`;
+        const wakeCell = wakeTone
+          ? `<input type="text" class="freq-wake-input" data-key="${txKey}" value="${wakeTone}" title="Hz">`
+          : `<input type="text" class="freq-wake-input" data-key="${txKey}" value="" placeholder="Hz" title="Hz">`;
+        html += `<td class="freq-ctcss-col">${ctcssCell}</td>`;
+        html += `<td class="freq-wake-col">${wakeCell}</td>`;
+      } else {
+        html += `<td class="freq-ctcss-col"><span class="no-data">—</span></td>`;
+        html += `<td class="freq-wake-col"><span class="no-data">—</span></td>`;
+      }
+    }
     html += '</tr>';
   }
 
   html += '</table>';
   infoEl.innerHTML = html;
+
+  // Add event listeners for tone/wake inputs — auto-save on blur, clear button on Enter
+  setTimeout(() => {
+    const toneInputs = infoEl.querySelectorAll('.freq-tone-input');
+    toneInputs.forEach(input => {
+      input.addEventListener('blur', () => {
+        const val = input.value.trim();
+        const key = input.dataset.key;
+        // Find the tx object to get norad
+        const txObj = visTx.find(t => freqKey(selNorad, t) === key);
+        if (txObj) {
+          setUserCtcss(selNorad, txObj, val);
+        }
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          input.blur(); // triggers blur -> save
+        } else if (e.key === 'Escape') {
+          const key = input.dataset.key;
+          const txObj = visTx.find(t => freqKey(selNorad, t) === key);
+          if (txObj) {
+            const original = resolveCtcss(selNorad, txObj);
+            input.value = original || '';
+          }
+        }
+      });
+    });
+    const wakeInputs = infoEl.querySelectorAll('.freq-wake-input');
+    wakeInputs.forEach(input => {
+      input.addEventListener('blur', () => {
+        const val = input.value.trim();
+        const key = input.dataset.key;
+        const txObj = visTx.find(t => freqKey(selNorad, t) === key);
+        if (txObj) {
+          setUserWakeTone(selNorad, txObj, val);
+        }
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          input.blur();
+        } else if (e.key === 'Escape') {
+          const key = input.dataset.key;
+          const txObj = visTx.find(t => freqKey(selNorad, t) === key);
+          if (txObj) {
+            const original = resolveWakeTone(selNorad, txObj);
+            input.value = original || '';
+          }
+        }
+      });
+    });
+  }, 0);
 }
 function getCenterFreq(lowHz, highHz) {
   if (lowHz === null || lowHz === undefined || isNaN(lowHz)) return null;
@@ -7399,6 +7750,210 @@ window.addEventListener('DOMContentLoaded', () => {
     startMapUpdates();
   }
 });
+
+// ==================== API Configuration Settings ====================
+// Helper: POST JSON to an API endpoint and parse response
+async function apiPost(url, data) {
+  try {
+    const resp = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+    return await resp.json();
+  } catch(e) {
+    return {error: e.message};
+  }
+}
+
+// Helper: GET JSON from API
+async function apiGet(url) {
+  try {
+    const resp = await fetch(url);
+    return await resp.json();
+  } catch(e) {
+    return {error: e.message};
+  }
+}
+
+// Load all settings from ESP and populate the UI
+async function loadSettings() {
+  const data = await apiGet('/api/settings');
+  if (data.error) {
+    document.getElementById('rotatorModelStatus').textContent = 'Failed to load settings';
+    return;
+  }
+  
+  // Rotator model
+  if (data.rotator) {
+    const modelSelect = document.getElementById('rotatorModelSelect');
+    modelSelect.value = data.rotator.model;
+    document.getElementById('rotatorModelStatus').textContent = '';
+  }
+  
+  // Calibration
+  if (data.calibration) {
+    const cal = data.calibration;
+    document.getElementById('calibrationDesc').textContent = 'Status: ' + cal.status;
+    document.getElementById('calAzMinV').value = cal.azMinV.toFixed(3);
+    document.getElementById('calAzMaxV').value = cal.azMaxV.toFixed(3);
+    document.getElementById('calElMinV').value = cal.elMinV.toFixed(3);
+    document.getElementById('calElMaxV').value = cal.elMaxV.toFixed(3);
+  }
+  
+  // WiFi
+  if (data.wifi) {
+    const wifi = data.wifi;
+    document.getElementById('wifiModeDesc').textContent = 'Current: ' + wifi.mode;
+    document.getElementById('wifiModeSelect').value = wifi.mode;
+    document.getElementById('staSsid').value = wifi.ssid || '';
+    document.getElementById('apSsidDisplay').textContent = wifi.apSsid || '—';
+    document.getElementById('apPass').value = '';
+  }
+  
+  // Protocol
+  if (data.protocol) {
+    const proto = data.protocol;
+    document.getElementById('protocolVariantSelect').value = proto.variant;
+    document.getElementById('baudRateSelect').value = String(proto.baudIndex);
+    document.getElementById('showCommandsToggle').checked = proto.showCommands;
+    document.getElementById('reverseDelaySelect').value = String(proto.reverseDelay);
+  }
+  
+  // Network
+  if (data.network) {
+    document.getElementById('hamlibToggle').checked = data.network.hamlibEnabled;
+  }
+}
+
+// Rotator Model — Set button
+document.getElementById('setRotatorBtn').addEventListener('click', async () => {
+  const model = document.getElementById('rotatorModelSelect').value;
+  const status = document.getElementById('rotatorModelStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/rotator', {model});
+  status.textContent = result.ok ? 'Saved' : (result.error || 'Error');
+  if (result.ok) setTimeout(() => loadSettings(), 1000);
+});
+
+// Calibration — Skip
+document.getElementById('skipCalBtn').addEventListener('click', async () => {
+  if (!confirm('Skip calibration? This sets Az=El to 0-3.2V default range.')) return;
+  const status = document.getElementById('calStatus');
+  status.textContent = 'Skipping...';
+  const result = await apiPost('/api/settings/calibrate', {action: 'skip'});
+  status.textContent = result.ok ? 'Done' : (result.error || 'Error');
+  if (result.ok) setTimeout(() => loadSettings(), 500);
+});
+
+// Calibration — Load from ESP
+document.getElementById('loadCalBtn').addEventListener('click', () => {
+  document.getElementById('calStatus').textContent = 'Loading...';
+  loadSettings();
+  setTimeout(() => document.getElementById('calStatus').textContent = 'Loaded', 500);
+});
+
+// Calibration — Set manual values
+document.getElementById('setCalBtn').addEventListener('click', async () => {
+  const azMin = parseFloat(document.getElementById('calAzMinV').value);
+  const azMax = parseFloat(document.getElementById('calAzMaxV').value);
+  const elMin = parseFloat(document.getElementById('calElMinV').value);
+  const elMax = parseFloat(document.getElementById('calElMaxV').value);
+  if (isNaN(azMin) || isNaN(azMax) || isNaN(elMin) || isNaN(elMax)) {
+    document.getElementById('calStatus').textContent = 'Invalid values';
+    return;
+  }
+  const status = document.getElementById('calStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/calibrate', {action: 'set', azMinV: azMin, azMaxV: azMax, elMinV: elMin, elMaxV: elMax});
+  status.textContent = result.ok ? 'Saved' : (result.error || 'Error');
+  if (result.ok) setTimeout(() => loadSettings(), 500);
+});
+
+// WiFi Mode — Apply button with disconnect warning
+document.getElementById('setWifiModeBtn').addEventListener('click', async () => {
+  const mode = document.getElementById('wifiModeSelect').value;
+  const notice = document.getElementById('wifiModeNotice');
+  const status = document.getElementById('wifiModeStatus');
+  
+  if (mode === 'AP') {
+    if (!confirm('Switch to AP mode? You will be disconnected from the ESP. Reconnect to the AZELCTRL_XXXX SSID at 192.168.4.1.')) return;
+  } else if (mode === 'STA') {
+    if (!confirm('Switch to Station mode? The ESP will disconnect from this network and try to connect to your home WiFi. You will need to find its new IP address.')) return;
+  }
+  
+  status.textContent = 'Switching...';
+  const result = await apiPost('/api/settings/wifi-mode', {mode});
+  if (result.ok) {
+    status.textContent = 'Done';
+    if (result.notice) {
+      notice.textContent = result.notice;
+      notice.style.display = 'block';
+    }
+  } else {
+    status.textContent = result.error || 'Error';
+  }
+});
+
+// Station SSID/Password — Save
+document.getElementById('setStaBtn').addEventListener('click', async () => {
+  const ssid = document.getElementById('staSsid').value.trim();
+  const pass = document.getElementById('staPass').value;
+  if (!ssid) { document.getElementById('staStatus').textContent = 'SSID required'; return; }
+  const status = document.getElementById('staStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/wifi-sta', {ssid, password: pass});
+  status.textContent = result.ok ? 'Saved' : (result.error || 'Error');
+  if (result.ok) document.getElementById('staPass').value = '';
+});
+
+// AP Password — Set
+document.getElementById('setApPassBtn').addEventListener('click', async () => {
+  const pass = document.getElementById('apPass').value;
+  if (pass.length !== 8) { document.getElementById('apPassStatus').textContent = 'Need 8 chars'; return; }
+  const status = document.getElementById('apPassStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/ap-password', {password: pass});
+  status.textContent = result.ok ? 'Saved' : (result.error || 'Error');
+  if (result.ok) document.getElementById('apPass').value = '';
+});
+
+// Protocol — Set button (includes variant + baud + showCommands + reverseDelay)
+document.getElementById('setProtocolBtn').addEventListener('click', async () => {
+  const variant = document.getElementById('protocolVariantSelect').value;
+  const baudIndex = parseInt(document.getElementById('baudRateSelect').value);
+  const showCommands = document.getElementById('showCommandsToggle').checked;
+  const reverseDelay = parseInt(document.getElementById('reverseDelaySelect').value);
+  const status = document.getElementById('protocolStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/protocol', {variant, baudIndex, showCommands, reverseDelay});
+  status.textContent = result.ok ? 'Saved' : (result.error || 'Error');
+});
+
+// Hamlib toggle
+document.getElementById('hamlibToggle').addEventListener('change', async function() {
+  const enabled = this.checked;
+  const status = document.getElementById('hamlibStatus');
+  status.textContent = 'Saving...';
+  const result = await apiPost('/api/settings/hamlib', {enabled});
+  status.textContent = result.ok ? '' : (result.error || 'Error');
+});
+
+// Protocol auto-save on baud rate / show commands / reverse delay changes
+['baudRateSelect', 'showCommandsToggle', 'reverseDelaySelect'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => document.getElementById('setProtocolBtn').click());
+});
+
+// Load settings on page load
+document.addEventListener('DOMContentLoaded', () => {
+  // Give the ESP a moment to initialize, then load
+  setTimeout(loadSettings, 1000);
+});
+
+// Also load when the Settings tab becomes active
+const settingsTab = document.querySelector('.tab[data-tab="settings"]');
+if (settingsTab) {
+  settingsTab.addEventListener('click', () => {
+    setTimeout(loadSettings, 200);
+  });
+}
 
 </script>
 
