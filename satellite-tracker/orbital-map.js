@@ -146,6 +146,13 @@ class OrbitalMapRenderer {
     this._baseDirty = true;
   }
 
+  // Set zoom level and center on station location
+  setZoomLevel(zoom) {
+    this.zoom = zoom;
+    this.centerOn(stationLocation.lat, stationLocation.lon);
+    this._baseDirty = true;
+  }
+
   // Set show terminator flag (does NOT invalidate base — overlay only)
   setShowTerminator(show) {
     this.showTerminator = show;
@@ -945,6 +952,17 @@ function initOrbitalMap() {
       }
     });
   }
+
+  // Zoom level buttons
+  const zoomBtns = document.querySelectorAll('.map-zoom-btn');
+  zoomBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!orbitalMap) return;
+      const zoom = parseFloat(btn.getAttribute('data-zoom'));
+      orbitalMap.setZoomLevel(zoom);
+      orbitalMap.render();
+    });
+  });
 
   // Pan with mouse drag
   let isDragging = false;
