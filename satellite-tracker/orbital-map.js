@@ -96,15 +96,17 @@ class OrbitalMapRenderer {
     const visibleLonRange = 360 / this.zoom;
     const x = ((lonShift + visibleLonRange / 2) / visibleLonRange) * w;
     // Zoom also scales the visible latitude range: zoom=1 shows ±90°, zoom=2 shows ±45°, etc.
+    // Center on centerLat, similar to longitude centering
     const visibleLatRange = 180 / this.zoom;
-    const y = ((visibleLatRange / 2 - lat) / visibleLatRange) * h;
+    const latShift = lat - this.centerLat;
+    const y = ((visibleLatRange / 2 - latShift) / visibleLatRange) * h;
     return [x, y];
   }
 
   // Inverse projection: canvas x/y → lat/lon
   unproject(x, y) {
-    const lon = (x / this.canvas.width) * 360 + this.centerLon - 180 * (this.zoom - 1);
-    const lat = 90 - (y / this.canvas.height) * 180;
+    const lon = (x / this.canvas.width) * 360 / this.zoom + this.centerLon - 180 / this.zoom;
+    const lat = this.centerLat + 90 / this.zoom - (y / this.canvas.height) * 180 / this.zoom;
     return [lat, lon];
   }
 
@@ -349,7 +351,8 @@ class OrbitalMapRenderer {
       if (u > maxU) maxU = u;
       sumLat += ring[i][0];
       xs[i] = ((u + visibleLonRange / 2) / visibleLonRange) * w;
-      ys[i] = ((visibleLatRange / 2 - ring[i][0]) / visibleLatRange) * h;
+      const latShift = ring[i][0] - this.centerLat;
+      ys[i] = ((visibleLatRange / 2 - latShift) / visibleLatRange) * h;
     }
     // Shortest closing step from the last point back to the first
     let dClose = ring[0][1] - ring[n - 1][1];
@@ -1017,7 +1020,7 @@ function initOrbitalMap() {
     const dLon = -(dx / canvas.width) * 360 / orbitalMap.zoom;
     const dLat = (dy / canvas.height) * 180 / orbitalMap.zoom;
     orbitalMap.centerLon = dragStartCenterLon + dLon;
-    orbitalMap.centerLat = dragStartCenterLat + dLat;
+    orbitalMap.centerLat = Math.max(-85, Math.min(85, dragStartCenterLat + dLat));
     orbitalMap._baseDirty = true;
     orbitalMap.render();
   });
