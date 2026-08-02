@@ -371,8 +371,25 @@ class OrbitalMapRenderer {
     // Copies to draw: cull any that fall entirely off-canvas
     const shifts = [];
     const halfRange = visibleLonRange / 2;
-    for (let s = -1; s <= 1; s++) {
-      if (minU + s * visibleLonRange <= halfRange && maxU + s * visibleLonRange >= -halfRange) shifts.push(s * w);
+    // Only draw seam copies (s != 0) if the ring wraps around the globe
+    // (i.e., its longitude span exceeds the visible range). This prevents
+    // distant landmasses from appearing as false seam copies when zoomed in.
+    const ringSpan = maxU - minU;
+    const wrapsGlobe = ringSpan > visibleLonRange;
+    if (wrapsGlobe) {
+      const numCopies = Math.ceil(360 / visibleLonRange);
+      for (let s = -numCopies; s <= numCopies; s++) {
+        const shiftedMin = minU + s * visibleLonRange;
+        const shiftedMax = maxU + s * visibleLonRange;
+        if (shiftedMin <= halfRange && shiftedMax >= -halfRange) {
+          shifts.push(s * w);
+        }
+      }
+    } else {
+      // Ring doesn't wrap globe — only draw at s=0 if it overlaps visible range
+      if (minU <= halfRange && maxU >= -halfRange) {
+        shifts.push(0);
+      }
     }
     if (shifts.length === 0) return;
 
