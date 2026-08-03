@@ -1288,14 +1288,94 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 
 ### 7.11 Firmware Installation
 
-1. Install the Arduino IDE or arduino-cli on your computer.
-2. Install the ESP8266 board package.
-3. Install required libraries: SSD1306 OLED driver, ADS1115 driver, EEPROM library.
-4. Open the AZELCtrl firmware sketch.
-5. Select board: "NodeMCU 1.0 (ESP-12E Module)" or equivalent.
-6. Select port: Your ESP8266's serial port.
-7. Upload the firmware.
-8. Power up the unit and verify the OLED displays the startup sequence.
+The ESP8266 must first be flashed with the AZELCtrl firmware. You can either build it from source (Arduino IDE / `arduino-cli`) or flash the pre-built firmware binary from the release package — the web-tool method below works identically on Windows and macOS. Flashing is platform-specific; follow the relevant subsection.
+
+Download the **release package** (containing four files):
+
+| File | Purpose |
+|------|---------|
+| `azelctrl-firmware.bin` | The compiled firmware — this is the main program |
+| `index.html.gz` | The satellite-tracker web interface (gzip-compressed) |
+| `favicon.ico` | Browser tab icon |
+| `world_coastline.js` | World-map coastline data for the orbital map |
+
+> Only `azelctrl-firmware.bin` is flashed to the chip. The other three files are uploaded to the ESP's filesystem (SPIFFS) afterwards via the web interface — see [Section 8.3](#83-remote-control-via-web-interface).
+
+#### 7.11.1 Windows
+
+**1. Install the USB driver**
+
+Connect the ESP8266 via USB and install the driver for its USB-to-serial chip:
+
+| Board chip | Driver |
+|------------|--------|
+| **CH340G** (most NodeMCU clones) | [CH340 driver (WCH)](https://www.wch.cn/download/CH341SER_EXE.html) |
+| **CP2102** (NodeMCU v2, Wemos D1 Mini) | [CP210x driver (Silicon Labs)](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers) |
+
+Open **Device Manager** → **Ports (COM & LPT)** and note the COM port (e.g. `COM3`). A device with a yellow triangle means the driver is missing — install it and reconnect. Try a different USB cable if the board is never detected (charge-only cables carry no data).
+
+**2. Flash using ESPHome Web (recommended)**
+
+The easiest method — a browser-based tool using Web Serial; no extra software needed.
+
+1. Open [https://web.esphome.io](https://web.esphome.io) in **Chrome, Edge, or Firefox 151+** (Safari does not support Web Serial).
+2. Click **CONNECT** and select the ESP8266's COM port.
+3. Click **INSTALL** (not "Prepare for first use"), then **CHOOSE FILE** and select `azelctrl-firmware.bin`.
+4. Flash — the ESP reboots automatically when done.
+
+If you prefer a desktop tool, the **[Arduino IDE](https://www.arduino.cc/en/software)** also works: add the ESP8266 boards URL `https://arduino.esp8266.com/stable/package_esp8266com_index.json`, install **esp8266 by ESP8266 Community** (v3.1.2+), then select board **NodeMCU 1.0 (ESP-12E Module)** with **Flash Size = 4MB (FS:3MB OTA:~512KB)**, Flash Mode **DIO**, CPU **80 MHz**, Upload Speed **115200**, and the COM port before **Sketch → Upload** (if it hangs at `Connecting...`, hold **FLASH**, tap **RST**, release **FLASH**, retry). The 4MB/FS:3MB layout is **critical** — without it the filesystem can't hold the web interface and map data.
+
+#### 7.11.2 macOS
+
+**1. Install the USB driver**
+
+CP2102-based boards (like the NodeMCU v2 in the parts list) need the [CP210x VCP driver (Silicon Labs)](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers); CH340-based boards need the [CH340 macOS driver (WCH)](http://www.wch.cn/downloads/CH341SER_MAC_ZIP.html). After installing, confirm the board appears in **System Information → USB** (approve the extension in **System Settings → Privacy & Security** if prompted).
+
+**2. Identify the serial port**
+
+Plug in the board and run:
+
+```bash
+ls /dev/cu.*
+```
+
+The board appears as `/dev/cu.usbserial-xxxx` (e.g. `/dev/cu.usbserial-0001`). Note this path — you'll need it below.
+
+**3. Flash using ESPHome Web (recommended)**
+
+Same tool as Windows — Web Serial works in **Chrome or Edge on macOS** (not Safari):
+
+1. Open [https://web.esphome.io](https://web.esphome.io) in Chrome/Edge.
+2. Click **CONNECT**, select the ESP8266's serial port.
+3. Click **INSTALL** → **CHOOSE FILE** → select `azelctrl-firmware.bin`.
+4. Flash — the ESP reboots when done.
+
+**4. Alternative: build & upload with `arduino-cli` (terminal)**
+
+If you build from source (e.g. the `ycint/` firmware sketch):
+
+```bash
+# One-time setup
+arduino-cli config init
+arduino-cli core update-index
+arduino-cli core install esp8266:esp8266
+
+# Compile (4M3M layout — 4 MB flash, 3 MB filesystem)
+arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2:eesz=4M3M ycint/
+
+# Upload firmware to the board
+arduino-cli upload --port /dev/cu.usbserial-0001 \
+  --fqbn esp8266:esp8266:nodemcuv2:eesz=4M3M ycint/
+```
+
+The Arduino IDE (macOS app) with the same ESP8266 board package and board/flash settings is an equivalent option.
+
+**After flashing (both platforms):**
+
+1. Power up and confirm the OLED shows the startup sequence.
+2. First boot with no saved settings automatically starts **Access Point** mode — connect to the **AZELCTRL_XXXX** WiFi network (password **yaesu123**) and open **http://192.168.4.1/**.
+3. Upload the three supporting files (`index.html.gz` via **Upload Web Interface**, then `favicon.ico` and `world_coastline.js` via **Upload Any File** under Settings).
+4. Refresh — the tracker UI should load and the **Map** tab should show coastlines.
 
 **Note**: WiFi credentials are configured via the captive portal setup process (see section 7.12), not in the source code.
 
