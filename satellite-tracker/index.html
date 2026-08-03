@@ -6501,7 +6501,14 @@ document.getElementById('mapTrackDuration').addEventListener('change', () => {
 // --- Country color palette generator ---
 // Deterministic color from country ID. Produces a muted map-style
 // color with 360 possible hues, slight saturation/lightness variation.
+// Per-country overrides for ids whose hash colour is confused with a
+// neighbour: Zimbabwe (716) and South Africa (710) both hash to ~green
+// hue (123 vs 117), so Zimbabwe is pinned to a distinct blue.
+const COUNTRY_COLOR_OVERRIDES = {
+  '716': 'hsl(208, 55%, 30%)'  // Zimbabwe — clearly distinct from SA's green
+};
 function _countryColor(id) {
+  if (COUNTRY_COLOR_OVERRIDES[id]) return COUNTRY_COLOR_OVERRIDES[id];
   // djb2 hash of the country ID string
   let hash = 5381;
   for (let i = 0; i < id.length; i++) {
