@@ -1372,12 +1372,14 @@ The Arduino IDE (macOS app) with the same ESP8266 board package and board/flash 
 
 **After flashing (both platforms):**
 
-1. Power up and confirm the OLED shows the startup sequence.
-2. First boot with no saved settings automatically starts **Access Point** mode — connect to the **AZELCTRL_XXXX** WiFi network (password **yaesu123**) and open **http://192.168.4.1/**.
-3. Upload the three supporting files (`index.html.gz` via **Upload Web Interface**, then `favicon.ico` and `world_coastline.js` via **Upload Any File** under Settings).
-4. Refresh — the tracker UI should load and the **Map** tab should show coastlines.
+1. Power up and confirm the OLED shows the startup sequence ("AZELCtrl", firmware version).
+2. **First boot with no saved settings:** the firmware detects the incomplete settings, shows **"Missing Settings!"**, and **automatically starts in Access Point mode** — SSID **AZELCTRL_XXXX** (password **yaesu123**). Connect to that network and open **http://192.168.4.1/** in a browser. The web interface is served immediately — no OLED menu navigation is required first.
+3. On the **Settings** tab you can do both of the following:
+   - **Upload the supporting files** — `index.html.gz` via **Upload Web Interface**, then `favicon.ico` and `world_coastline.js` via **Upload Any File**.
+   - **Enter your home WiFi details** — type your home network's name and password into **Station SSID** and **Password**, click **Save**, then set **WiFi Mode** to **Station** and click **Apply**. The unit reboots and joins your home network (look up its DHCP-assigned IP in your router's client list; reconnect this device to your home WiFi first). You can always switch back to AP mode later from the WiFi settings on this page or the OLED Network menu.
+4. Refresh the web page — the tracker UI should load and the **Map** tab should show coastlines.
 
-**Note**: WiFi credentials are configured via the captive portal setup process (see section 7.12), not in the source code.
+**Note**: WiFi credentials are not stored in the source code — they are entered on a live unit, either on the web interface's **Settings** page (Station SSID / Password) or via the captive portal setup process (see section 7.12), and saved to EEPROM.
 
 ### 7.12 Configuring WiFi via Captive Portal
 
