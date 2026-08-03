@@ -1207,6 +1207,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div style="display: flex; gap: 8px; justify-content: flex-start;">
         <button class="btn btn-sm" id="mapResetBtn" style="background: var(--accent); color: #000; border-color: var(--accent);">↺ Reset View</button>
         <button class="btn btn-sm" id="mapCenterSatBtn" style="background: var(--green); color: #000; border-color: var(--green);">⊕ Center Sat</button>
+        <button class="btn btn-sm" id="mapFollowSatBtn" title="Keep the map centred on the satellite as it moves" style="background: var(--card); color: var(--text); border-color: var(--border);">◎ Follow Sat</button>
       </div>
       <div style="display: flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap;">
         <span style="color: var(--muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;">ZOOM:</span>
@@ -7481,6 +7482,7 @@ function computeMoonPosition(date) {
 // --- Map Integration ---
 
 let orbitalMap = null; // OrbitalMapRenderer instance
+let mapFollowSat = false; // when true, updateOrbitalMap() re-centres the view on the satellite
 let mapUpdateInterval = null;
 
 function initOrbitalMap() {
@@ -7551,6 +7553,20 @@ function initOrbitalMap() {
   if (centerSatBtn) {
     centerSatBtn.addEventListener('click', () => {
       if (orbitalMap && orbitalMap.satPos) {
+        orbitalMap.centerOn(orbitalMap.satPos[0], orbitalMap.satPos[1]);
+        orbitalMap.render();
+      }
+    });
+  }
+  const followSatBtn = document.getElementById('mapFollowSatBtn');
+  if (followSatBtn) {
+    followSatBtn.addEventListener('click', () => {
+      mapFollowSat = !mapFollowSat;
+      // Highlight the button while following is active
+      followSatBtn.style.background = mapFollowSat ? '#fbbf24' : 'var(--card)';
+      followSatBtn.style.color = mapFollowSat ? '#000' : 'var(--text)';
+      followSatBtn.style.borderColor = mapFollowSat ? '#fbbf24' : 'var(--border)';
+      if (mapFollowSat && orbitalMap && orbitalMap.satPos) {
         orbitalMap.centerOn(orbitalMap.satPos[0], orbitalMap.satPos[1]);
         orbitalMap.render();
       }
@@ -7704,6 +7720,11 @@ function updateOrbitalMap() {
     const currentPos = getSatGroundPosition(satrec, now);
     if (currentPos) {
       orbitalMap.setSatPos(currentPos.lat, currentPos.lon);
+      // Follow mode: keep the view centred on the satellite on every update,
+      // so the user doesn't have to click ⊕ Center Sat repeatedly.
+      if (mapFollowSat) {
+        orbitalMap.centerOn(currentPos.lat, currentPos.lon);
+      }
       // Compute and set satellite footprint (visibility circle)
       orbitalMap.setFootprint(currentPos.lat, currentPos.lon, currentPos.alt);
     } else {
