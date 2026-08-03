@@ -1207,14 +1207,14 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       <div style="display: flex; gap: 8px; justify-content: flex-start;">
         <button class="btn btn-sm" id="mapResetBtn" style="background: var(--accent); color: #000; border-color: var(--accent);">↺ Reset View</button>
         <button class="btn btn-sm" id="mapCenterSatBtn" style="background: var(--green); color: #000; border-color: var(--green);">⊕ Center Sat</button>
-        <button class="btn btn-sm" id="mapFollowSatBtn" title="Keep the map centred on the satellite as it moves" style="background: var(--card); color: var(--text); border-color: var(--border);">◎ Follow Sat</button>
+        <button class="btn btn-sm" id="mapFollowSatBtn" title="Keep the map centred on the satellite as it moves" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">◎ Follow Sat</button>
       </div>
       <div style="display: flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap;">
         <span style="color: var(--muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;">ZOOM:</span>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom100" data-zoom="1.0" title="100% (full globe)" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">1</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom75" data-zoom="1.33" title="75%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.33, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">2</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom50" data-zoom="2.0" title="50%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(2.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">3</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom25" data-zoom="4.0" title="25%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(4.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">4</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom100" data-zoom="1.0" title="100% (full globe)" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">1</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom75" data-zoom="1.33" title="75%" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">2</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom50" data-zoom="2.0" title="50%" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">3</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom25" data-zoom="4.0" title="25%" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">4</button>
       </div>
       <div id="mapFooter" style="font-family: monospace; font-size: 0.75rem; color: var(--muted); text-align: right;">
         Select a satellite on the Tracking tab
@@ -7483,6 +7483,16 @@ function computeMoonPosition(date) {
 
 let orbitalMap = null; // OrbitalMapRenderer instance
 let mapFollowSat = false; // when true, updateOrbitalMap() re-centres the view on the satellite
+
+// Center for zoom/centering actions: the satellite's current position while
+// following is active, otherwise the user's QTH. This keeps zooming (and any
+// centering) anchored on the satellite during a follow, not snapping back to QTH.
+function mapZoomCenter() {
+  if (mapFollowSat && orbitalMap && orbitalMap.satPos) {
+    return [orbitalMap.satPos[0], orbitalMap.satPos[1]];
+  }
+  return [stationLocation.lat, stationLocation.lon];
+}
 let mapUpdateInterval = null;
 
 function initOrbitalMap() {
@@ -7562,13 +7572,21 @@ function initOrbitalMap() {
   if (followSatBtn) {
     followSatBtn.addEventListener('click', () => {
       mapFollowSat = !mapFollowSat;
-      // Highlight the button while following is active
-      followSatBtn.style.background = mapFollowSat ? '#fbbf24' : 'var(--card)';
-      followSatBtn.style.color = mapFollowSat ? '#000' : 'var(--text)';
-      followSatBtn.style.borderColor = mapFollowSat ? '#fbbf24' : 'var(--border)';
-      if (mapFollowSat && orbitalMap && orbitalMap.satPos) {
-        orbitalMap.centerOn(orbitalMap.satPos[0], orbitalMap.satPos[1]);
-        orbitalMap.render();
+      if (mapFollowSat) {
+        // Active: label says what to do next; amber stands out as a mode toggle
+        followSatBtn.textContent = '◎ Stop Following Sat';
+        followSatBtn.style.background = '#fbbf24';
+        followSatBtn.style.color = '#000';
+        followSatBtn.style.borderColor = '#fbbf24';
+        if (orbitalMap && orbitalMap.satPos) {
+          orbitalMap.centerOn(orbitalMap.satPos[0], orbitalMap.satPos[1]);
+          orbitalMap.render();
+        }
+      } else {
+        followSatBtn.textContent = '◎ Follow Sat';
+        followSatBtn.style.background = '#1e3a5f';
+        followSatBtn.style.color = '#e6edf3';
+        followSatBtn.style.borderColor = '#2d5a8e';
       }
     });
   }
@@ -7580,7 +7598,9 @@ function initOrbitalMap() {
       btn.addEventListener('click', () => {
         if (!orbitalMap) return;
         const zoom = parseFloat(btn.getAttribute('data-zoom'));
-        orbitalMap.setZoomLevel(zoom, stationLocation.lat, stationLocation.lon);
+        // Anchor the zoom on the satellite while following, otherwise the QTH
+        const [zcLat, zcLon] = mapZoomCenter();
+        orbitalMap.setZoomLevel(zoom, zcLat, zcLon);
         orbitalMap.render();
       });
     }
