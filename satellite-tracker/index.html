@@ -5954,10 +5954,34 @@ document.getElementById('convertGridBtn').addEventListener('click', () => {
   }
   document.getElementById('latitude').value = result.lat.toFixed(4);
   document.getElementById('longitude').value = result.lon.toFixed(4);
+
+  // Persist grid square to localStorage
+  localStorage.setItem('gridSquare', grid);
+
+  // Persist station location to localStorage (same as the change listeners)
+  const alt = parseFloat(document.getElementById('altitude').value) || 1000;
+  stationLocation = { lat: result.lat, lon: result.lon, alt };
+  localStorage.setItem('stationLocation', JSON.stringify(stationLocation));
+
+  // Restart tracking if active
+  maybeRestartTracking();
+
+  // Update map station position
+  if (orbitalMap) {
+    orbitalMap.setStationPos(stationLocation.lat, stationLocation.lon);
+    orbitalMap.render();
+  }
 });
 
 // ==================== SETTINGS ====================
 // Auto-save location on change
+// Helper: update map station position when stationLocation changes
+function updateStationLocationOnMap() {
+  if (orbitalMap) {
+    orbitalMap.setStationPos(stationLocation.lat, stationLocation.lon);
+    orbitalMap.render();
+  }
+}
 document.getElementById('latitude').addEventListener('change', () => {
   const lat = parseFloat(document.getElementById('latitude').value);
   const lon = parseFloat(document.getElementById('longitude').value);
@@ -5965,6 +5989,7 @@ document.getElementById('latitude').addEventListener('change', () => {
   if (isNaN(lat) || isNaN(lon)) return;
   stationLocation = { lat, lon, alt };
   localStorage.setItem('stationLocation', JSON.stringify(stationLocation));
+  updateStationLocationOnMap();
 });
 
 document.getElementById('longitude').addEventListener('change', () => {
@@ -5974,6 +5999,7 @@ document.getElementById('longitude').addEventListener('change', () => {
   if (isNaN(lat) || isNaN(lon)) return;
   stationLocation = { lat, lon, alt };
   localStorage.setItem('stationLocation', JSON.stringify(stationLocation));
+  updateStationLocationOnMap();
 });
 
 document.getElementById('altitude').addEventListener('change', () => {
@@ -5983,6 +6009,7 @@ document.getElementById('altitude').addEventListener('change', () => {
   if (isNaN(lat) || isNaN(lon)) return;
   stationLocation = { lat, lon, alt };
   localStorage.setItem('stationLocation', JSON.stringify(stationLocation));
+  updateStationLocationOnMap();
 });
 
 // Auto-save settings on change — no "Save" button needed
@@ -6824,9 +6851,12 @@ class OrbitalMapRenderer {
     // encircles a pole (Antarctica) — it has no last->first edge in unwrapped
     // space, so it must be closed through the pole, off-canvas, and never with
     // a line across the map.
+    // NOTE: the pole test is zoom-INDEPENDENT (a full 360° turn). Comparing
+    // against visibleLonRange instead would fail at zoom=1 (360 > 360 = false)
+    // and misclassify the ring, leaving the polar landmass unfilled.
     const uEnd = u + dClose;
     const winding = uEnd - u0;
-    const enclosesPole = Math.abs(winding) > visibleLonRange;
+    const enclosesPole = Math.abs(winding) > 180;
     const polarY = (sumLat / n) < 0 ? h + 8 : -8;
     // With zoom, the pole may be off-screen. Clamp polarY to canvas bounds.
     const clampedPolarY = Math.max(-8, Math.min(h + 8, polarY));
@@ -6837,28 +6867,28 @@ class OrbitalMapRenderer {
       if (uEnd > maxU) maxU = uEnd;
     }
 
-    // Copies to draw: cull any that fall entirely off-canvas
+    // Copies to draw: cull any that fall entirely off-canvas.
+    // Spacing: one copy per FULL 360° TURN (fullTurnPx px). u and u+360 are
+    // the same real longitude, so copies spaced a full turn apart never
+    // duplicate a landmass — each real longitude inside the visible window is
+    // drawn exactly once. We do NOT space copies by visibleLonRange (one canvas
+    // width): at zoom>1 that makes the copies of a wide ring (a pole-encircler
+    // like Antarctica spans a full 360°) overlap by (360/visibleLonRange - 1)
+    // widths and paint on top of themselves — the "Antarctica wraps around and
+    // duplicates / appears under Africa" artifact.
+    //
+    // This is also the general seam-copy rule for ordinary rings: a ring whose
+    // unwrapped longitude straddles the +180 boundary (e.g. Russia) gets a copy
+    // one full turn over so its far sliver wraps to the opposite edge, while a
+    // ring fully inside the window (or fully outside it, like Australia at 50%)
+    // gets none — so distant landmasses never mirror onto the opposite side.
     const shifts = [];
+    const fullTurnPx = (360 / visibleLonRange) * w;
     const halfRange = visibleLonRange / 2;
-    // Only draw seam copies (s != 0) if the ring wraps around the globe
-    // (i.e., its longitude span exceeds the visible range). This prevents
-    // distant landmasses from appearing as false seam copies when zoomed in.
-    const ringSpan = maxU - minU;
-    const wrapsGlobe = ringSpan > visibleLonRange;
-    if (wrapsGlobe) {
-      const numCopies = Math.ceil(360 / visibleLonRange);
-      for (let s = -numCopies; s <= numCopies; s++) {
-        const shiftedMin = minU + s * visibleLonRange;
-        const shiftedMax = maxU + s * visibleLonRange;
-        if (shiftedMin <= halfRange && shiftedMax >= -halfRange) {
-          shifts.push(s * w);
-        }
-      }
-    } else {
-      // Ring doesn't wrap globe — only draw at s=0 if it overlaps visible range
-      if (minU <= halfRange && maxU >= -halfRange) {
-        shifts.push(0);
-      }
+    const sMin = Math.ceil((-halfRange - maxU) / 360);
+    const sMax = Math.floor((halfRange - minU) / 360);
+    for (let s = sMin; s <= sMax; s++) {
+      shifts.push(s * fullTurnPx);
     }
     if (shifts.length === 0) return;
 
@@ -7590,6 +7620,10 @@ function updateOrbitalMap() {
     const currentPos = getSatGroundPosition(satrec, now);
     if (currentPos) {
       orbitalMap.setSatPos(currentPos.lat, currentPos.lon);
+      // Compute and set satellite footprint (visibility circle)
+      orbitalMap.setFootprint(currentPos.lat, currentPos.lon, currentPos.alt);
+    } else {
+      orbitalMap.setFootprint(null, null, 0);
     }
 
     // Generate ground track

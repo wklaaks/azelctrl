@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Antarctica zoom render test</title>
+<style>
+  body { background:#0c1929; color:#e6edf3; font-family:monospace; margin:12px; }
+  canvas { border:1px solid #2d5a8e; width:720px; height:360px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .cell { margin-bottom:10px; }
+  .lbl { font-size:11px; color:#58a6ff; margin-bottom:2px; }
+  #status { color:#fbbf24; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="status">loading data…</div>
+<div class="row" id="grid"></div>
+<script src="world_coastline.js"></script>
+<script>
+// Isolate ONLY the OrbitalMapRenderer class from the deployed index.html
+async function loadRenderer() {
+  const full = await (await fetch('index.html')).text();
+  // Top-level helper _countryColor(id) used by _renderBase
+  const c0 = full.indexOf('function _countryColor');
+  const cEnd = full.indexOf('\n}', c0) + 2;
+  const colorFn = full.slice(c0, cEnd);
+  // ORBIT_COLORS used by render() when a ground track exists
+  const o0 = full.indexOf('const ORBIT_COLORS');
+  const oEnd = full.indexOf('\n', full.indexOf(';', o0)) + 1;
+  const orbitColors = full.slice(o0, oEnd);
+  const start = full.indexOf('class OrbitalMapRenderer');
+  let depth = 0, i = full.indexOf('{', start), end = -1;
+  for (; i < full.length; i++) {
+    if (full[i] === '{') depth++;
+    else if (full[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  const ctor = new Function(
+    colorFn + '\n' + orbitColors + '\n' +
+    full.slice(start, end) + '\n; return OrbitalMapRenderer;');
+  return ctor();
+}
+
+const grid = document.getElementById('grid');
+const status = document.getElementById('status');
+
+function newCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 720; c.height = 360;
+  return c;
+}
+
+async function main() {
+  const Renderer = await loadRenderer();
+  status.textContent = 'renderer loaded, rendering…';
+  const cases = [
+    // [label, zoom, clat, clon]
+    ['100% ResetView (Cape Town 18.4E)', 1, -33.9, 18.4],
+    ['100% pan lon=-60', 1, -33.9, -60],
+    ['100% pan lon=179', 1, -33.9, 179],
+    ['75% Cape Town', 1.33, -33.9, 18.4],
+    ['75% pan lon=179', 1.33, -33.9, 179],
+    ['50% Cape Town', 2, -33.9, 18.4],
+    ['50% pan lon=179', 2, -33.9, 179],
+    ['25% Cape Town', 4, -33.9, 18.4],
+    ['25% pan lon=120', 4, -33.9, 120],
+  ];
+  for (const [label, zoom, clat, clon] of cases) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    const lbl = document.createElement('div');
+    lbl.className = 'lbl';
+    lbl.textContent = label;
+    const canvas = newCanvas();
+    canvas.id = 'm' + canvasCount++;
+    cell.appendChild(lbl);
+    cell.appendChild(canvas);
+    grid.appendChild(cell);
+
+    const m = new Renderer(canvas);
+    m._logicalWidth = 720;
+    m._logicalHeight = 360;
+    m.setCountries(WORLD_COUNTRIES);
+    m.setZoomLevel(zoom, clat, clon);
+    m.setShowGrid(true);
+    m.showGrid = true;
+    m.render();
+    canvas.__map = m;
+  }
+  status.textContent = 'render complete — ' + cases.length + ' views';
+}
+let canvasCount = 0;
+main().catch(e => { status.textContent = 'ERROR: ' + e.message; console.error(e); });
+</script>
+</body>
+</html>

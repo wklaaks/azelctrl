@@ -119,7 +119,15 @@ between other positions to separate ordering effects from position effects.
 
 ## Development workflow
 
+### ⚠️ SUPERSEDED (Aug 3, 2026) — single source of truth
+
+The workflow below describes the retired two-file setup (`orbital-map.js` +
+`sync_drawring.py`). Those files are DELETED. The renderer is authored ONLY in
+`index.html` (inline class). Verify with `node _test_ring_fill.js index.html`.
+
 ### 1. Edit `orbital-map.js`, then sync
+
+<details><summary>historical (do not use)</summary>
 
 Edit `_drawRing()` in `orbital-map.js` only, then propagate it:
 
