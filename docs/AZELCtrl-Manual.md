@@ -1397,7 +1397,19 @@ Displays an offline, equirectangular-projection world map rendered on an HTML Ca
 | **🌙 Moon** | Off | Shows the Moon's current sub-point |
 | **☀️ Sun** | Off | Shows the Sun's current sub-point |
 
-**Map Controls:** Drag to pan, scroll/pinch to zoom. Duration selector sets ground track length (30 min to 6 hours). The map footer shows POS (lat/lon), ALT (altitude), VEL (velocity), DIST (distance).
+**Map Controls:**
+
+Drag to pan, scroll/pinch to zoom. The **Duration** selector sets the ground-track length (30 min to 6 hours).
+
+| Control | Description |
+|---------|-------------|
+| **↺ Reset View** | Re-centres the map on your station (QTH) and resets zoom to 100% |
+| **⊕ Center Sat** | Re-centres the map on the satellite's current ground position |
+| **◎ Follow Sat / Stop Following Sat** | Toggle that keeps the map centred on the satellite on every position update (30 s) — press again to stop and release the view |
+| **ZOOM: 1 2 3 4** | Centred preset zoom buttons: 1 = 100% (full globe), 2 = 75%, 3 = 50%, 4 = 25%. Zooms anchor on your station, or on the satellite's current position while Follow Sat is active |
+| **Map footer** | Colour-coded live values: **POS** (blue), **ALT** (amber), **VEL** (purple), **DIST** (green) |
+
+Vertical panning is clamped so the view never scrolls past ±90° latitude (the poles); at 100% the map always shows the full pole-to-pole globe. The map refreshes the satellite position every 30 seconds.
 
 #### Tracking Tab
 
