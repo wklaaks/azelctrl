@@ -1210,10 +1210,10 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
       </div>
       <div style="display: flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap;">
         <span style="color: var(--muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;">ZOOM:</span>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom100" data-zoom="1.0" title="100% (full globe)" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: var(--card); color: var(--text); border-color: var(--border);">1</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom75" data-zoom="1.33" title="75%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.33, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: var(--card); color: var(--text); border-color: var(--border);">2</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom50" data-zoom="2.0" title="50%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(2.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: var(--card); color: var(--text); border-color: var(--border);">3</button>
-        <button class="btn btn-sm map-zoom-btn" id="mapZoom25" data-zoom="4.0" title="25%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(4.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: var(--card); color: var(--text); border-color: var(--border);">4</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom100" data-zoom="1.0" title="100% (full globe)" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">1</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom75" data-zoom="1.33" title="75%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(1.33, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">2</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom50" data-zoom="2.0" title="50%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(2.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">3</button>
+        <button class="btn btn-sm map-zoom-btn" id="mapZoom25" data-zoom="4.0" title="25%" onclick="if(orbitalMap){orbitalMap.setZoomLevel(4.0, stationLocation.lat, stationLocation.lon);orbitalMap.render();}" style="background: #1e3a5f; color: #e6edf3; border-color: #2d5a8e;">4</button>
       </div>
       <div id="mapFooter" style="font-family: monospace; font-size: 0.75rem; color: var(--muted); text-align: right;">
         Select a satellite on the Tracking tab
@@ -7408,7 +7408,74 @@ function computeTerminator(date) {
   // Sun's sub-point longitude (degrees)
   const sunLonDeg = (sunRADeg - GMSTdeg + 540) % 360 - 180;
 
-  return { points, sunLonDeg };
+  return { points, sunLonDeg, sunDecDeg };
+}
+
+// Low-precision lunar ephemeris (Astronomical Almanac — 4 largest perturbation
+// terms, ~1° accuracy, sufficient for map display). Returns the Moon's
+// sub-point { lat, lon } in degrees (sub-point = where the Moon is overhead).
+// Uses the same Julian-date / GMST convention as computeTerminator so the Moon
+// marker aligns with the rest of the map.
+function computeMoonPosition(date) {
+  // Julian date & century
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate() + date.getUTCHours() / 24 + date.getUTCMinutes() / 1440 + date.getUTCSeconds() / 86400;
+  let A = Math.floor(y);
+  let B = 2 - A + Math.floor(A / 4);
+  const JD = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + B - 1524.5;
+  const T = (JD - 2451545.0) / 36525;
+
+  // Moon mean orbital elements (degrees)
+  const Lp = 218.3164477 + 481267.88123421 * T;   // mean longitude
+  const D  = 297.8501921  + 445267.1114034 * T;   // mean elongation
+  const Mn = 357.5291092  + 35999.0502909 * T;    // sun mean anomaly
+  const Mp = 134.9633964  + 477198.8675055 * T;   // moon mean anomaly
+  const F  = 93.2720950   + 483202.0175233 * T;   // argument of latitude
+
+  const rad = Math.PI / 180;
+  const Drad  = D  * rad;
+  const Mnrad = Mn * rad;
+  const Mprad = Mp * rad;
+  const Frad  = F  * rad;
+
+  // Perturbations (4 largest per longitude/latitude)
+  const dLon = -1.274 * Math.sin(Mprad - Drad)
+             + 0.658 * Math.sin(2 * Drad)
+             - 0.186 * Math.sin(Mnrad)
+             - 0.059 * Math.sin(2 * Mprad - 2 * Drad);
+  const dLat = -0.173 * Math.sin(Frad - 2 * Drad)
+             - 0.055 * Math.sin(Mprad - Frad - 2 * Drad)
+             - 0.046 * Math.sin(Mprad + Frad - 2 * Drad);
+
+  // Ecliptic longitude / latitude (degrees)
+  const lon = Lp + dLon;
+  const lat = dLat;
+
+  // Obliquity of the ecliptic
+  const eps = 23.4392911 - 0.0130042 * T;
+  const epsRad = eps * rad;
+
+  // Ecliptic -> equatorial
+  const lonRad = lon * rad;
+  const latRad = lat * rad;
+  const decRad = Math.asin(
+    Math.sin(latRad) * Math.cos(epsRad) + Math.cos(latRad) * Math.sin(epsRad) * Math.sin(lonRad)
+  );
+  const raRad = Math.atan2(
+    Math.sin(lonRad) * Math.cos(epsRad) - Math.tan(latRad) * Math.sin(epsRad),
+    Math.cos(lonRad)
+  );
+  const dec = decRad / rad;
+  const ra = ((raRad / rad) % 360 + 360) % 360;
+
+  // Greenwich mean sidereal time (same convention as computeTerminator)
+  const GMSTdeg = (280.46061837 + 360.98564736629 * (JD - 2451545.0)) % 360;
+
+  // Sub-point: lon = RA - GMST (normalized to -180..180), lat = declination
+  const lonSub = ((ra - GMSTdeg + 540) % 360) - 180;
+
+  return { lat: dec, lon: lonSub };
 }
 
 // --- Map Integration ---
@@ -7652,6 +7719,14 @@ function updateOrbitalMap() {
     const terminator = computeTerminator(now);
     orbitalMap.setTerminator(terminator, document.getElementById('mapShowDayNight').checked);
 
+    // Sun & Moon sub-point markers — the renderer needs real positions or there
+    // is nothing to draw even when the 🌙/☀️ toggles are checked.
+    const sunMoon = computeMoonPosition(now);
+    orbitalMap.setSunPos(terminator.sunDecDeg, terminator.sunLonDeg);
+    orbitalMap.setMoonPos(sunMoon.lat, sunMoon.lon);
+    orbitalMap.setShowSun(document.getElementById('mapShowSun').checked);
+    orbitalMap.setShowMoon(document.getElementById('mapShowMoon').checked);
+
     // Update map footer
     const footer = document.getElementById('mapFooter');
     if (footer && currentPos) {
@@ -7726,6 +7801,18 @@ trackSatSelect.addEventListener('change', () => {
 // Initialize map on page load
 window.addEventListener('DOMContentLoaded', () => {
   initOrbitalMap();
+
+  // Restore persisted Sun/Moon map toggles and mirror them into the renderer.
+  // (Their change handlers save to localStorage; nothing restored them before.)
+  const moonOn = localStorage.getItem('mapShowMoon') === '1';
+  const sunOn = localStorage.getItem('mapShowSun') === '1';
+  document.getElementById('mapShowMoon').checked = moonOn;
+  document.getElementById('mapShowSun').checked = sunOn;
+  if (orbitalMap) {
+    orbitalMap.setShowMoon(moonOn);
+    orbitalMap.setShowSun(sunOn);
+  }
+
   if (selectedSatIndex >= 0) {
     startMapUpdates();
   }
