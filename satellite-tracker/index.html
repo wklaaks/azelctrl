@@ -7784,10 +7784,10 @@ function updateOrbitalMap() {
       const distKm = (2 * 6371 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(0);
 
       footer.innerHTML = `
-        <span>POS: ${currentPos.lat.toFixed(1)}°${currentPos.lat >= 0 ? 'N' : 'S'} ${Math.abs(currentPos.lon).toFixed(1)}°${currentPos.lon >= 0 ? 'E' : 'W'}</span>
-        <span>ALT: ${altKm} km</span>
-        <span>VEL: ${velKms} km/s</span>
-        <span>DIST: ${distKm} km</span>
+        <span><span style="color:#58a6ff;">POS</span>:${currentPos.lat.toFixed(1)}°${currentPos.lat >= 0 ? 'N' : 'S'} ${Math.abs(currentPos.lon).toFixed(1)}°${currentPos.lon >= 0 ? 'E' : 'W'}</span>
+        <span style="margin-left:16px;"><span style="color:#fbbf24;">ALT</span>:${altKm} km</span>
+        <span style="margin-left:16px;"><span style="color:#a78bfa;">VEL</span>:${velKms} km/s</span>
+        <span style="margin-left:16px;"><span style="color:#34d399;">DIST</span>:${distKm} km</span>
       `;
     }
 
