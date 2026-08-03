@@ -6633,9 +6633,20 @@ class OrbitalMapRenderer {
     this.showTerminator = show;
   }
 
+  // Clamp centerLat so the visible latitude window [centerLat ± vLa/2] never
+  // extends past ±90°. Latitudes beyond the poles don't exist — without this,
+  // panning puts the -90° line above the canvas bottom and the polar landmass
+  // closure keeps filling the extrapolated (past-pole) band as if Antarctica
+  // continued below 90°S. Max |centerLat| = 90 - 90/zoom (0 at zoom=1, 45 at
+  // zoom=2, 67.5 at zoom=4).
+  _clampLat(lat) {
+    const maxLat = 90 - 90 / this.zoom;
+    return Math.max(-maxLat, Math.min(maxLat, lat));
+  }
+
   // Center map on a lat/lon position
   centerOn(lat, lon) {
-    this.centerLat = lat;
+    this.centerLat = this._clampLat(lat);
     this.centerLon = lon;
     this._baseDirty = true;
   }
@@ -7511,7 +7522,7 @@ function initOrbitalMap() {
     const dLon = -(dx / canvas.width) * 360 / orbitalMap.zoom;
     const dLat = (dy / canvas.height) * 180 / orbitalMap.zoom;
     orbitalMap.centerLon = dragStartCenterLon + dLon;
-    orbitalMap.centerLat = Math.max(-85, Math.min(85, dragStartCenterLat + dLat));
+    orbitalMap.centerLat = orbitalMap._clampLat(dragStartCenterLat + dLat);
     orbitalMap._baseDirty = true;
     orbitalMap.render();
   });
@@ -7535,7 +7546,7 @@ function initOrbitalMap() {
     const my = e.clientY - rect.top;
     const [latBefore, lonBefore] = orbitalMap.unproject(mx, my);
     const [latAfter, lonAfter] = orbitalMap.unproject(mx, my);
-    orbitalMap.centerLat -= (latAfter - latBefore);
+    orbitalMap.centerLat = orbitalMap._clampLat(orbitalMap.centerLat - (latAfter - latBefore));
     orbitalMap.centerLon -= (lonAfter - lonBefore);
     orbitalMap._baseDirty = true;
     orbitalMap.render();
@@ -7570,7 +7581,7 @@ function initOrbitalMap() {
       const dLon = -(dx / canvas.width) * 360 / orbitalMap.zoom;
       const dLat = (dy / canvas.height) * 180 / orbitalMap.zoom;
       orbitalMap.centerLon = dragStartCenterLon + dLon;
-      orbitalMap.centerLat = dragStartCenterLat + dLat;
+      orbitalMap.centerLat = orbitalMap._clampLat(dragStartCenterLat + dLat);
       orbitalMap._baseDirty = true;
       orbitalMap.render();
     } else if (e.touches.length === 2 && touchStartDist) {
@@ -7579,6 +7590,9 @@ function initOrbitalMap() {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const scale = dist / touchStartDist;
       orbitalMap.zoom = Math.max(1, Math.min(8, touchStartZoom * scale));
+      // Zooming out shrinks the max |centerLat| — re-clamp so the view stays
+      // within ±90° latitude.
+      orbitalMap.centerLat = orbitalMap._clampLat(orbitalMap.centerLat);
       orbitalMap._baseDirty = true;
       orbitalMap.render();
     }
