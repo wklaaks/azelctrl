@@ -60,11 +60,18 @@ fi
 echo "  -> $FIRMWARE_BIN ($(ls -lh "$FIRMWARE_BIN" | awk '{print $5}'))"
 
 # ------------------------------------------------------------------
-# Step 4: Assemble release zip
+# Step 4: Assemble release folder + zip
+# The release/ folder is the single download location: it always holds
+# the current firmware bin + the three SPIFFS files (web UI, favicon,
+# map data). Users grab all four files from here to flash + upload.
 # ------------------------------------------------------------------
 echo ""
 echo "[4/4] Assembling release package..."
 mkdir -p "$RELEASE_DIR"
+rm -f "$RELEASE_DIR/azelctrl-firmware.bin" \
+      "$RELEASE_DIR/index.html.gz" \
+      "$RELEASE_DIR/favicon.ico" \
+      "$RELEASE_DIR/world_coastline.js.gz"
 
 cp "$FIRMWARE_BIN" "$RELEASE_DIR/azelctrl-firmware.bin"
 cp "$SCRIPT_DIR/satellite-tracker/index.html.gz" "$RELEASE_DIR/"
@@ -78,13 +85,12 @@ zip -j "$SCRIPT_DIR/$ZIP_NAME" \
   favicon.ico \
   world_coastline.js.gz
 
-rm -rf "$RELEASE_DIR"
-
 echo ""
 echo "============================================"
-echo " Release package created:"
-echo "   $SCRIPT_DIR/$ZIP_NAME"
+echo " Release files staged in (single download folder):"
+echo "   $RELEASE_DIR"
+ls -lh "$RELEASE_DIR" | tail -n +2
 echo ""
-echo " Contents:"
+echo " Release zip: $SCRIPT_DIR/$ZIP_NAME"
 unzip -l "$SCRIPT_DIR/$ZIP_NAME" 2>&1 | tail -n +4
 echo "============================================"

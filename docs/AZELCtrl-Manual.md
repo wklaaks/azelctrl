@@ -1290,6 +1290,8 @@ Only after both pots are calibrated should you connect the feedback voltages to 
 
 The ESP8266 must first be flashed with the AZELCtrl firmware. You can either build it from source (Arduino IDE / `arduino-cli`) or flash the pre-built firmware binary from the release package — the web-tool method below works identically on Windows and macOS. Flashing is platform-specific; follow the relevant subsection.
 
+**Where to get the files:** the current release is always staged in the [`release/`](https://github.com/wklaaks/azelctrl/tree/main/release) folder at the root of the repository — that single folder holds all four files you need (firmware + the three SPIFFS uploads). Download them individually from there, or grab the bundled `azelctrl-v1.5.x.zip` from the repo root. The folder is refreshed by the release builder on every update, so it always matches the latest firmware.
+
 Download the **release package** (containing four files):
 
 | File | Purpose |
