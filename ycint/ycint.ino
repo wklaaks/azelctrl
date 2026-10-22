@@ -92,7 +92,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.3"
+#define FIRMWARE_VERSION "1.5.5"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -1398,10 +1398,10 @@ button{padding:6px 14px;background:#00d4ff;color:#1a1a2e;border:none;border-radi
 pre{background:#0f0f1e;border:1px solid #333;border-radius:6px;padding:10px;height:calc(100vh - 140px);overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5;margin:0}
 .rx{color:#7ec8ff}.tx{color:#7dff9e}.ev{color:#ffb347}
 </style></head><body>
-<h1>AZELCtrl — Protocol Debug Log</h1>
+<h1>AZELCtrl - Protocol Debug Log</h1>
 <div class='sub'>USB serial + TCP protocol traffic, exactly as seen by the device.<br>
 Logging is active while this tab is open and stops when you close it. Nothing is written to the device's flash.</div>
-<div class='bar'><button id='dl'>Download log</button><span id='status'>connecting…</span></div>
+<div class='bar'><button id='dl'>Download log</button><span id='status'>connecting...</span></div>
 <pre id='log'></pre>
 <script>
 var seq=-1,pre=document.getElementById('log'),status=document.getElementById('status');
@@ -1415,10 +1415,10 @@ function poll(){
     }
     while(pre.childNodes.length>2000)pre.removeChild(pre.firstChild);
     if(atBottom)pre.scrollTop=pre.scrollHeight;
-    status.textContent='armed — '+j.seq+' entries captured';
+    status.textContent='armed - '+j.seq+' entries captured';
     status.style.color='#7dff9e';
   }).catch(function(){
-    status.textContent='connection lost — retrying';status.style.color='#ff6b6b';
+    status.textContent='connection lost - retrying';status.style.color='#ff6b6b';
   });
 }
 document.getElementById('dl').onclick=function(){window.location='/debug-log-download';};
@@ -1431,7 +1431,7 @@ poll();setInterval(poll,600);
 // Helper: send PROGMEM content via web server
 void sendProgmemHTML(const char* pgmHtml) {
   server.setContentLength(strlen_P(pgmHtml));
-  server.send(200, "text/html");
+  server.send(200, "text/html; charset=utf-8");
   server.sendContent(pgmHtml);
 }
 
@@ -6149,7 +6149,7 @@ void setupWebServer() {
     header += "Firmware: " + String(FIRMWARE_VERSION) + "\n";
     header += "Protocol: " + String(protoName) + " @ " + String(PROTOCOL_BAUD_RATES[protocolBaudIndex]) + " baud\n";
     header += "Hamlib TCP server (port 4533): " + String(hamlibServerEnabled ? "enabled" : "disabled") + "\n";
-    header += "Entries: " + String(dbgLogSeq) + ((dbgLogSeq > DBGLOG_MAX_ENTRIES) ? " (ring wrapped — oldest dropped)" : "") + "\n";
+    header += "Entries: " + String(dbgLogSeq) + ((dbgLogSeq > DBGLOG_MAX_ENTRIES) ? " (ring wrapped - oldest dropped)" : "") + "\n";
     header += "Timestamps: milliseconds since device boot (no RTC)\n";
     header += "---\n";
     // Stream in chunks (setContentLength + sendContent) — no large heap blob
