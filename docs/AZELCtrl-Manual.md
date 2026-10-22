@@ -1,4 +1,4 @@
-# AZELCtrl — Complete User Manual
+# AZELCtrl — User Manual
 
 **Version 1.5.3**  
 **Author: ZS6TW**  
@@ -90,101 +90,101 @@ AZELCtrl sits between your satellite tracking software and your Yaesu rotator co
 
 **Option 1: USB Serial Connection (Simpler, Direct)**
 ```
-                                                            ┌────────────────────────────────┐
-                                                            │   PC, Mac, Pi with             │
-                                                            │   Satellite Tracking Software  │
-                                                            │   (Gpredict, Rotor,etc)        │
-                                                            └─────────┬──────────────────────┘
-                                                                      │        USB Serial
-                                                            USB cable │ (virtual COM port, 5V power)
-                                                                      │
-                                            ┌─────────────────────────│─────────────────────────────────────────────┐
-                                            │ AZELCtrl                │                                             │
-                                            │                         ▼                                             │
-                                            │                ┌──────────────────┐                                   │
-                                            │                │ ESP8266 (NodeMCU)│                                   │
-                                            │                └────────┬─────────┘                                   │
-                                            │                         │ Power + GPIOs                               │
-                                            │                         ▼                                             │
-                                            │               ┌──────────────────┐    Motor VCC (12-14V)              │
-                                            │               │   Motor Shield   │◄────────────────────────┐          │     
-                                            │    ┌──────────┤    (L293DD)      │────────────────────────►│          │ 
-                                            │    │          └──┬───────────────┘    L, R, U, D, GND      │          │
-                                            │    │             │                                         │          │ 
-                                            │    │             │ I2C bus                                 │          │
-                                            │    │             │ (SDA/SCL)                               │          │
-                                            │    │        ┌────┴────┐                                    │          │  
-                                            │    │        │         │                                    │          │  
-                                            │    │        ▼         ▼                                    │          │   
-                                            │    │   ┌────────┐ ┌────────┐                               │          │
-                                            │    │   │ OLED   │ │ ADS1115│       Az, El Voltages         │          │
-                                            │    │   │Display │ │ ADC    │◄──────────────────────────────┤          │
-                                            │    │   │(128×64)│ │        │                               │          │
-                                            │    │   └────────┘ └────────┘                               │          │
-                                            │    │       ▲          ▲                                    │          │
-                                            │    └───────┴──────────┘                  Yaesu DIN-8 Cable │          │
-                                            │       Power (3.3V) & GND                                   │          │
-                                            └────────────────────────────────────────────────────────────│──────────┘
-                                                                                                         │
-                                                                                                         ▼
-                                                        ┌─────────────────┐                    ┌───────────────────┐      
-                                                        │   Rotator       │                    │ Yaesu Rotator     │
-                                                        │  (antenna)      │   ◄──────────►     │ Controller        │      
-                                                        │                 │                    │ (G-5600B etc.)    │      
-                                                        └─────────────────┘                    └───────────────────┘          
+                ┌────────────────────────────────┐
+                │   PC, Mac, Pi with             │
+                │   Satellite Tracking Software  │
+                │   (Gpredict, Rotor,etc)        │
+                └─────────┬──────────────────────┘
+                          │        USB Serial
+                USB cable │ (virtual COM port, 5V power)
+                          │
+┌─────────────────────────│─────────────────────────────────────────────┐
+│ AZELCtrl                │                                             │
+│                         ▼                                             │
+│                ┌──────────────────┐                                   │
+│                │ ESP8266 (NodeMCU)│                                   │
+│                └────────┬─────────┘                                   │
+│                         │ Power + GPIOs                               │
+│                         ▼                                             │
+│               ┌──────────────────┐    Motor VCC (12-14V)              │
+│               │   Motor Shield   │◄────────────────────────┐          │     
+│    ┌──────────┤    (L293DD)      │────────────────────────►│          │ 
+│    │          └──┬───────────────┘    L, R, U, D, GND      │          │
+│    │             │                                         │          │ 
+│    │             │ I2C bus                                 │          │
+│    │             │ (SDA/SCL)                               │          │
+│    │        ┌────┴────┐                                    │          │  
+│    │        │         │                                    │          │  
+│    │        ▼         ▼                                    │          │   
+│    │   ┌────────┐ ┌────────┐                               │          │
+│    │   │ OLED   │ │ ADS1115│       Az, El Voltages         │          │
+│    │   │Display │ │ ADC    │◄──────────────────────────────┤          │
+│    │   │(128×64)│ │        │                               │          │
+│    │   └────────┘ └────────┘                               │          │
+│    │       ▲          ▲                                    │          │
+│    └───────┴──────────┘                  Yaesu DIN-8 Cable │          │
+│       Power (3.3V) & GND                                   │          │
+└────────────────────────────────────────────────────────────│──────────┘
+                                                             │
+                                                             ▼
+            ┌─────────────────┐                    ┌───────────────────┐      
+            │   Rotator       │                    │ Yaesu Rotator     │
+            │  (antenna)      │   ◄──────────►     │ Controller        │      
+            │                 │                    │ (G-5600B etc.)    │      
+            └─────────────────┘                    └───────────────────┘          
 ```
 
 **Option 2: WiFi/TCP Connection (Remote, Flexible)**
 ```
-                                            ┌───────────────────────────────┐     WiFi      ┌────────────┐
-                                            │   PC, Mac, Pi, Phone with     │ ◄───────────► │            │
-                                            │   Satellite Tracking Software │    TCP/IP     │  WiFi AP   │
-                                            │   (Gpredict, Rotor)  OR       │               │            │
-                                            │   AZELCtrl In-Browser Tacking │               │            │
-                                            └───────────────────────────────┘               └────────────┘
-                                                                                                  ▲ 
-                                                                                                  │ WiFi TCP/IP             
-                                                            ┌──────────────────────┐              │
-                                                            │   USB Power Supply   │              │
-                                                            └─────────┬────────────┘              │
-                                                                      │                           │
-                                                            USB cable │ (5V power only)           │
-                                                                      │                           │
-                                            ┌─────────────────────────│───────────────────────────│─────────────────┐
-                                            │ AZELCtrl                │                           │                 │
-                                            │                         ▼                           │                 │
-                                            │                ┌─────────────────────────┐          │                 │
-                                            │                │ ESP8266 (NodeMCU)| Wifi │ ◄────────┘                 │
-                                            │                └────────┬────────────────┘                            │
-                                            │                         │ Power + GPIOs                               │
-                                            │                         ▼                                             │
-                                            │               ┌──────────────────┐    Motor VCC (12-14V)              │
-                                            │               │   Motor Shield   │◄────────────────────────┐          │     
-                                            │    ┌──────────┤    (L293DD)      │────────────────────────►│          │ 
-                                            │    │          └──┬───────────────┘    L, R, U, D, GND      │          │
-                                            │    │             │                                         │          │ 
-                                            │    │             │ I2C bus                                 │          │
-                                            │    │             │ (SDA/SCL)                               │          │
-                                            │    │        ┌────┴────┐                                    │          │  
-                                            │    │        │         │                                    │          │  
-                                            │    │        ▼         ▼                                    │          │   
-                                            │    │   ┌────────┐ ┌────────┐                               │          │
-                                            │    │   │ OLED   │ │ ADS1115│       Az, El Voltages         │          │
-                                            │    │   │Display │ │ ADC    │◄──────────────────────────────┤          │
-                                            │    │   │(128×64)│ │        │                               │          │
-                                            │    │   └────────┘ └────────┘                               │          │
-                                            │    │       ▲          ▲                                    │          │
-                                            │    └───────┴──────────┘                  Yaesu DIN-8 Cable │          │
-                                            │       Power (3.3V) & GND                                   │          │
-                                            └────────────────────────────────────────────────────────────│──────────┘
-                                                                                                         │
-                                                                                                         ▼
-                                                        ┌─────────────────┐                    ┌───────────────────┐      
-                                                        │   Rotator       │                    │ Yaesu Rotator     │
-                                                        │  (antenna)      │   ◄──────────►     │ Controller        │      
-                                                        │                 │                    │ (G-5600B etc.)    │      
-                                                        └─────────────────┘                    └───────────────────┘     
-          
+┌───────────────────────────────┐     WiFi      ┌────────────┐
+│   PC, Mac, Pi, Phone with     │ ◄───────────► │            │
+│   Satellite Tracking Software │    TCP/IP     │  WiFi AP   │
+│   (Gpredict, Rotor)  OR       │               │            │
+│   AZELCtrl In-Browser Tacking │               │            │
+└───────────────────────────────┘               └────────────┘
+                                                      ▲ 
+                                                      │ WiFi TCP/IP             
+                ┌──────────────────────┐              │
+                │   USB Power Supply   │              │
+                └─────────┬────────────┘              │
+                          │                           │
+                USB cable │ (5V power only)           │
+                          │                           │
+┌─────────────────────────│───────────────────────────│─────────────────┐
+│ AZELCtrl                │                           │                 │
+│                         ▼                           │                 │
+│                ┌─────────────────────────┐          │                 │
+│                │ ESP8266 (NodeMCU)| Wifi │ ◄────────┘                 │
+│                └────────┬────────────────┘                            │
+│                         │ Power + GPIOs                               │
+│                         ▼                                             │
+│               ┌──────────────────┐    Motor VCC (12-14V)              │
+│               │   Motor Shield   │◄────────────────────────┐          │     
+│    ┌──────────┤    (L293DD)      │────────────────────────►│          │ 
+│    │          └──┬───────────────┘    L, R, U, D, GND      │          │
+│    │             │                                         │          │ 
+│    │             │ I2C bus                                 │          │
+│    │             │ (SDA/SCL)                               │          │
+│    │        ┌────┴────┐                                    │          │  
+│    │        │         │                                    │          │  
+│    │        ▼         ▼                                    │          │   
+│    │   ┌────────┐ ┌────────┐                               │          │
+│    │   │ OLED   │ │ ADS1115│       Az, El Voltages         │          │
+│    │   │Display │ │ ADC    │◄──────────────────────────────┤          │
+│    │   │(128×64)│ │        │                               │          │
+│    │   └────────┘ └────────┘                               │          │
+│    │       ▲          ▲                                    │          │
+│    └───────┴──────────┘                  Yaesu DIN-8 Cable │          │
+│       Power (3.3V) & GND                                   │          │
+└────────────────────────────────────────────────────────────│──────────┘
+                                                             │
+                                                             ▼
+            ┌─────────────────┐                    ┌───────────────────┐      
+            │   Rotator       │                    │ Yaesu Rotator     │
+            │  (antenna)      │   ◄──────────►     │ Controller        │      
+            │                 │                    │ (G-5600B etc.)    │      
+            └─────────────────┘                    └───────────────────┘     
+
 
 ```
 
@@ -673,11 +673,11 @@ Az:  125.3d
 El:   45.2d
 
 · · · · · · · · · · · · · · · ·
-RX: C
-TX: AZ=125 EL=045
+SR: C
+ST: AZ=125 EL=045
 ```
 
-Lines 3-4 show the last received command (RX) and response (TX). This overlay is suppressed for 5 seconds after any button press so the menu stays visible during interaction.
+Lines 3-4 show the last received command and response. The two-letter tag encodes source + direction: first letter **S** = USB serial, **N** = network (TCP); second letter **R** = received, **T** = transmitted (so `SR:` = received over serial, `NT:` = transmitted over network). Replies are sent back over the same interface as the command, so both lines share the same source letter. Newlines inside multi-line responses are shown as `^`, and lines longer than the display width are truncated. This overlay is suppressed for 5 seconds after any button press so the menu stays visible during interaction.
 
 **SAFETY PAUSE screen** (shown when reversing direction):
 
@@ -1297,7 +1297,7 @@ Download the **release package** (containing four files):
 | `azelctrl-firmware.bin` | The compiled firmware — this is the main program |
 | `index.html.gz` | The satellite-tracker web interface (gzip-compressed) |
 | `favicon.ico` | Browser tab icon |
-| `world_coastline.js` | World-map coastline data for the orbital map |
+| `world_coastline.js.gz` | World-map coastline data for the orbital map (gzip-compressed) |
 
 > Only `azelctrl-firmware.bin` is flashed to the chip. The other three files are uploaded to the ESP's filesystem (SPIFFS) afterwards via the web interface — see [Section 8.3](#83-remote-control-via-web-interface).
 
@@ -1375,11 +1375,25 @@ The Arduino IDE (macOS app) with the same ESP8266 board package and board/flash 
 1. Power up and confirm the OLED shows the startup sequence ("AZELCtrl", firmware version).
 2. **First boot with no saved settings:** the firmware detects the incomplete settings, shows **"Missing Settings!"**, and **automatically starts in Access Point mode** — SSID **AZELCTRL_XXXX** (password **yaesu123**). Connect to that network and open **http://192.168.4.1/** in a browser. The web interface is served immediately — no OLED menu navigation is required first.
 3. On the **Settings** tab you can do both of the following:
-   - **Upload the supporting files** — `index.html.gz` via **Upload Web Interface**, then `favicon.ico` and `world_coastline.js` via **Upload Any File**.
+   - **Upload the supporting files** — `index.html.gz` via **Upload Web Interface**, then `favicon.ico` and `world_coastline.js.gz` via **Upload Any File**.
    - **Enter your home WiFi details** — type your home network's name and password into **Station SSID** and **Password**, click **Save**, then set **WiFi Mode** to **Station** and click **Apply**. The unit reboots and joins your home network (look up its DHCP-assigned IP in your router's client list; reconnect this device to your home WiFi first). You can always switch back to AP mode later from the WiFi settings on this page or the OLED Network menu.
 4. Refresh the web page — the tracker UI should load and the **Map** tab should show coastlines.
 
 **Note**: WiFi credentials are not stored in the source code — they are entered on a live unit, either on the web interface's **Settings** page (Station SSID / Password) or via the captive portal setup process (see section 7.12), and saved to EEPROM.
+
+#### 7.11.3 Upgrading a Unit That Is Already Configured
+
+If your unit is already set up and working (WiFi connected, calibrated, satellites configured), updating it takes three steps — **no reconfiguration of any kind is required**:
+
+1. **Flash the new firmware.** Connect the unit to your computer over USB and flash `azelctrl-firmware.bin` with [web.esphome.io](https://web.esphome.io) exactly as described above (INSTALL → CHOOSE FILE). The unit reboots automatically.
+2. **Reconnect over the network.** All your settings — WiFi credentials, rotator model, calibration, protocol, display options — live in the unit's EEPROM and are **not touched by a firmware flash**. The unit simply rejoins your home network as before; if its IP changed, look it up in your router's client list.
+3. **Re-upload the three supporting files.** Open the web interface, go to **Settings → ESP Management**, upload `index.html.gz` (Upload Web Interface), then `favicon.ico` and `world_coastline.js.gz` (Upload Any File). Refresh the page — the tracker should load and the **Map** tab should show coastlines.
+
+Two things worth knowing:
+
+- **You do not need to "reconfigure" SPIFFS.** The size and location of the filesystem are baked into the firmware binary at build time — the release binary uses the 4 MB / 3 MB filesystem layout. Flashing `azelctrl-firmware.bin` switches the chip to that layout automatically; no tool options or settings are involved. If your unit was flashed with older firmware that used a smaller filesystem, its old contents simply become unused space, which is why step 3 is mandatory after such an upgrade. Between recent releases (same layout) the files survive the flash, but re-uploading all three is still recommended so you definitely have the current versions.
+- **Check the file list after uploading.** The **ESP Management** file list should show exactly three files (`index.html.gz`, `world_coastline.js.gz`, `favicon.ico`). In rare cases — when a previous firmware version used a different flash layout — leftover copies from the older filesystem can reappear in the list; delete any extras so only the current three remain.
+- **Re-uploading the files is required after every firmware flash that changes the filesystem layout**, and recommended after every other flash. It takes under a minute and is the only step users commonly miss after an update.
 
 ### 7.12 Configuring WiFi via Captive Portal
 
@@ -1605,7 +1619,11 @@ Shows current rotator position. Provides a cross-shaped control pad with UP, DOW
 
 **Ground Station Location**: Enter Maidenhead grid square or lat/lon/altitude.
 
-**Tracking Preferences**: Update interval, minimum elevation, azimuth/elevation speed, lead angle, dead zone.
+**Tracking Preferences**: Update interval, background keep-alive, decimal degrees, minimum elevation, azimuth/elevation speed, lead angle, dead zone.
+
+**Decimal Degrees** (off by default): When off, azimuth and elevation are shown as whole degrees (rounded) on both the OLED display and the web interface. When enabled, they show one decimal digit (e.g. `237.5` instead of `238`). The setting is stored on the device itself, so it survives power cycles and applies to every client — the web page syncs the toggle from the device when it loads. It only affects how values are *displayed*: all tracking, prediction, and command calculations continue at full internal precision regardless of the setting.
+
+**Background Keep-Alive** (on by default): Browsers throttle — and after a few minutes fully freeze — JavaScript in tabs that are not in focus, which can stop tracking while you work in another tab. When enabled, AZELCtrl plays an inaudible audio stream (~−78 dB, effectively silent) during tracking so the browser keeps the tab awake, and requests a screen wake lock so phones do not suspend the page when the screen turns off. If the tab was frozen anyway, tracking resynchronises automatically the moment you switch back to the tab. This has no effect on the AZELCtrl device itself.
 
 **Controller**:
 | Field | Description |
@@ -1628,6 +1646,7 @@ Shows current rotator position. Provides a cross-shaped control pad with UP, DOW
 | **Baud Rate** | Select serial baud rate (9600–115200). |
 | **Show Commands** | Toggle display of received commands on the OLED. |
 | **Reverse Delay** | Seconds to wait before reversing direction (0–3s). |
+| **Debug USB Log** | Opens a live log of serial/TCP protocol traffic in a new browser tab — for diagnosing external tracking software. See [Debugging External Tracking Software](#debugging-external-tracking-software). |
 
 **Network**:
 | Field | Description |
@@ -1745,7 +1764,29 @@ Rotor supports both USB serial and TCP/IP connections.
 
 #### Other Tracking Software
 
-Many satellite tracking programs support serial connections but not TCP/IP. AZELCtrl's USB serial interface works with any software that supports GS-232A, GS-232B, or Easycom protocols. Simply connect via USB and configure the virtual COM port as you would for any serial rotator controller.
+Many satellite tracking programs support serial connections but not TCP/IP. AZELCtrl's USB serial interface works with any software that supports GS-232A, GS-232B, or Easycom protocols. Simply connect via USB and configure the virtual COM port as you would for any serial rotator controller. Replies are always sent back over the same interface the command arrived on — a serial command is answered on the serial wire, a TCP command over TCP — so the two interfaces never interfere with each other even when both are in use at once.
+
+#### Debugging External Tracking Software
+
+If your tracking software behaves oddly (timeouts, repeated retries, the antenna not moving as expected), AZELCtrl can capture the exact protocol exchange so the problem can be pinned down — on the software side or the device side.
+
+1. Go to **Settings → PC Interface → Debug USB Log** and click **Open Debug Tab**.
+2. A new browser tab opens showing a live log of everything that crosses the protocol interfaces, exactly as seen by the device:
+   - `RX SER` — a command line received on the USB serial port (control characters shown as `\r`, `\n`)
+   - `RX TCP` — a command line received on the TCP interface (port 4533)
+   - `TX SER` / `TX TCP` — a reply written to that interface
+   - `TX DROP` — a reply was generated but had no delivery target (e.g. no TCP client connected); it was **not** sent anywhere
+   - `TX CON` — console text printed to the serial wire (e.g. TCP client connect/disconnect notices)
+   - `[OVERFLOW]` / `[STALL: …]` — a received line was too long or never terminated; it was discarded
+3. Reproduce the odd behaviour with your tracking software running.
+4. Click **Download log** in the debug tab to save the capture as a `.log` file. Share the file when reporting a problem.
+5. Close the debug tab to stop logging.
+
+Notes:
+
+- Logging is stored in RAM only — **nothing is written to the device's flash**, so there is no flash-wear concern. Capture starts when the debug tab polls the device and stops automatically about 5 seconds after the tab is closed.
+- Timestamps are milliseconds since device boot (the device has no RTC). Gaps between a command and its reply are still meaningful for diagnosing timing issues.
+- The log holds the most recent 96 lines; for longer sessions, download the log periodically and stitch the files together.
 
 ### 8.5 Configuring via OLED Menus
 
@@ -1829,7 +1870,9 @@ Many satellite tracking programs support serial connections but not TCP/IP. AZEL
 | Chrome shows `ERR_CONNECTION_RESET` repeatedly | ESP8266 TCP backlog fills up — use Firefox, or go to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` and add the ESP's IP |
 | Browser shows old version | Hard refresh (Cmd+Shift+R / Ctrl+F5) |
 | Web page loads but map has no coastlines | `world_coastline.js` not uploaded — upload via Settings tab |
-| Favicon not showing in browser tab | Use Chrome/Firefox, or clear browser cache ||
+| Favicon not showing in browser tab | Use Chrome/Firefox, or clear browser cache |
+| Tracking stops or becomes unreliable after switching to another browser tab | Browser froze the background tab — ensure **Background Keep-Alive** is enabled in Settings → Tracking Preferences (on by default); tracking resynchronises automatically when you return to the tab |
+| External tracking software misbehaves over USB serial or TCP | Use **Debug USB Log** (Settings → PC Interface) to capture the exact protocol exchange and share the downloaded log with the developer |
 
 ---
 

@@ -37,7 +37,7 @@ From the AZELCtrl release page you will need **four files**:
 | `azelctrl-firmware.bin` | The compiled firmware (~572 KB) — this is the main program |
 | `index.html.gz` | The satellite tracker web interface (gzip-compressed) |
 | `favicon.ico` | Browser tab icon (~1 KB) |
-| `world_coastline.js` | World map coastline data for the orbital map |
+| `world_coastline.js.gz` | World map coastline data for the orbital map (gzip-compressed) |
 
 > The `.bin` file is the compiled firmware. The remaining three files are uploaded to the ESP's filesystem (SPIFFS) after flashing — they are **not** part of the firmware itself.
 
@@ -210,14 +210,14 @@ Once the firmware is running and you can reach the ESP's web interface, you need
    |---|------|--------------|------------------|
    | 1 | `index.html.gz` | Use **"Upload Web Interface to ESP"** (first upload button) | `/index.html.gz` (auto) |
    | 2 | `favicon.ico` | Use **"Upload Any File"** (second upload button) | `/favicon.ico` |
-   | 3 | `world_coastline.js` | Use **"Upload Any File"** | `/world_coastline.js` |
+   | 3 | `world_coastline.js.gz` | Use **"Upload Any File"** | `/world_coastline.js.gz` |
 
 4. After each upload, you should see "Upload complete" in the status area.
 5. Click **"List Files"** to confirm all three files are present.
 
 > **For `index.html.gz`** — use the **first** upload button labelled **"Upload Web Interface to ESP"**. This sends the file to the correct path `/index.html.gz` with the required field name `html`.
 >
-> **For `favicon.ico` and `world_coastline.js`** — use the **second** upload button labelled **"Upload Any File"**. Select the file and click **Upload File**.
+> **For `favicon.ico` and `world_coastline.js.gz`** — use the **second** upload button labelled **"Upload Any File"**. Select the file and click **Upload File**.
 
 ### Verification
 
@@ -227,7 +227,7 @@ After uploading:
    ```
    /index.html.gz
    /favicon.ico
-   /world_coastline.js
+   /world_coastline.js.gz
    ```
 2. Refresh the main page — the satellite tracker UI should load (served from SPIFFS).
 3. The browser tab should show the AZELCtrl icon (favicon).
@@ -247,7 +247,7 @@ curl -F "html=@index.html.gz" http://192.168.88.154/upload
 curl -F "file=@favicon.ico" http://192.168.88.154/upload
 
 :: Upload world coastline data
-curl -F "file=@world_coastline.js" http://192.168.88.154/upload
+curl -F "file=@world_coastline.js.gz" http://192.168.88.154/upload
 ```
 
 > **Note:** The HTML file **must** use the field name `html` (first command). All other files use the field name `file`. The web interface handles this automatically — only needed if using `curl` directly.
@@ -264,7 +264,7 @@ curl -F "file=@world_coastline.js" http://192.168.88.154/upload
 | Web Serial dialog shows no ports | USB driver not installed | Install driver and reconnect the board |
 | `Connecting...` timeout in Arduino IDE | Board not in flash mode | Press and hold FLASH, tap RST, release FLASH, then retry |
 | `Failed to connect to ESP8266` | Wrong baud rate or port | Check COM port number in Device Manager; try 9600 baud |
-| Web page loads but map has no coastlines | `world_coastline.js` not uploaded | Upload it via Settings → Upload Any File |
+| Web page loads but map has no coastlines | `world_coastline.js.gz` not uploaded | Upload it via Settings → Upload Any File |
 | Blank page or `ERR_CONTENT_DECODING_FAILED` | `index.html.gz` was double-compressed | Make sure you upload the `.gz` file, not the raw `.html` |
 | Blank page after firmware flash | No HTML uploaded yet | This is normal — upload `index.html.gz` via Settings next |
 | Chrome `ERR_CONNECTION_RESET` repeatedly | ESP8266's TCP backlog fills up | Use Firefox, or go to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` and add `http://192.168.88.154` |
@@ -286,11 +286,11 @@ curl -F "file=@world_coastline.js" http://192.168.88.154/upload
 | `azelctrl-firmware.bin` | ESPHome Web / Arduino IDE / Flash Tool | — | Flashed at 0x0 | ~572 KB |
 | `index.html.gz` | Web: "Upload Web Interface" or `curl -F "html=@..."` | `html` | SPIFFS: `/index.html.gz` | ~46 KB |
 | `favicon.ico` | Web: "Upload Any File" or `curl -F "file=@..."` | `file` | SPIFFS: `/favicon.ico` | ~1 KB |
-| `world_coastline.js` | Web: "Upload Any File" or `curl -F "file=@..."` | `file` | SPIFFS: `/world_coastline.js` | ~1.5 MB |
+| `world_coastline.js.gz` | Web: "Upload Any File" or `curl -F "file=@..."` | `file` | SPIFFS: `/world_coastline.js.gz` | ~135 KB |
 
 After all four files are loaded, the ESP's filesystem (SPIFFS) will contain:
 - `/index.html.gz` — satellite tracker web UI (served with gzip Content-Encoding)
 - `/favicon.ico` — browser tab icon
-- `/world_coastline.js` — world map coastline data for the orbital map
+- `/world_coastline.js.gz` — world map coastline data for the orbital map (served with gzip Content-Encoding)
 
 The firmware serves the web interface from SPIFFS first, with a built-in PROGMEM fallback as backup. The coastline data and favicon are **only** available after upload — without them the map tab will show an empty globe and the browser tab will show no icon.

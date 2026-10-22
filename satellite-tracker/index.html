@@ -812,6 +812,30 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     </div>
     <div class="setting-row">
       <div>
+        <div class="setting-label">Background Keep-Alive</div>
+        <div class="setting-desc">Keeps tracking running when you switch to another tab — browsers freeze background tabs after a while. Uses an inaudible audio stream to keep the tab awake; no device resources are affected.</div>
+      </div>
+      <div class="setting-control">
+        <label class="toggle-switch">
+          <input type="checkbox" id="bgKeepAlive">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Decimal Degrees</div>
+        <div class="setting-desc">Show one decimal digit (e.g. 125.3°) for Az/El values on this page and the OLED. Off by default — whole degrees. Stored on the device; survives power cycles.</div>
+      </div>
+      <div class="setting-control">
+        <label class="toggle-switch">
+          <input type="checkbox" id="azElDecimals">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
         <div class="setting-label">Minimum Elevation</div>
         <div class="setting-desc">Ignore passes below this angle</div>
       </div>
@@ -1054,6 +1078,15 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
           <option value="2">2s</option>
           <option value="3">3s</option>
         </select>
+      </div>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Debug USB Log</div>
+        <div class="setting-desc">Opens a live log of serial/TCP protocol traffic in a new tab — for diagnosing external tracking software. Logging stops when you close the tab. Nothing is written to the device's flash.</div>
+      </div>
+      <div class="setting-control">
+        <button class="btn btn-sm" id="debugUsbBtn" style="background:#0891b2;color:#fff;border-color:#0891b2;">Open Debug Tab</button>
       </div>
     </div>
   </div>
@@ -2099,6 +2132,120 @@ let stationLocation = JSON.parse(localStorage.getItem('stationLocation') || '{"l
 function debugLog(...args) {
   if (debugLogging) console.log(...args);
 }
+
+// ==================== BACKGROUND TAB KEEP-ALIVE ====================
+// Browsers throttle timers in non-focused tabs and (Chrome, Safari on iOS)
+// can fully FREEZE a hidden+idle tab after a few minutes — which kills the
+// tracking loop while the user is on another tab. Mitigations, all active
+// only while tracking:
+//   1. A looping INAUDIBLE audio track — tabs with active audio playback are
+//      exempt from intensive throttling / tab freezing.
+//   2. A screen Wake Lock — keeps mobile devices from suspending the tab when
+//      the screen turns off.
+//   3. visibilitychange resync (below): if the tab was frozen anyway, the
+//      moment the user returns we immediately recompute and re-command.
+let bgKeepAlive = localStorage.getItem('bgKeepAlive') !== '0'; // default ON
+let showAzElDecimals = localStorage.getItem('azElDecimals') === '1'; // device setting, default OFF; synced from device on load
+
+// Format a degree value for display per the device's Decimal Degrees setting
+function degStr(v) {
+  const s = showAzElDecimals ? v.toFixed(1) : String(Math.round(v));
+  return s.padStart(showAzElDecimals ? 5 : 3, '\u00A0');
+}
+let keepAliveAudio = null;
+let keepAliveGestureHandler = null;
+let wakeLockSentinel = null;
+let tabHiddenSince = null;
+
+// Build a 2 s WAV of white noise at ~-75 dBFS (amplitude 4/32767): a valid
+// "active audio playback" to the browser, inaudible to humans.
+function makeInaudibleNoiseWav() {
+  const sampleRate = 8000, n = sampleRate * 2, amp = 4;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  wstr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wstr(8, 'WAVE');
+  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wstr(36, 'data'); v.setUint32(40, n * 2, true);
+  let seed = 0x9e3779b9;
+  for (let i = 0; i < n; i++) {
+    seed = (Math.imul(seed, 1103515245) + 12345) | 0;
+    v.setInt16(44 + i * 2, ((seed >>> 16) % (amp * 2 + 1)) - amp, true);
+  }
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
+
+function startKeepAliveAudio() {
+  if (!bgKeepAlive || keepAliveAudio) return;
+  const a = new Audio(makeInaudibleNoiseWav());
+  a.loop = true;
+  keepAliveAudio = a;
+  // If autoplay is blocked (no recent user gesture), retry on next interaction
+  keepAliveGestureHandler = () => {
+    if (!tracking || !keepAliveAudio || !keepAliveAudio.paused) return;
+    keepAliveAudio.play().then(
+      () => debugLog('[KEEPALIVE] Background keep-alive active (inaudible audio)'),
+      () => debugLog('[KEEPALIVE] Audio start blocked — will retry on next interaction')
+    );
+  };
+  keepAliveGestureHandler();
+  document.addEventListener('pointerdown', keepAliveGestureHandler, { passive: true });
+  document.addEventListener('keydown', keepAliveGestureHandler, { passive: true });
+}
+
+function stopKeepAliveAudio() {
+  if (keepAliveAudio) {
+    keepAliveAudio.pause();
+    keepAliveAudio.src = '';
+    keepAliveAudio = null;
+    debugLog('[KEEPALIVE] Background keep-alive stopped');
+  }
+  if (keepAliveGestureHandler) {
+    document.removeEventListener('pointerdown', keepAliveGestureHandler);
+    document.removeEventListener('keydown', keepAliveGestureHandler);
+    keepAliveGestureHandler = null;
+  }
+}
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+  } catch (e) {
+    debugLog('[KEEPALIVE] Wake lock unavailable:', e.message);
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
+}
+
+// Resync tracking the moment the tab regains focus — covers the case where
+// the browser froze the tab despite the keep-alive (or keep-alive disabled).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (tabHiddenSince && tracking) {
+      const hiddenS = ((Date.now() - tabHiddenSince) / 1000).toFixed(1);
+      console.warn(`[TRACKING] Tab was backgrounded for ${hiddenS}s while tracking — resyncing position now`);
+    }
+    tabHiddenSince = null;
+    if (tracking) {
+      requestWakeLock(); // wake lock is dropped when the tab hides
+      computeAndSend().catch(e => console.error('Tracking error:', e));
+    }
+  } else {
+    tabHiddenSince = Date.now();
+    if (tracking) debugLog('[TRACKING] Tab backgrounded while tracking — keep-alive keeps the loop alive');
+  }
+});
 let elfMode = false;
 let currentPass = null;
 let upcomingPasses = [];
@@ -2325,6 +2472,8 @@ document.querySelectorAll('.tab[data-tab]').forEach(tab => {
     if (tab.dataset.tab === 'settings') {
       // Re-set values when Settings tab becomes visible
       document.getElementById('updateInterval').value = updateIntervalMs;
+      document.getElementById('bgKeepAlive').checked = bgKeepAlive;
+      document.getElementById('azElDecimals').checked = showAzElDecimals;
       document.getElementById('minElevation').value = minElevation;
       document.getElementById('rotatorSpeedAz').value = rotatorSpeedAz;
       document.getElementById('rotatorSpeedEl').value = rotatorSpeedEl;
@@ -2414,6 +2563,22 @@ async function setElfMode(enabled) {
     body: JSON.stringify({ enabled })
   });
   if (!resp.ok) throw new Error('POST /elf failed');
+  return await resp.json();
+}
+
+async function getDisplaySettings() {
+  const resp = await api('/api/settings');
+  if (!resp.ok) throw new Error('GET /api/settings failed');
+  return await resp.json();
+}
+
+async function setAzElDecimals(enabled) {
+  const resp = await fetch((getApiBase() || '') + '/api/settings/display', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ azElDecimals: enabled })
+  });
+  if (!resp.ok) throw new Error('POST /api/settings/display failed');
   return await resp.json();
 }
 
@@ -4070,6 +4235,8 @@ async function startTracking() {
 
 function beginTracking(sat, satrec, now, minEl) {
   tracking = true;
+  startKeepAliveAudio();
+  requestWakeLock();
   lastTargetAz = null;
   lastTargetEl = null;
   minDistAchieved = Infinity;
@@ -4119,6 +4286,8 @@ function beginTracking(sat, satrec, now, minEl) {
 
 function beginAstroTracking(bodyName, bodyKey, now, minEl) {
   tracking = true;
+  startKeepAliveAudio();
+  requestWakeLock();
   lastTargetAz = null;
   lastTargetEl = null;
   minDistAchieved = Infinity;
@@ -4134,6 +4303,8 @@ function beginAstroTracking(bodyName, bodyKey, now, minEl) {
 
 function stopTracking() {
   tracking = false;
+  stopKeepAliveAudio();
+  releaseWakeLock();
   lastSentAz = null;
   lastSentEl = null;
   lastTargetAz = null;
@@ -4686,8 +4857,8 @@ async function computeAndSend(force) {
     }
 
     // Display: show current satellite position
-    document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
-    document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+    document.getElementById('targetAz').textContent = degStr(satAz) + '°';
+    document.getElementById('targetEl').textContent = degStr(satEl) + '°';
     document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
 
     // Update polar plot
@@ -4722,10 +4893,10 @@ document.getElementById('manualSetBtn').addEventListener('click', async () => {
   try {
     await setPosition(az, el);
     if (az !== undefined) {
-      document.getElementById('targetAz').textContent = String(az.toFixed(1)).padStart(5, '\u00A0') + '°';
+      document.getElementById('targetAz').textContent = degStr(az) + '°';
     }
     if (el !== undefined) {
-      document.getElementById('targetEl').textContent = String(el.toFixed(1)).padStart(5, '\u00A0') + '°';
+      document.getElementById('targetEl').textContent = degStr(el) + '°';
     }
   } catch (e) {
     alert('Failed to set position: ' + e.message);
@@ -4971,8 +5142,8 @@ function formatTimeRemaining(totalSeconds) {
 setInterval(async () => {
   try {
     const pos = await fetchPos();
-    const azStr = String(pos.az.toFixed(1)).padStart(5, '\u00A0') + '°';
-    const elStr = String(pos.el.toFixed(1)).padStart(5, '\u00A0') + '°';
+    const azStr = degStr(pos.az) + '°';
+    const elStr = degStr(pos.el) + '°';
 
     // Track antenna position for rendezvous calculation
     antennaAz = pos.az;
@@ -5108,8 +5279,8 @@ setInterval(async () => {
       if (top) {
               let satAz = (top.azimuth * 180 / Math.PI + 360) % 360;
               let satEl = top.elevation * 180 / Math.PI;
-              document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
-              document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+              document.getElementById('targetAz').textContent = degStr(satAz) + '°';
+              document.getElementById('targetEl').textContent = degStr(satEl) + '°';
               document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + top.range.toFixed(0) + ' km</span>';
               // Compute and display AOS/LOS for celestial body
               const aosInfo = getAstroAosLos(astroKey, now, 0, stationLocation.lat, stationLocation.lon, stationLocation.alt);
@@ -5131,7 +5302,7 @@ setInterval(async () => {
                     } else {
                       timerEl.innerHTML = '<span class="aoslos-label">LOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
                     }
-                    azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value">' + (aosInfo.losAz !== null ? aosInfo.losAz.toFixed(1) + '°' : '') + '</span>';
+                    azEl.innerHTML = '<span class="aoslos-label">LOS Az: </span><span class="aoslos-value">' + (aosInfo.losAz !== null ? (showAzElDecimals ? aosInfo.losAz.toFixed(1) : Math.round(aosInfo.losAz)) + '°' : '') + '</span>';
                   }
                 } else {
                   const diff = aosInfo.aosTime - nowMs;
@@ -5147,7 +5318,7 @@ setInterval(async () => {
                     } else {
                       timerEl.innerHTML = '<span class="aoslos-label">AOS in: </span><span class="aoslos-value"> ' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') + '</span>';
                     }
-                    azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value">' + (aosInfo.aosAz !== null ? aosInfo.aosAz.toFixed(1) + '°' : '') + '</span>';
+                    azEl.innerHTML = '<span class="aoslos-label">AOS Az: </span><span class="aoslos-value">' + (aosInfo.aosAz !== null ? (showAzElDecimals ? aosInfo.aosAz.toFixed(1) : Math.round(aosInfo.aosAz)) + '°' : '') + '</span>';
                   }
                 }
               } else {
@@ -5177,8 +5348,8 @@ setInterval(async () => {
         satEl = satEl * 180 / Math.PI;
         
         // Update target display with aligned decimal points
-        document.getElementById('targetAz').textContent = String(satAz.toFixed(1)).padStart(5, '\u00A0') + '°';
-        document.getElementById('targetEl').textContent = String(satEl.toFixed(1)).padStart(5, '\u00A0') + '°';
+        document.getElementById('targetAz').textContent = degStr(satAz) + '°';
+        document.getElementById('targetEl').textContent = degStr(satEl) + '°';
         document.getElementById('targetRange').innerHTML = '<span class="aoslos-label range-label">Range: </span><span class="aoslos-value"> ' + satRange.toFixed(0) + ' km</span>';
         
         // Update AOS/LOS timer
@@ -5538,11 +5709,11 @@ function drawPolarPlot(top, sat) {
       ${cardinal}
       <!-- Satellite position -->
       <circle cx="${satPt.x}" cy="${satPt.y}" r="6" fill="#58a6ff" opacity="0.9">
-        <title>Satellite: Az=${satAzDeg.toFixed(1)}° El=${satElDeg.toFixed(1)}°</title>
+        <title>Satellite: Az=${showAzElDecimals ? satAzDeg.toFixed(1) : Math.round(satAzDeg)}° El=${showAzElDecimals ? satElDeg.toFixed(1) : Math.round(satElDeg)}°</title>
       </circle>
       <!-- Rotator position -->
       <circle cx="${rotPt.x}" cy="${rotPt.y}" r="${rotDotRadius}" fill="${rotDotColor}" opacity="0.9">
-        <title>Rotator: Az=${rotAz.toFixed(1)}° El=${rotEl.toFixed(1)}°</title>
+        <title>Rotator: Az=${showAzElDecimals ? rotAz.toFixed(1) : Math.round(rotAz)}° El=${showAzElDecimals ? rotEl.toFixed(1) : Math.round(rotEl)}°</title>
       </circle>
     `;
   }).catch(() => {
@@ -6031,6 +6202,29 @@ document.getElementById('updateInterval').addEventListener('change', () => {
   maybeRestartTracking();
 });
 
+document.getElementById('bgKeepAlive').addEventListener('change', (e) => {
+  bgKeepAlive = e.target.checked;
+  localStorage.setItem('bgKeepAlive', bgKeepAlive ? '1' : '0');
+  if (tracking) {
+    stopKeepAliveAudio();
+    if (bgKeepAlive) startKeepAliveAudio();
+  }
+});
+
+// Decimal degrees — stored on the device (also drives the OLED)
+document.getElementById('azElDecimals').addEventListener('change', (e) => {
+  showAzElDecimals = e.target.checked;
+  localStorage.setItem('azElDecimals', showAzElDecimals ? '1' : '0');
+  setAzElDecimals(showAzElDecimals).catch(() => {});
+});
+
+// Debug USB log — opens the firmware's live protocol-traffic viewer in a new tab
+document.getElementById('debugUsbBtn').addEventListener('click', () => {
+  const api = getApiBase();
+  window.open(api + '/debug-usb', '_blank');
+  console.log('[DEBUG-USB] Opening protocol debug log tab:', api + '/debug-usb');
+});
+
 document.getElementById('minElevation').addEventListener('change', () => {
   minElevation = parseFloat(document.getElementById('minElevation').value);
   localStorage.setItem('minElevation', minElevation);
@@ -6240,6 +6434,8 @@ document.getElementById('latitude').value = stationLocation.lat || '';
 document.getElementById('longitude').value = stationLocation.lon || '';
 document.getElementById('altitude').value = stationLocation.alt || '';
 document.getElementById('updateInterval').value = updateIntervalMs;
+document.getElementById('bgKeepAlive').checked = bgKeepAlive;
+document.getElementById('azElDecimals').checked = showAzElDecimals;
 document.getElementById('minElevation').value = minElevation;
 document.getElementById('rotatorSpeedAz').value = rotatorSpeedAz;
 document.getElementById('rotatorSpeedEl').value = rotatorSpeedEl;
@@ -6252,13 +6448,22 @@ getElfMode().then(data => {
   document.getElementById('elfToggle').checked = elfMode;
 }).catch(() => {});
 
+// Load display settings from device (source of truth — also drives the OLED)
+getDisplaySettings().then(data => {
+  if (data.display && typeof data.display.azElDecimals === 'boolean') {
+    showAzElDecimals = data.display.azElDecimals;
+    localStorage.setItem('azElDecimals', showAzElDecimals ? '1' : '0');
+    document.getElementById('azElDecimals').checked = showAzElDecimals;
+  }
+}).catch(() => {});
+
 // Draw initial polar plot
 setTimeout(() => {
   drawPolarPlot({ azimuth: 0, elevation: 0 }, {});
 }, 500);
 
 // App version display (for cache-busting verification)
-document.getElementById('appVersion').textContent = 'v1.5.1';
+document.getElementById('appVersion').textContent = 'v1.5.4';
 
 // ==================== CONFIGURATION SAVE/LOAD ====================
 const CONFIG_KEYS = [
@@ -6410,8 +6615,18 @@ function listFiles() {
     return;
   }
   fileListEl.innerHTML = '<div style="color:var(--muted);padding:4px;">Loading...</div>';
-  fetch(api + '/list-files').then(r => r.json()).then(files => {
-    renderFileList(files);
+  fetch(api + '/list-files').then(r => r.json()).then(data => {
+    // New firmware: {files:[...], total, free}; older firmware: bare array
+    if (Array.isArray(data)) {
+      renderFileList(data);
+    } else {
+      renderFileList(data.files || []);
+      if (typeof data.total === 'number' && typeof data.free === 'number') {
+        const kb = n => (n / 1024).toFixed(0);
+        fileListEl.insertAdjacentHTML('beforeend',
+          '<div style="color:var(--muted);padding-top:4px;">SPIFFS: ' + kb(data.free) + ' KB free of ' + kb(data.total) + ' KB</div>');
+      }
+    }
   }).catch(err => {
     fileListEl.innerHTML = '<div style="color:var(--red);padding:4px;">Error: ' + err.message + '</div>';
   });

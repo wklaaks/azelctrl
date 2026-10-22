@@ -37,6 +37,7 @@
 #include <EEPROM.h>
 #include <ESP8266HTTPClient.h>
 #include <FS.h>
+#include <cerrno>
 
 // ==================== SPIFFS HTML ====================
 // The ESP serves the HTML from SPIFFS (filesystem) if available,
@@ -91,7 +92,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.1"
+#define FIRMWARE_VERSION "1.5.3"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -204,6 +205,19 @@ bool protocolShowCommands = true;
 char protocolLastCommand[PROTOCOL_BUF_SIZE];  // Last received command for display
 char protocolLastResponse[PROTOCOL_BUF_SIZE];  // Last sent response for display
 
+// Time of last received protocol char — used to detect stalled partial commands
+unsigned long protocolLastRxTime = 0;
+const unsigned long PROTOCOL_PARTIAL_TIMEOUT_MS = 500;  // Stalled partial command flush
+
+// Transient OLED warning for protocol errors (auto-clears after 5s)
+char oledWarnText[21] = "";
+unsigned long oledWarnUntil = 0;
+void showOledWarning(const char* msg) {
+  strncpy(oledWarnText, msg, sizeof(oledWarnText) - 1);
+  oledWarnText[sizeof(oledWarnText) - 1] = '\0';
+  oledWarnUntil = millis() + 5000;
+}
+
 // Suppress RX/TX overlay on OLED for 5s after any button press
 // This prevents continuous client polling from hiding the menu
 unsigned long oledCmdSuppressUntil = 0;
@@ -216,6 +230,82 @@ void resetOledCmdSuppress() {
 // TCP input buffer (Default Protocol over TCP)
 char tcpProtocolBuf[PROTOCOL_BUF_SIZE];
 int tcpProtocolBufIdx = 0;
+
+// ==================== PROTOCOL DEBUG LOG ====================
+// RAM-only ring buffer capturing raw protocol traffic (RX + TX) on both the
+// USB serial and TCP interfaces, for diagnosing external tracking software.
+// Zero flash wear: nothing is written to the filesystem. Capture is armed
+// only while a debug client polls /debug-log (auto-disarms 5 s after the
+// last poll) — opening the debug tab starts logging, closing it stops it.
+#define DBGLOG_MAX_ENTRIES 96
+#define DBGLOG_MSG_MAX     56
+struct DbgLogEntry {
+  uint32_t t;      // millis() at capture
+  uint8_t dir;     // 'R' = received, 'T' = transmitted
+  uint8_t src;     // 'S' = USB serial, 'T' = TCP, 'C' = console
+  uint8_t len;     // escaped message length
+  char msg[DBGLOG_MSG_MAX];
+};  // 64 bytes
+static DbgLogEntry dbgLogBuf[DBGLOG_MAX_ENTRIES];  // ~6 KB static RAM
+static uint32_t dbgLogSeq = 0;        // entries captured this session
+static bool dbgLogArmed = false;
+static unsigned long dbgLogLastPollMs = 0;
+const unsigned long DBGLOG_IDLE_DISARM_MS = 5000;
+
+void dbgLogArm(bool fresh) {
+  if (fresh || !dbgLogArmed) {
+    dbgLogArmed = true;
+    dbgLogSeq = 0;
+    memset(dbgLogBuf, 0, sizeof(dbgLogBuf));  // clear stale slots from previous sessions
+  }
+  dbgLogLastPollMs = millis();
+}
+
+// Escape control chars so the log reads as plain text (\r \n \t \\ \" \xNN).
+// The output is also safe to embed in JSON strings.
+static void dbgLogEscape(const char* in, int inLen, char* out, int maxOut) {
+  static const char hexd[] = "0123456789abcdef";
+  int o = 0;
+  for (int i = 0; i < inLen && o + 4 < maxOut; i++) {
+    char c = in[i];
+    if (c == '\r')                        { out[o++] = '\\'; out[o++] = 'r'; }
+    else if (c == '\n')                   { out[o++] = '\\'; out[o++] = 'n'; }
+    else if (c == '\t')                   { out[o++] = '\\'; out[o++] = 't'; }
+    else if (c == '\\' || c == '"')       { out[o++] = '\\'; out[o++] = c; }
+    else if (c >= 0x20 && c < 0x7f)       { out[o++] = c; }
+    else {
+      out[o++] = '\\'; out[o++] = 'x';
+      out[o++] = hexd[(c >> 4) & 0xF]; out[o++] = hexd[c & 0xF];
+    }
+  }
+  out[o] = '\0';
+}
+
+// Escape backslashes for JSON embedding. The message is already printable-safe
+// (control chars rendered as \r \n \xNN two-char sequences); without this, JSON
+// parsing would reinterpret those sequences and corrupt the line.
+static void dbgLogJsonEscape(const char* in, char* out, int maxOut) {
+  int o = 0;
+  for (int i = 0; in[i] != '\0' && o + 3 < maxOut; i++) {
+    if (in[i] == '\\') out[o++] = '\\';
+    out[o++] = in[i];
+  }
+  out[o] = '\0';
+}
+
+// Capture one line while armed. dir: "RX"/"TX", src: "SER"/"TCP"/"CON".
+void dbgLogCapture(const char* dir, const char* src, const char* text) {
+  if (!dbgLogArmed) return;
+  char esc[DBGLOG_MSG_MAX];
+  dbgLogEscape(text, (int)strlen(text), esc, DBGLOG_MSG_MAX);
+  DbgLogEntry& e = dbgLogBuf[dbgLogSeq % DBGLOG_MAX_ENTRIES];
+  e.t = millis();
+  e.dir = dir[0];
+  e.src = src[0];
+  e.len = (uint8_t)strlen(esc);
+  memcpy(e.msg, esc, e.len + 1);
+  dbgLogSeq++;
+}
 
 // Protocol target tracking — auto-stop when target is reached
 bool protocolTargetAzSet = false;
@@ -311,6 +401,12 @@ void formatPositionResponse(char* buf, size_t bufsize, int azDeg, int elDeg, con
   }
 }
 
+// Interface that delivered the current/most-recent protocol command.
+// Replies are always returned over the SAME interface the command arrived on:
+// RX_SRC_SER -> USB serial wire, RX_SRC_TCP -> rotctl TCP client. Never cross.
+enum ProtocolRxSource { RX_SRC_NONE = 0, RX_SRC_SER, RX_SRC_TCP };
+uint8_t protocolRxSource = RX_SRC_NONE;
+
 // Get protocol-specific line ending
 // Hamlib source: gs232a.c REPLY_EOM="\n", gs232b.c REPLY_EOM="\r\n"
 const char* getProtocolLineEnding() {
@@ -375,6 +471,21 @@ void saveProtocolSettings() {
   EEPROM.write(EEPROM_PROTO_REVERSE_DELAY, (uint8_t)protocolReverseDelay);
   EEPROM.write(EEPROM_PROTO_VARIANT, (uint8_t)currentProtocol);
   EEPROM.write(EEPROM_PROTO_MAGIC, EEPROM_PROTO_MAGIC_VAL);
+  EEPROM.commit();
+}
+
+// ==================== DISPLAY SETTINGS (EEPROM byte 105) ====================
+// 1 = show decimal degrees (one decimal digit) for Az/El; any other value
+// (0 or erased 0xFF) = whole degrees. Default OFF.
+#define EEPROM_DISP_AZEL_DECIMALS 105
+bool azElDisplayDecimals = false;
+
+void loadDisplaySettings() {
+  azElDisplayDecimals = (EEPROM.read(EEPROM_DISP_AZEL_DECIMALS) == 1);
+}
+
+void saveDisplaySettings() {
+  EEPROM.write(EEPROM_DISP_AZEL_DECIMALS, azElDisplayDecimals ? 1 : 0);
   EEPROM.commit();
 }
 
@@ -1055,7 +1166,11 @@ void checkRotctlClient() {
     rotctlClient = rotctlServer.available();
     rotctlConnected = true;
     tcpProtocolBufIdx = 0;  // Reset TCP buffer
-    Serial.println("ROTCTL: Client connected from " + rotctlClient.remoteIP().toString());
+    {
+      String m = "ROTCTL: Client connected from " + rotctlClient.remoteIP().toString();
+      Serial.println(m);
+      dbgLogCapture("TX", "CON", m.c_str());  // these bytes also reach the USB serial wire
+    }
     return;
   }
   
@@ -1064,7 +1179,11 @@ void checkRotctlClient() {
     rotctlClient.stop();
     rotctlConnected = false;
     tcpProtocolBufIdx = 0;
-    Serial.println("ROTCTL: Client disconnected");
+    {
+      const char* m = "ROTCTL: Client disconnected";
+      Serial.println(m);
+      dbgLogCapture("TX", "CON", m);
+    }
     return;
   }
   
@@ -1077,43 +1196,93 @@ void checkRotctlClient() {
         if (tcpProtocolBufIdx > 0) {
           tcpProtocolBuf[tcpProtocolBufIdx] = '\0';
           DBG_PRINTLN(tcpProtocolBuf);
+          {
+            // Debug log: exact line as received on TCP, terminator included
+            char rawLine[PROTOCOL_BUF_SIZE + 1];
+            memcpy(rawLine, tcpProtocolBuf, tcpProtocolBufIdx);
+            rawLine[tcpProtocolBufIdx] = ch;
+            rawLine[tcpProtocolBufIdx + 1] = '\0';
+            dbgLogCapture("RX", "TCP", rawLine);
+          }
+          // This command arrived over TCP — replies must go back over TCP
+          protocolRxSource = RX_SRC_TCP;
+          // Track last command for the OLED RX/TX overlay
+          strncpy(protocolLastCommand, tcpProtocolBuf, PROTOCOL_BUF_SIZE - 1);
+          protocolLastCommand[PROTOCOL_BUF_SIZE - 1] = '\0';
           processDefaultProtocolCommand(tcpProtocolBuf, tcpProtocolBufIdx);
           tcpProtocolBufIdx = 0;
         }
       } else {
         if (tcpProtocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
           tcpProtocolBuf[tcpProtocolBufIdx++] = ch;
+        } else {
+          // Buffer overflow — discard oversized command and recover so the
+          // parser state can't wedge on a malformed stream.
+          {
+            char ov[PROTOCOL_BUF_SIZE + 16];
+            snprintf(ov, sizeof(ov), "[OVERFLOW] %.*s", PROTOCOL_BUF_SIZE - 1, tcpProtocolBuf);
+            dbgLogCapture("RX", "TCP", ov);
+          }
+          tcpProtocolBufIdx = 0;
+          tcpProtocolBuf[0] = '\0';
+          showOledWarning("ERR: OVERFLOW");
         }
       }
     }
   }
 }
 
-// Modified protocolSend — sends to TCP client only (serial is for protocol RX)
+// Send a protocol reply back over the SAME interface the command arrived on.
+// A command received on USB serial is answered on the serial wire; a command
+// received over TCP is answered over TCP. Replies never cross interfaces —
+// this keeps each stream clean for its own client (the old unconditional
+// serial echo broke GS-232A/B clients; see commit d4614b5).
 void protocolSend(const String& response) {
   const char* lineEnding = getProtocolLineEnding();
   String fullResponse = response + lineEnding;
-  
-  // Send to TCP client if connected
-  if (rotctlConnected && rotctlClient.connected()) {
+
+  // Route the reply to the interface that delivered the command
+  bool delivered = false;
+  if (protocolRxSource == RX_SRC_SER) {
+    Serial.print(fullResponse);
+    delivered = true;
+  } else if (rotctlConnected && rotctlClient.connected()) {
     rotctlClient.print(fullResponse);
+    delivered = true;
   }
-  
+
+  // Debug log: record where the response went. "DROP" = generated but no
+  // delivery target on the command's own interface.
+  dbgLogCapture("TX", delivered ? (protocolRxSource == RX_SRC_SER ? "SER" : "TCP") : "DROP", fullResponse.c_str());
+
   strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
   protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
 }
 
 // Feed a single character into the protocol parser (used by both Serial and TCP)
 void processProtocolChar(char ch) {
+  protocolLastRxTime = millis();
   if (ch == '\n' || ch == '\r') {
     if (protocolBufIdx > 0) {
       protocolBuf[protocolBufIdx] = '\0';
       strncpy(protocolLastCommand, protocolBuf, PROTOCOL_BUF_SIZE - 1);
       protocolLastCommand[PROTOCOL_BUF_SIZE - 1] = '\0';
       DBG_PRINT("PROTOCOL:RX:"); DBG_PRINTLN(protocolBuf);
-      
-      // Special command: MODE:ROTATOR
-      if (strncmp(protocolBuf, "MODE:ROTATOR", 12) == 0) {
+      {
+        // Debug log: exact line as received on USB serial, terminator included
+        char rawLine[PROTOCOL_BUF_SIZE + 1];
+        memcpy(rawLine, protocolBuf, protocolBufIdx);
+        rawLine[protocolBufIdx] = ch;
+        rawLine[protocolBufIdx + 1] = '\0';
+        dbgLogCapture("RX", "SER", rawLine);
+        }
+
+        // This command arrived over USB serial — replies must go back over serial
+        protocolRxSource = RX_SRC_SER;
+
+        // Special command: MODE:ROTATOR (exact match — a prefix match would
+      // trigger on any longer line merely starting with "MODE:ROTATOR")
+      if (protocolBufIdx == 12 && strncmp(protocolBuf, "MODE:ROTATOR", 12) == 0) {
         stopAll();
         exitCalibrationMode();
         currentMenu = nullptr;
@@ -1140,8 +1309,38 @@ void processProtocolChar(char ch) {
   } else {
     if (protocolBufIdx < PROTOCOL_BUF_SIZE - 1) {
       protocolBuf[protocolBufIdx++] = ch;
+    } else {
+      // Buffer overflow — discard the oversized command and recover.
+      // Without this, every subsequent char is dropped silently until the
+      // next newline, wedging the protocol state machine.
+      {
+        char ov[PROTOCOL_BUF_SIZE + 16];
+        snprintf(ov, sizeof(ov), "[OVERFLOW] %.*s", PROTOCOL_BUF_SIZE - 1, protocolBuf);
+        dbgLogCapture("RX", "SER", ov);
+      }
+      protocolBufIdx = 0;
+      protocolBuf[0] = '\0';
+      showOledWarning("ERR: OVERFLOW");
     }
   }
+}
+
+// Detect a stalled partial command in the protocol buffer (chars received
+// but no terminator within PROTOCOL_PARTIAL_TIMEOUT_MS). Flush it so the
+// parser state can't wedge on an unterminated or malformed command stream.
+// Called from loop() — never blocks.
+void checkProtocolStall() {
+  if (protocolBufIdx == 0) return;
+  if (millis() - protocolLastRxTime < PROTOCOL_PARTIAL_TIMEOUT_MS) return;
+  DBG_PRINTLN("PROTOCOL:STALL: flushing partial command");
+  {
+    char st[PROTOCOL_BUF_SIZE + 32];
+    snprintf(st, sizeof(st), "[STALL: no terminator within 500ms] %.*s", PROTOCOL_BUF_SIZE - 1, protocolBuf);
+    dbgLogCapture("RX", "SER", st);
+  }
+  protocolBufIdx = 0;
+  protocolBuf[0] = '\0';
+  showOledWarning("ERR: NO EOL");
 }
 
 // ==================== PROGMEM HTML PAGES ====================
@@ -1181,6 +1380,50 @@ p{font-size:18px}
 <p>WiFi credentials saved to device.</p>
 <p>You can now disconnect and use the Connect option on the device.</p>
 </body></html>
+)RAWHTML";
+
+// Protocol debug log viewer — served at /debug-usb (opens in its own tab).
+// Polls /debug-log while open; firmware capture stops ~5 s after close.
+const char html_debug_usb[] PROGMEM = R"RAWHTML(
+<!DOCTYPE html><html><head>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>AZELCtrl Debug USB</title>
+<style>
+body{font-family:Consolas,Menlo,monospace;background:#1a1a2e;color:#eee;margin:0;padding:14px}
+h1{color:#00d4ff;font-size:15px;margin:0 0 3px}
+.sub{color:#888;font-size:11px;margin-bottom:8px;line-height:1.4}
+.bar{margin-bottom:8px}
+button{padding:6px 14px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:12px}
+#status{font-size:11px;color:#aaa;margin-left:10px}
+pre{background:#0f0f1e;border:1px solid #333;border-radius:6px;padding:10px;height:calc(100vh - 140px);overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.5;margin:0}
+.rx{color:#7ec8ff}.tx{color:#7dff9e}.ev{color:#ffb347}
+</style></head><body>
+<h1>AZELCtrl — Protocol Debug Log</h1>
+<div class='sub'>USB serial + TCP protocol traffic, exactly as seen by the device.<br>
+Logging is active while this tab is open and stops when you close it. Nothing is written to the device's flash.</div>
+<div class='bar'><button id='dl'>Download log</button><span id='status'>connecting…</span></div>
+<pre id='log'></pre>
+<script>
+var seq=-1,pre=document.getElementById('log'),status=document.getElementById('status');
+function cls(l){return l.indexOf('] RX')>-1?'rx':(l.indexOf('] TX')>-1?'tx':'ev');}
+function poll(){
+  fetch('/debug-log?since='+seq).then(function(r){return r.json();}).then(function(j){
+    seq=j.seq;
+    var atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-30;
+    for(var i=0;i<j.lines.length;i++){
+      var d=document.createElement('span');d.className=cls(j.lines[i]);d.textContent=j.lines[i]+'\n';pre.appendChild(d);
+    }
+    while(pre.childNodes.length>2000)pre.removeChild(pre.firstChild);
+    if(atBottom)pre.scrollTop=pre.scrollHeight;
+    status.textContent='armed — '+j.seq+' entries captured';
+    status.style.color='#7dff9e';
+  }).catch(function(){
+    status.textContent='connection lost — retrying';status.style.color='#ff6b6b';
+  });
+}
+document.getElementById('dl').onclick=function(){window.location='/debug-log-download';};
+poll();setInterval(poll,600);
+</script></body></html>
 )RAWHTML";
 
 // Satellite tracker HTML — served from SPIFFS (index.html.gz) with PROGMEM fallback
@@ -1268,6 +1511,8 @@ void handleUpload() {
   HTTPUpload& upload = server.upload();
   static File spiffsFile;
   static String uploadPath;
+  static bool uploadWriteError = false;
+  static size_t uploadBytesWritten = 0;
 
   if (upload.status == UPLOAD_FILE_START) {
     // Sanitize filename — strip path, allow alphanumeric + ._-
@@ -1275,28 +1520,49 @@ void handleUpload() {
     int lastSlash = filename.lastIndexOf('/');
     if (lastSlash >= 0) filename = filename.substring(lastSlash + 1);
     uploadPath = "/" + filename;
-    
+
     // Remove old file if exists
     if (SPIFFS.exists(uploadPath)) {
       SPIFFS.remove(uploadPath);
     }
     spiffsFile = SPIFFS.open(uploadPath, "w");
+    uploadWriteError = !spiffsFile;
+    uploadBytesWritten = 0;
     Serial.print("Upload: start ");
     Serial.println(uploadPath);
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     if (spiffsFile) {
-      spiffsFile.write(upload.buf, upload.currentSize);
+      // Verify the write — SPIFFS can fail mid-file under RAM pressure;
+      // without this a truncated file would be served silently.
+      size_t n = spiffsFile.write(upload.buf, upload.currentSize);
+      if (n != upload.currentSize) {
+        uploadWriteError = true;
+      } else {
+        uploadBytesWritten += n;
+      }
+    } else {
+      uploadWriteError = true;
     }
   } else if (upload.status == UPLOAD_FILE_END) {
     if (spiffsFile) {
       spiffsFile.close();
+    }
+    if (uploadWriteError || (size_t)upload.totalSize != uploadBytesWritten) {
+      // Incomplete write — remove the partial file so the portal falls back
+      // to the built-in copy instead of serving a corrupted page.
+      if (SPIFFS.exists(uploadPath)) {
+        SPIFFS.remove(uploadPath);
+      }
+      Serial.println("Upload: FAILED (write error or size mismatch) — partial file removed, retry the upload");
+      server.send(500, "text/plain", "Upload failed: incomplete write. Please retry.");
+    } else {
       Serial.print("Upload: done ");
       Serial.print(uploadPath);
       Serial.print(" (");
       Serial.print(upload.totalSize);
       Serial.println(" bytes)");
+      server.send(200, "text/plain", "Upload complete");
     }
-    server.send(200, "text/plain", "Upload complete");
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
     if (spiffsFile) {
       spiffsFile.close();
@@ -1338,7 +1604,16 @@ void listSpiffsFiles() {
     json += "}";
   }
   json += "]";
-  server.send(200, "application/json", json);
+  // Include filesystem capacity so clients can diagnose partial uploads
+  FSInfo fsInfo;
+  if (SPIFFS.info(fsInfo)) {
+    String out = "{\"files\":" + json + ",";
+    out += "\"total\":" + String(fsInfo.totalBytes) + ",";
+    out += "\"free\":" + String((uint32_t)(fsInfo.totalBytes - fsInfo.usedBytes)) + "}";
+    server.send(200, "application/json", out);
+  } else {
+    server.send(200, "application/json", json);
+  }
 }
 
 // Delete a file from SPIFFS
@@ -2295,14 +2570,26 @@ void executeProtocolElMove(float targetEl) {
 // Command format: single char + optional args, separated by spaces
 // Response format: "RPRT 0\n" for success, "value\n" for queries, "RPRT -N\n" for errors
 
-// Send a Default Protocol response (TCP client only — never to serial)
+// Send a Default Protocol response back over the SAME interface the command
+// arrived on (TCP clients are answered over TCP; serial over serial).
 void dpSend(const String& response) {
   String full = response + "\n";
-  
-  // Send to TCP client if connected
-  if (rotctlConnected && rotctlClient.connected()) {
+
+  // Route the reply to the interface that delivered the command
+  bool delivered = false;
+  if (protocolRxSource == RX_SRC_SER) {
+    Serial.print(full);
+    delivered = true;
+  } else if (rotctlConnected && rotctlClient.connected()) {
     rotctlClient.print(full);
+    delivered = true;
   }
+
+  // Debug log: record where the response went ("DROP" = no delivery target)
+  dbgLogCapture("TX", delivered ? (protocolRxSource == RX_SRC_SER ? "SER" : "TCP") : "DROP", full.c_str());
+
+  strncpy(protocolLastResponse, response.c_str(), PROTOCOL_BUF_SIZE - 1);
+  protocolLastResponse[PROTOCOL_BUF_SIZE - 1] = '\0';
 }
 
 // Send RPRT response
@@ -2804,7 +3091,12 @@ void processEasycomCommand(const char* cmd, int len) {
       // AZ xxx.x — set azimuth (skip spaces after token)
       const char* val = cmd + tokenLen;
       while (*val == ' ' || *val == '\t') val++;
-      float targetAz = parseFloat(val);
+      float targetAz;
+      if (!parseFloat(val, &targetAz)) {
+        protocolSend("ERR");
+        showOledWarning("ERR: BAD AZ VALUE");
+        return;
+      }
       if (targetAz >= 0.0 && targetAz <= 360.0) {
         executeProtocolAzMove(targetAz);
         protocolSend("OK");
@@ -2824,7 +3116,12 @@ void processEasycomCommand(const char* cmd, int len) {
       // EL yy.y — set elevation (skip spaces after token)
       const char* val = cmd + tokenLen;
       while (*val == ' ' || *val == '\t') val++;
-      float targetEl = parseFloat(val);
+      float targetEl;
+      if (!parseFloat(val, &targetEl)) {
+        protocolSend("ERR");
+        showOledWarning("ERR: BAD EL VALUE");
+        return;
+      }
       if (targetEl >= 0.0 && targetEl <= 180.0) {
         executeProtocolElMove(targetEl);
         protocolSend("OK");
@@ -2910,11 +3207,18 @@ void processEasycomCommand(const char* cmd, int len) {
   }
 }
 
-// Helper: parse a float from string (handles optional decimal point)
-static float parseFloat(const char* s) {
+// Helper: parse a float from string. Returns true on success.
+// Rejects empty/garbage input (strtof would silently return 0 otherwise).
+static bool parseFloat(const char* s, float* out) {
+  while (*s == ' ' || *s == '\t') s++;
+  if (*s == '\0') return false;
+  errno = 0;
   char* end;
   float val = strtof(s, &end);
-  return val;
+  if (end == s) return false;        // no digits consumed
+  if (errno == ERANGE) return false; // overflow / underflow
+  *out = val;
+  return true;
 }
 
 // Main protocol input handler — read from serial and feed to parser
@@ -2922,6 +3226,7 @@ void processProtocolInput() {
   while (Serial.available()) {
     char ch = Serial.read();
     processProtocolChar(ch);
+    ESP.wdtFeed();  // Keep draining a fast command stream without tripping the watchdog
   }
 }
 
@@ -2934,7 +3239,10 @@ bool checkModeCommand() {
     
     if (ch == '\n' || ch == '\r') {
       modeBuf[modeIdx] = '\0';
-      if (strncmp(modeBuf, "MODE:ROTATOR", 12) == 0) {
+      if (modeIdx > 0) dbgLogCapture("RX", "SER", modeBuf);
+      // Exact-length match only: a prefix match alone would trigger on
+      // any longer line merely starting with "MODE:ROTATOR".
+      if (modeIdx == 12 && strncmp(modeBuf, "MODE:ROTATOR", 12) == 0) {
         stopAll();
         exitCalibrationMode();
         currentMenu = nullptr;
@@ -2946,6 +3254,7 @@ bool checkModeCommand() {
     } else if (modeIdx < 31) {
       modeBuf[modeIdx++] = ch;
     }
+    ESP.wdtFeed();  // Keep draining a fast stream without tripping the watchdog
   }
   return false;
 }
@@ -5049,6 +5358,19 @@ void showElfElevPrompt() {
 
 
 
+// Flatten a protocol line for the one-line-tall OLED RX/TX strip: CR/LF
+// become '^' so multi-line replies stay on one line, and the result is
+// hard-truncated to maxLen chars.
+static void oledFlattenLine(const char* src, char* dst, int maxLen) {
+  int n = 0;
+  for (int i = 0; src[i] != '\0' && n < maxLen; i++) {
+    char c = src[i];
+    if (c == '\n' || c == '\r') c = '^';
+    dst[n++] = c;
+  }
+  dst[n] = '\0';
+}
+
 void updateRotatorDisplay() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -5075,9 +5397,9 @@ void updateRotatorDisplay() {
     else if (pauseAz) display.println("AZ axis");
     else display.println("EL axis");
     
-    display.print(adsPresent ? String(displayAzimuth(currentAz), 1) + "d" : "N/A");
+    display.print(adsPresent ? String(displayAzimuth(currentAz), azElDisplayDecimals ? 1 : 0) + "d" : "N/A");
     display.print(" El: ");
-    display.println(adsPresent ? String(currentEl, 1) + "d" : "N/A");
+    display.println(adsPresent ? String(currentEl, azElDisplayDecimals ? 1 : 0) + "d" : "N/A");
     
     // Dotted separator above footer
     for (int x = 0; x < 128; x += 3) {
@@ -5098,11 +5420,13 @@ void updateRotatorDisplay() {
       // When ELF mode is on, show effective satellite coords
       azRaw = elfAz(azRaw);
       elRaw = elfEl(elRaw);
-      azVal = String(azRaw, 1);
-      elVal = String(elRaw, 1);
-      // Left-pad to 6 chars so decimal points align (max "-180.0")
-      while (azVal.length() < 6) azVal = " " + azVal;
-      while (elVal.length() < 6) elVal = " " + elVal;
+      int dec = azElDisplayDecimals ? 1 : 0;
+      int padTo = azElDisplayDecimals ? 6 : 4;
+      azVal = String(azRaw, dec);
+      elVal = String(elRaw, dec);
+      // Left-pad so values right-align (max "-180.0" with decimals, "-180" without)
+      while (azVal.length() < padTo) azVal = " " + azVal;
+      while (elVal.length() < padTo) elVal = " " + elVal;
     }
     
     // Az line
@@ -5221,20 +5545,45 @@ void updateRotatorDisplay() {
     // Suppress overlay for 5s after any button press so menu stays visible
     bool suppressed = (oledCmdSuppressUntil > 0 && millis() < oledCmdSuppressUntil);
     bool showCmd = (protocolShowCommands && strlen(protocolLastCommand) > 0 && !suppressed);
+    // Transient protocol error warning overrides the info strip
+    bool showWarn = (oledWarnUntil > millis() && strlen(oledWarnText) > 0);
     
-    if (showCmd) {
+    if (showWarn) {
+      // Protocol error banner (auto-clears after 5s)
+      display.setTextSize(1);
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 38, SSD1306_WHITE);
+      }
+      display.setCursor(0, 40);
+      display.println(oledWarnText);
+      for (int x = 0; x < 128; x += 3) {
+        display.drawPixel(x, 53, SSD1306_WHITE);
+      }
+    } else if (showCmd) {
       // Switch to small font for RX/TX lines
       display.setTextSize(1);
       // Dotted separator below Az/El with breathing room
       for (int x = 0; x < 128; x += 3) {
         display.drawPixel(x, 38, SSD1306_WHITE);
       }
+      // Tag: first letter = source (S=serial, N=network), second = direction
+      // (R=received, T=transmitted). Replies travel back over the command's
+      // own interface, so both lines carry the same source letter.
+      const char* srcLetter = (protocolRxSource == RX_SRC_SER) ? "S" : "N";
+      // Flatten multi-line text ('^' for CR/LF) and hard-truncate to fit the
+      // 17-char payload budget (21 chars per line minus the 4-char tag)
+      char rxLine[PROTOCOL_BUF_SIZE];
+      char txLine[PROTOCOL_BUF_SIZE];
+      oledFlattenLine(protocolLastCommand, rxLine, 17);
+      oledFlattenLine(protocolLastResponse, txLine, 17);
       display.setCursor(0, 40);
-      display.print("RX: ");
-      display.print(protocolLastCommand);
+      display.print(srcLetter);
+      display.print("R: ");
+      display.print(rxLine);
       display.setCursor(0, 51);
-      display.print("TX: ");
-      display.print(protocolLastResponse);
+      display.print(srcLetter);
+      display.print("T: ");
+      display.print(txLine);
     } else if (currentMove.compareTo("IDLE") != 0) {
       display.setTextSize(1);
       display.setCursor(0, 40);
@@ -5747,6 +6096,88 @@ void setupWebServer() {
     server.send(200, "application/json", json);
   });
   
+  // ==================== PROTOCOL DEBUG LOG ====================
+  // GET /debug-usb — live debug viewer page (opens in its own browser tab)
+  server.on("/debug-usb", []() {
+    server.keepAlive(false);
+    sendProgmemHTML(html_debug_usb);
+  });
+
+  // GET /debug-log?since=N — new log lines since seq N (JSON). Any poll arms
+  // capture; capture auto-disarms ~5 s after the last poll (tab closed).
+  server.on("/debug-log", []() {
+    unsigned long now = millis();
+    if (!dbgLogArmed || now - dbgLogLastPollMs > DBGLOG_IDLE_DISARM_MS) {
+      dbgLogArm(true);   // fresh capture session
+    } else {
+      dbgLogArm(false);  // keep session, refresh idle timer
+    }
+    int since = -1;
+    if (server.hasArg("since")) since = server.arg("since").toInt();
+    uint32_t oldest = (dbgLogSeq > DBGLOG_MAX_ENTRIES) ? (dbgLogSeq - DBGLOG_MAX_ENTRIES + 1) : 0;
+    uint32_t start = (since < 0) ? oldest : (((uint32_t)since + 1 > oldest) ? (uint32_t)since + 1 : oldest);
+    String json = "{\"armed\":true,\"seq\":" + String(dbgLogSeq) + ",\"lines\":[";
+    bool first = true;
+    int n = 0;
+    for (uint32_t s = start; s <= dbgLogSeq && n < 64; s++) {
+      DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
+      if (e.len == 0) continue;  // unwritten slot
+      const char* d = (e.dir == 'R') ? "RX" : "TX";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      char line[DBGLOG_MSG_MAX + 24];
+      snprintf(line, sizeof(line), "[%lu] %s %s %s", (unsigned long)e.t, d, sr, e.msg);
+      char jline[DBGLOG_MSG_MAX + 48];
+      dbgLogJsonEscape(line, jline, sizeof(jline));
+      if (!first) json += ",";
+      json += "\"";
+      json += jline;
+      json += "\"";
+      first = false;
+      n++;
+    }
+    json += "]}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+
+  // GET /debug-log-download — full ring buffer as a downloadable .log file
+  server.on("/debug-log-download", []() {
+    dbgLogArm(false);  // refresh idle timer without resetting the buffer
+    const char* protoName = (currentProtocol == PROTO_GS232A) ? "GS-232A" :
+                            (currentProtocol == PROTO_GS232B) ? "GS-232B" : "Easycom";
+    String header = "AZELCtrl Protocol Debug Log\n";
+    header += "Firmware: " + String(FIRMWARE_VERSION) + "\n";
+    header += "Protocol: " + String(protoName) + " @ " + String(PROTOCOL_BAUD_RATES[protocolBaudIndex]) + " baud\n";
+    header += "Hamlib TCP server (port 4533): " + String(hamlibServerEnabled ? "enabled" : "disabled") + "\n";
+    header += "Entries: " + String(dbgLogSeq) + ((dbgLogSeq > DBGLOG_MAX_ENTRIES) ? " (ring wrapped — oldest dropped)" : "") + "\n";
+    header += "Timestamps: milliseconds since device boot (no RTC)\n";
+    header += "---\n";
+    // Stream in chunks (setContentLength + sendContent) — no large heap blob
+    uint32_t oldest = (dbgLogSeq > DBGLOG_MAX_ENTRIES) ? (dbgLogSeq - DBGLOG_MAX_ENTRIES + 1) : 0;
+    size_t total = header.length();
+    char line[DBGLOG_MSG_MAX + 24];
+    for (uint32_t s = oldest; s <= dbgLogSeq; s++) {
+      DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
+      if (e.len == 0) continue;
+      const char* d = (e.dir == 'R') ? "RX" : "TX";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      total += (size_t)snprintf(line, sizeof(line), "[%lu] %s %s %s\n", (unsigned long)e.t, d, sr, e.msg);
+    }
+    server.sendHeader("Content-Disposition", "attachment; filename=\"azelctrl-debug-usb.log\"");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.setContentLength(total);
+    server.send(200, "text/plain");
+    server.sendContent(header);
+    for (uint32_t s = oldest; s <= dbgLogSeq; s++) {
+      DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
+      if (e.len == 0) continue;
+      const char* d = (e.dir == 'R') ? "RX" : "TX";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      snprintf(line, sizeof(line), "[%lu] %s %s %s\n", (unsigned long)e.t, d, sr, e.msg);
+      server.sendContent(line);
+    }
+  });
+
   // ==================== SATELLITE TRACKING API ====================
   
   // GET /getpos — current position + movement directions
@@ -5984,6 +6415,8 @@ void setupWebServer() {
     json += "\"reverseDelay\":" + String(protocolReverseDelay) + "},";
     // Network
     json += "\"network\":{\"hamlibEnabled\":" + String(hamlibServerEnabled ? "true" : "false") + "},";
+    // Display
+    json += "\"display\":{\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") + "},";
     // ELF
     json += "\"elf\":" + String(elfMode ? "true" : "false") + ",";
     // Firmware
@@ -6217,6 +6650,27 @@ void setupWebServer() {
     server.send(200, "application/json", "{\"ok\":true}");
   });
 
+  // POST /api/settings/display — set display options
+  // Body: {"azElDecimals":true} — one decimal digit for Az/El (OLED + web UI)
+  server.on("/api/settings/display", HTTP_POST, []() {
+    if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
+    String body = server.arg("plain");
+    int decIdx = body.indexOf("\"azElDecimals\"");
+    if (decIdx < 0) { server.send(400, "application/json", "{\"error\":\"missing azElDecimals\"}"); return; }
+    int colon = body.indexOf(':', decIdx);
+    int start = colon + 1;
+    while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+    bool newVal = (body.substring(start, start + 4) == "true");
+
+    if (newVal != azElDisplayDecimals) {
+      azElDisplayDecimals = newVal;
+      saveDisplaySettings();
+      Serial.print("API: Decimal degrees "); Serial.println(newVal ? "enabled" : "disabled");
+    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true,\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") + "}");
+  });
+
   // POST /api/settings/calibrate — set calibration values or skip
   // Body: {"action":"skip"} — use default 3.2V range
   // Body: {"action":"set","azMinV":0.0,"azMaxV":3.2,"elMinV":0.0,"elMaxV":3.2}
@@ -6328,6 +6782,7 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
   loadProtocolSettings();
   loadNetworkSettings();
+  loadDisplaySettings();
   Serial.begin(getProtocolBaud());
   delay(200);
   
@@ -6478,6 +6933,10 @@ void setup() {
 void loop() {
   // Handle protocol commands
   processProtocolInput();
+  
+  // Flush a stalled partial command (unterminated/malformed input) so the
+  // parser state can't wedge
+  checkProtocolStall();
   
   // Check for TCP client connections
   checkRotctlClient();

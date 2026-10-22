@@ -69,14 +69,14 @@ mkdir -p "$RELEASE_DIR"
 cp "$FIRMWARE_BIN" "$RELEASE_DIR/azelctrl-firmware.bin"
 cp "$SCRIPT_DIR/satellite-tracker/index.html.gz" "$RELEASE_DIR/"
 cp "$SCRIPT_DIR/satellite-tracker/favicon.ico" "$RELEASE_DIR/"
-cp "$SCRIPT_DIR/satellite-tracker/world_coastline.js" "$RELEASE_DIR/"
+cp "$SCRIPT_DIR/satellite-tracker/world_coastline.js.gz" "$RELEASE_DIR/"
 
 cd "$RELEASE_DIR"
 zip -j "$SCRIPT_DIR/$ZIP_NAME" \
   azelctrl-firmware.bin \
   index.html.gz \
   favicon.ico \
-  world_coastline.js
+  world_coastline.js.gz
 
 rm -rf "$RELEASE_DIR"
 
