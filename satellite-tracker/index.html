@@ -838,7 +838,7 @@ td.freq-cell { font-family: monospace; font-size: 0.8rem; }
     <div class="setting-row">
       <div>
         <div class="setting-label">Rotor Power Detection</div>
-        <div class="setting-desc">Shows whether the Yaesu controller is connected and powered (reads its 12 V supply rail via the motor-shield VM pin). Requires the 1.3 MOhm + 200 kOhm divider wired from VM to the ADS1115 A2 input - disable it if you have not fitted the resistors yet. Stored on the device.</div>
+        <div class="setting-desc">Shows whether the Yaesu controller is connected and powered (monitors its +12 V supply rail on DIN pin 7, which feeds the motor-shield VM input). Wiring: a 1.3 MOhm resistor between the motor-shield VM pin and the ADS1115 A2 pin, plus a 200 kOhm resistor from A2 to GND. Disable it if you have not fitted the resistors yet. Stored on the device.</div>
       </div>
       <div class="setting-control">
         <label class="toggle-switch">
