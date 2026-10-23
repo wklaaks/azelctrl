@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.10"
+#define FIRMWARE_VERSION "1.5.11"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -276,6 +276,21 @@ int32_t  timeOffsetSec = 0;     // display offset (persisted)
 char     timeSource[5] = "none";  // "NTP" | "SYNC" | "none"
 static uint32_t lastTimeCheckMs = 0;
 
+// ====================== ROTOR POWER PRESENCE (v1.5.11) =====================
+// DIN-8 pin 7 carries the Yaesu controller's +12 V supply to the motor-shield
+// VM rail. A 1.3 MOhm / 200 kOhm divider brings that down to ~1.6 V on
+// ADS1115 A2 at 12 V - and only ~2.7 V even during the Yaesu's poorly
+// regulated 20 V spikes, comfortably inside the ADS1115's absolute-max
+// input rating. Unplugged or unpowered controller => A2 sits at ~0 V.
+// Config flag: EEPROM byte 111 (0x00 = disabled; anything else, including
+// blank 0xFF, = enabled). Default is ENABLED.
+#define ROTOR_DETECT_EEPROM 111
+bool  rotorPowerDetectEnabled = true;  // loaded from EEPROM in setup()
+bool  rotorOnline = true;              // live presence state (debounced)
+float rotorVmV = 0.0f;                 // latest divided A2 reading (V), for /diag
+uint8_t rotorLowCount = 0;             // debounce counters (file scope so the
+uint8_t rotorHighCount = 0;            // settings handler can reset them)
+
 bool timeRefValid() { return timeRefEpoch > 1000000000u; }  // after year 2001
 
 void setTimeRef(uint32_t epochSec, const char* src) {
@@ -309,6 +324,54 @@ void saveTimeOffset() {
 void initTimeNtp() {
   configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
   Serial.println("TIME: NTP configured");
+}
+
+// ====================== ROTOR POWER PRESENCE =====================
+// Thresholds with hysteresis at the divided A2 node (k = 200/1500 = 1/7.5):
+//   ONLINE  >= 1.0 V  (VM >= ~7.5 V)
+//   OFFLINE <  0.6 V  (VM <  ~4.5 V)
+// The 0.6-1.0 V deadband holds both counters, so motor-load sags and plug
+// transients cannot flap the state, but a sustained low still transitions.
+const float ROTOR_ONLINE_V  = 1.0f;
+const float ROTOR_OFFLINE_V = 0.6f;
+const uint8_t ROTOR_DEBOUNCE = 5;      // 5 x 500 ms = 2.5 s to confirm
+
+void setRotorOnline(bool on) {
+  if (on == rotorOnline) return;
+  rotorOnline = on;
+  const char* msg = on ? "ROTOR: online" : "ROTOR: offline";
+  Serial.println(msg);
+  dbgLogCapture("TX", "CON", msg);
+}
+
+void checkRotorPower() {
+  if (!rotorPowerDetectEnabled || !adsPresent) return;
+  static unsigned long lastCheck = 0;
+  unsigned long now = millis();
+  if (now - lastCheck < 500) return;
+  lastCheck = now;
+  // Same PGA as the position pots (+-4.096 V range): 1 mV per LSB.
+  rotorVmV = ads.readADC_SingleEnded(2) / 32768.0 * 4.096F;
+  if (rotorVmV < ROTOR_OFFLINE_V) {
+    if (rotorLowCount < 250) rotorLowCount++;
+    rotorHighCount = 0;
+  } else if (rotorVmV >= ROTOR_ONLINE_V) {
+    if (rotorHighCount < 250) rotorHighCount++;
+    rotorLowCount = 0;
+  }
+  // Deadband (0.6-1.0 V): neither counter moves.
+  if (!rotorOnline && rotorHighCount >= ROTOR_DEBOUNCE) setRotorOnline(true);
+  else if (rotorOnline && rotorLowCount >= ROTOR_DEBOUNCE) setRotorOnline(false);
+}
+
+void loadRotorDetectSetting() {
+  // 0x00 = explicitly disabled; blank (0xFF) or 0xFF = enabled (default ON)
+  rotorPowerDetectEnabled = (EEPROM.read(ROTOR_DETECT_EEPROM) != 0x00);
+}
+
+void saveRotorDetectSetting() {
+  EEPROM.write(ROTOR_DETECT_EEPROM, rotorPowerDetectEnabled ? 0xFF : 0x00);
+  EEPROM.commit();
 }
 
 // Pick up NTP results once every 30 s while WiFi is connected.
@@ -5766,15 +5829,21 @@ void updateRotatorDisplay() {
     } else {
       display.setTextSize(1);
       display.setCursor(0, 40);
-      display.print("Sel: ");
-      display.print(directions[rotatorMenuSelection]);
-      
-      // Show ELF indicator right-aligned when enabled
-      if (elfMode) {
-        // One space gap before "ELF" to avoid TCP dot at x=125
-        int elfWidth = 18; // "ELF" in size 1 = 3 * 6 = 18px
-        display.setCursor(128 - elfWidth - 1, 40);
-        display.print("ELF");
+      if (rotorPowerDetectEnabled && !rotorOnline) {
+        // Position feedback unavailable: persistent warning takes over the
+        // Sel line (menu selection is meaningless without the rotator).
+        display.print("ROTOR OFFLINE");
+      } else {
+        display.print("Sel: ");
+        display.print(directions[rotatorMenuSelection]);
+
+        // Show ELF indicator right-aligned when enabled
+        if (elfMode) {
+          // One space gap before "ELF" to avoid TCP dot at x=125
+          int elfWidth = 18; // "ELF" in size 1 = 3 * 6 = 18px
+          display.setCursor(128 - elfWidth - 1, 40);
+          display.print("ELF");
+        }
       }
       display.println();
       for (int x = 0; x < 128; x += 3) {
@@ -6261,8 +6330,8 @@ void setupWebServer() {
     json += "\"az\":" + String(displayAzimuth(currentAz), 1) + ",";
     json += "\"el\":" + String(currentEl, 1) + ",";
     json += "\"move\":\"" + currentMove + "\",";
-    json += "\"pause\":" + String(isPausing ? "true" : "false");
-    json += "}";
+    json += "\"pause\":" + String(isPausing ? "true" : "false") + ",";
+    json += "\"rotor\":\"" + String(rotorPowerDetectEnabled ? (rotorOnline ? "online" : "offline") : "disabled") + "\"}";
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
   });
@@ -6285,6 +6354,8 @@ void setupWebServer() {
     j += "\"az\":" + String(currentAz, 2) + ",";
     j += "\"el\":" + String(currentEl, 2) + ",";
     j += "\"elf\":" + String((int)elfMode) + ",";
+    j += "\"vmV\":" + String(rotorVmV, 3) + ",";
+    j += "\"rotor\":\"" + String(rotorPowerDetectEnabled ? (rotorOnline ? "online" : "offline") : "disabled") + "\",";
     j += "\"up\":" + String(millis() / 1000);
     j += "}";
     server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -6464,8 +6535,8 @@ void setupWebServer() {
     json += "\"az\":" + String(az, 1) + ",";
     json += "\"el\":" + String(el, 1) + ",";
     json += "\"maz\":\"" + String(maz) + "\",";
-    json += "\"mel\":\"" + String(mel) + "\"";
-    json += "}";
+    json += "\"mel\":\"" + String(mel) + "\",";
+    json += "\"rotor\":\"" + String(rotorPowerDetectEnabled ? (rotorOnline ? "online" : "offline") : "disabled") + "\"}";
     
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
@@ -6672,7 +6743,8 @@ void setupWebServer() {
     // Network
     json += "\"network\":{\"hamlibEnabled\":" + String(hamlibServerEnabled ? "true" : "false") + "},";
     // Display
-    json += "\"display\":{\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") + "},";
+    json += "\"display\":{\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") + ",";
+    json += "\"rotorPowerDetect\":" + String(rotorPowerDetectEnabled ? "true" : "false") + "},";
     // ELF
     json += "\"elf\":" + String(elfMode ? "true" : "false") + ",";
     // Firmware
@@ -6907,7 +6979,9 @@ void setupWebServer() {
   });
 
   // POST /api/settings/display — set display options
-  // Body: {"azElDecimals":true} — one decimal digit for Az/El (OLED + web UI)
+  // Body: {"azElDecimals":true,"rotorPowerDetect":true}
+  // azElDecimals required (one decimal digit for Az/El, OLED + web UI);
+  // rotorPowerDetect optional (Yaesu presence detection, default enabled).
   server.on("/api/settings/display", HTTP_POST, []() {
     if (!server.hasArg("plain")) { server.send(400, "application/json", "{\"error\":\"no body\"}"); return; }
     String body = server.arg("plain");
@@ -6923,8 +6997,25 @@ void setupWebServer() {
       saveDisplaySettings();
       Serial.print("API: Decimal degrees "); Serial.println(newVal ? "enabled" : "disabled");
     }
+
+    // Optional: rotor power presence detection on/off
+    int rpIdx = body.indexOf("\"rotorPowerDetect\"");
+    if (rpIdx >= 0) {
+      int rpColon = body.indexOf(':', rpIdx);
+      int rpStart = rpColon + 1;
+      while (rpStart < (int)body.length() && (body[rpStart] == ' ' || body[rpStart] == '\t')) rpStart++;
+      bool rpVal = (body.substring(rpStart, rpStart + 4) == "true");
+      if (rpVal != rotorPowerDetectEnabled) {
+        rotorPowerDetectEnabled = rpVal;
+        saveRotorDetectSetting();
+        rotorLowCount = 0;
+        rotorHighCount = 0;
+        Serial.print("API: Rotor power detection "); Serial.println(rpVal ? "enabled" : "disabled");
+      }
+    }
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", "{\"ok\":true,\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") + "}");
+    server.send(200, "application/json", "{\"ok\":true,\"azElDecimals\":" + String(azElDisplayDecimals ? "true" : "false") +
+      ",\"rotorPowerDetect\":" + String(rotorPowerDetectEnabled ? "true" : "false") + "}");
   });
 
   // POST /api/settings/calibrate — set calibration values or skip
@@ -7039,6 +7130,8 @@ void setup() {
   loadProtocolSettings();
   loadNetworkSettings();
   loadDisplaySettings();
+  // Load rotor power detection setting (v1.5.11)
+  loadRotorDetectSetting();
   loadTimeOffset();
   Serial.begin(getProtocolBaud());
   delay(200);
@@ -7200,6 +7293,9 @@ void loop() {
   
   // Pick up NTP time (debug-log wall-clock timestamps)
   checkTimeSync();
+  
+  // Rotor power presence check (every 500ms, debounced)
+  checkRotorPower();
   
   // Handle web server
   if (!captivePortalActive) {

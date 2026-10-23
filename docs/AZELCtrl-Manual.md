@@ -232,6 +232,7 @@ The Yaesu controller outputs analog voltages proportional to the current azimuth
 - AZELCtrl is powered via USB (5V to VIN) or an external 5V supply.
 - Motor drive voltage (12V) is supplied by the Yaesu controller through the DIN-8 connector (Pin 7 to VM).
 - **Critical**: VIN (5V logic) and VM (12V motor) must remain electrically isolated. The motor shield's VIN-VM jumper must be removed.
+- **Rotor power detection** (v1.5.11, optional): AZELCtrl can detect whether the Yaesu controller is connected and powered, by monitoring the +12 V rail on Pin 7 through a voltage divider on the ADS1115's free A2 input. Fit a **1.3 MΩ** resistor from the motor shield's **VM** pin to the ADS1115's **A2** pin, and a **200 kΩ** resistor from **A2** to **GND**. This scales the rail to ~1.6 V at 12 V nominal — and only ~2.7 V even during the Yaesu's poorly regulated 20 V spikes, safely inside the ADS1115's absolute-max input rating. With the controller unplugged or unpowered, A2 sits near 0 V. The firmware debounces the reading (2.5 s) with hysteresis, so motor-load sags and plug transients cannot flap the state. Enable or disable it in Settings → Rotor Power Detection (on by default). **Until the resistors are fitted, keep this setting OFF** — an unwired A2 input floats and gives meaningless readings.
 
 ---
 
@@ -1625,6 +1626,8 @@ Shows current rotator position. Provides a cross-shaped control pad with UP, DOW
 
 **Decimal Degrees** (off by default): When off, azimuth and elevation are shown as whole degrees (rounded) on both the OLED display and the web interface. When enabled, they show one decimal digit (e.g. `237.5` instead of `238`). The setting is stored on the device itself, so it survives power cycles and applies to every client — the web page syncs the toggle from the device when it loads. It only affects how values are *displayed*: all tracking, prediction, and command calculations continue at full internal precision regardless of the setting.
 
+**Rotor Power Detection** (on by default): Shows whether the Yaesu controller is connected and powered (see §3.3 for the optional divider wiring). When the controller is unplugged or unpowered, the Tracking tab shows a red **ROTOR OFFLINE** banner, the OLED replaces its selection line with a persistent `ROTOR OFFLINE` indicator, and each transition is logged to the protocol debug log. Disable it while the detection resistors are not yet fitted, to suppress the warning. Stored on the device; survives power cycles.
+
 **Background Keep-Alive** (on by default): Browsers throttle — and after a few minutes fully freeze — JavaScript in tabs that are not in focus, which can stop tracking while you work in another tab. When enabled, AZELCtrl plays an inaudible audio stream (~−78 dB, effectively silent) during tracking so the browser keeps the tab awake, and requests a screen wake lock so phones do not suspend the page when the screen turns off. If the tab was frozen anyway, tracking resynchronises automatically the moment you switch back to the tab. This has no effect on the AZELCtrl device itself.
 
 **Controller**:
@@ -1879,6 +1882,7 @@ Notes:
 | Tracking stops or becomes unreliable after switching to another browser tab | Browser froze the background tab — ensure **Background Keep-Alive** is enabled in Settings → Tracking Preferences (on by default); tracking resynchronises automatically when you return to the tab |
 | External tracking software misbehaves over USB serial or TCP | Use **Debug USB Log** (Settings → PC Interface) to capture the exact protocol exchange and share the downloaded log with the developer |
 | Web UI shows Az/El of 0 while the OLED shows a fixed position | The position ADC (I2C) is not being detected — open `http://<unit-IP>/diag` in a browser; if it reports `"ads":0`, reseat the OLED/ADC board connector (SDA/SCL lines) and power-cycle the unit. A failed I2C connection also freezes the OLED on its last frame, which is why the display can look "alive" while reporting nothing |
+| Web UI shows a ROTOR OFFLINE banner / OLED shows ROTOR OFFLINE | The Yaesu controller is unplugged or unpowered (its +12 V rail is gone) — reconnect the controller and verify power. If the detection divider (1.3 MΩ + 200 kΩ, §3.3) is not fitted yet, the reading is meaningless: disable **Rotor Power Detection** in Settings until the resistors are installed |
 
 ---
 
