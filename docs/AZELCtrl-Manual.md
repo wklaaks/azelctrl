@@ -1878,6 +1878,7 @@ Notes:
 | Favicon not showing in browser tab | Use Chrome/Firefox, or clear browser cache |
 | Tracking stops or becomes unreliable after switching to another browser tab | Browser froze the background tab — ensure **Background Keep-Alive** is enabled in Settings → Tracking Preferences (on by default); tracking resynchronises automatically when you return to the tab |
 | External tracking software misbehaves over USB serial or TCP | Use **Debug USB Log** (Settings → PC Interface) to capture the exact protocol exchange and share the downloaded log with the developer |
+| Web UI shows Az/El of 0 while the OLED shows a fixed position | The position ADC (I2C) is not being detected — open `http://<unit-IP>/diag` in a browser; if it reports `"ads":0`, reseat the OLED/ADC board connector (SDA/SCL lines) and power-cycle the unit. A failed I2C connection also freezes the OLED on its last frame, which is why the display can look "alive" while reporting nothing |
 
 ---
 

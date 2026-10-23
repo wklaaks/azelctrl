@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.9"
+#define FIRMWARE_VERSION "1.5.10"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -6265,6 +6265,30 @@ void setupWebServer() {
     json += "}";
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
+  });
+
+  // GET /diag — raw position pipeline state (field troubleshooting)
+  // Exposes each stage: ADC detected? raw voltages? calibration valid?
+  // final currentAz/currentEl. Lets you see WHERE the position chain
+  // breaks without serial access.
+  server.on("/diag", []() {
+    String j = "{";
+    j += "\"ads\":" + String(adsPresent) + ",";
+    j += "\"azV\":" + String(azVoltage, 3) + ",";
+    j += "\"elV\":" + String(elVoltage, 3) + ",";
+    j += "\"calAz\":" + String((int)calAzValid) + ",";
+    j += "\"azMin\":" + String(calAzMinV, 3) + ",";
+    j += "\"azMax\":" + String(calAzMaxV, 3) + ",";
+    j += "\"calEl\":" + String((int)calElValid) + ",";
+    j += "\"elMin\":" + String(calElMinV, 3) + ",";
+    j += "\"elMax\":" + String(calElMaxV, 3) + ",";
+    j += "\"az\":" + String(currentAz, 2) + ",";
+    j += "\"el\":" + String(currentEl, 2) + ",";
+    j += "\"elf\":" + String((int)elfMode) + ",";
+    j += "\"up\":" + String(millis() / 1000);
+    j += "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", j);
   });
   
   server.on("/btn", []() {
