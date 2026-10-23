@@ -38,6 +38,7 @@
 #include <ESP8266HTTPClient.h>
 #include <FS.h>
 #include <cerrno>
+#include <time.h>
 
 // ==================== SPIFFS HTML ====================
 // The ESP serves the HTML from SPIFFS (filesystem) if available,
@@ -92,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.5"
+#define FIRMWARE_VERSION "1.5.8"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -171,7 +172,6 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 Adafruit_ADS1115 ads;
 ESP8266WebServer server(80);
 DNSServer dnsServer;
-bool webServerGuardReset = false;  // Allows re-registration after captive portal stops
 
 // ==================== STATE ====================
 float currentAz = 0.0, currentEl = 0.0;
@@ -259,6 +259,127 @@ void dbgLogArm(bool fresh) {
     memset(dbgLogBuf, 0, sizeof(dbgLogBuf));  // clear stale slots from previous sessions
   }
   dbgLogLastPollMs = millis();
+}
+
+// ==================== TIME REFERENCE (wall-clock timestamps) ====================
+// The ESP8266 has no RTC. Debug-log entries store millis() since boot; wall-clock
+// time is derived at render time:  epoch_ms = refEpoch*1000 + (t - refMillis).
+// The reference is set by NTP (STA mode with internet) or by the one-click
+// browser sync on the /debug-usb page (works in AP mode too). The display
+// offset (user's UTC offset) persists across reboots (EEPROM bytes 106-110).
+#define TIME_OFFSET_EEPROM   106   // int32 UTC offset seconds (bytes 106-109)
+#define TIME_MAGIC_EEPROM    110   // 0x74 't' when the offset is valid
+
+uint32_t timeRefEpoch = 0;      // epoch seconds captured at timeRefMillis (0 = unset)
+uint32_t timeRefMillis = 0;     // millis() when the reference was captured
+int32_t  timeOffsetSec = 0;     // display offset (persisted)
+char     timeSource[5] = "none";  // "NTP" | "SYNC" | "none"
+static uint32_t lastTimeCheckMs = 0;
+
+bool timeRefValid() { return timeRefEpoch > 1000000000u; }  // after year 2001
+
+void setTimeRef(uint32_t epochSec, const char* src) {
+  timeRefEpoch = epochSec;
+  timeRefMillis = millis();
+  strncpy(timeSource, src, sizeof(timeSource) - 1);
+  timeSource[sizeof(timeSource) - 1] = '\0';
+}
+
+void loadTimeOffset() {
+  if (EEPROM.read(TIME_MAGIC_EEPROM) != 0x74) return;
+  uint32_t v = ((uint32_t)EEPROM.read(TIME_OFFSET_EEPROM) << 24) |
+               ((uint32_t)EEPROM.read(TIME_OFFSET_EEPROM + 1) << 16) |
+               ((uint32_t)EEPROM.read(TIME_OFFSET_EEPROM + 2) << 8) |
+               (uint32_t)EEPROM.read(TIME_OFFSET_EEPROM + 3);
+  timeOffsetSec = (int32_t)v;
+}
+
+void saveTimeOffset() {
+  uint32_t v = (uint32_t)timeOffsetSec;
+  EEPROM.write(TIME_OFFSET_EEPROM, (v >> 24) & 0xFF);
+  EEPROM.write(TIME_OFFSET_EEPROM + 1, (v >> 16) & 0xFF);
+  EEPROM.write(TIME_OFFSET_EEPROM + 2, (v >> 8) & 0xFF);
+  EEPROM.write(TIME_OFFSET_EEPROM + 3, v & 0xFF);
+  EEPROM.write(TIME_MAGIC_EEPROM, 0x74);
+  EEPROM.commit();
+}
+
+// Start NTP (best effort). In AP mode there is no uplink and this never
+// succeeds - the browser sync button on /debug-usb covers that case.
+void initTimeNtp() {
+  configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
+  Serial.println("TIME: NTP configured");
+}
+
+// Pick up NTP results once every 30 s while WiFi is connected.
+void checkTimeSync() {
+  unsigned long now = millis();
+  if (now - lastTimeCheckMs < 30000) return;
+  lastTimeCheckMs = now;
+  if (WiFi.status() != WL_CONNECTED) return;
+  time_t t = time(nullptr);
+  if (t > 1000000000 && (uint32_t)t != timeRefEpoch) {
+    setTimeRef((uint32_t)t, "NTP");
+    Serial.print("TIME: NTP synced, epoch=");
+    Serial.println(t);
+    dbgLogCapture("TX", "CON", "TIME: NTP synced");
+  }
+}
+
+// Howard Hinnant's civil-from-days (proleptic Gregorian, all dates).
+static void civilFromDays(int64_t z, int& y, int& m, int& d) {
+  z += 719468;
+  int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+  int32_t doe = (int32_t)(z - era * 146097);                     // [0, 146096]
+  int32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
+  int32_t yy  = (int32_t)era * 400 + yoe;
+  int32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);         // [0, 365]
+  int32_t mp  = (5 * doy + 2) / 153;                             // [0, 11]
+  d = doy - (153 * mp + 2) / 5 + 1;                              // [1, 31]
+  m = mp + (mp < 10 ? 3 : -9);                                   // [1, 12]
+  y = yy + (m <= 2);  // Jan/Feb fall in the previous year (March-based calendar)
+}
+
+// Line prefix for a captured entry: "[<boot-ms>] YYYY-MM-DD HH:MM:SS.mmm "
+// when a time reference is set, else just "[<boot-ms>] ". out >= 40 bytes.
+// Entries captured more than an hour BEFORE the reference (i.e. it landed
+// mid-session) fall back to the bare form - their wall time would be bogus.
+static void formatLogPrefix(uint32_t tBootMs, char* out, size_t n) {
+  if (!timeRefValid()) {
+    snprintf(out, n, "[%lu] ", (unsigned long)tBootMs);
+    return;
+  }
+  uint32_t delta = tBootMs - timeRefMillis;  // uint32 wrap = correct ms delta
+  if (delta > 3600000u) {
+    snprintf(out, n, "[%lu] ", (unsigned long)tBootMs);
+    return;
+  }
+  uint64_t totalMs = (uint64_t)timeRefEpoch * 1000ULL + (uint64_t)delta;
+  int64_t localSec = (int64_t)(totalMs / 1000ULL) + timeOffsetSec;
+  uint32_t ms = (uint32_t)(totalMs % 1000ULL);
+  int64_t days = localSec / 86400;
+  int32_t secOfDay = (int32_t)(localSec - days * 86400);
+  int y, m, d;
+  civilFromDays(days, y, m, d);
+  snprintf(out, n, "[%lu] %04d-%02d-%02d %02d:%02d:%02d.%03lu ",
+           (unsigned long)tBootMs, y, m, d,
+           secOfDay / 3600, (secOfDay / 60) % 60, secOfDay % 60, (unsigned long)ms);
+}
+
+// Current device time as "YYYY-MM-DD HH:MM:SS" (JSON status + file header).
+// Returns false when no reference is set.
+static bool formatDeviceTime(char* out, size_t n) {
+  if (!timeRefValid()) return false;
+  uint64_t totalMs = (uint64_t)timeRefEpoch * 1000ULL +
+                     (uint64_t)(uint32_t)(millis() - timeRefMillis);
+  int64_t localSec = (int64_t)(totalMs / 1000ULL) + timeOffsetSec;
+  int64_t days = localSec / 86400;
+  int32_t secOfDay = (int32_t)(localSec - days * 86400);
+  int y, m, d;
+  civilFromDays(days, y, m, d);
+  snprintf(out, n, "%04d-%02d-%02d %02d:%02d:%02d", y, m, d,
+           secOfDay / 3600, (secOfDay / 60) % 60, secOfDay % 60);
+  return true;
 }
 
 // Escape control chars so the log reads as plain text (\r \n \t \\ \" \xNN).
@@ -1020,6 +1141,7 @@ void tickWifi() {
       Serial.println(" dBm");
       setupWebServer();
       startRotctlServer();  // Always listen on port 4533 — protocol depends on Hamlib Server setting
+      initTimeNtp();        // Best-effort wall-clock sync (no-op without internet)
     } else if (millis() - wifiStart > WIFI_TIMEOUT) {
       wifiState = WIFI_FAILED;
       Serial.println("WiFi connection timed out");
@@ -1120,10 +1242,11 @@ void startCaptivePortal() {
   
   dnsServer.start(53, "*", apIP);
   
-  server.on("/", handlePortal);
-  server.on("/save", handleSaveWifi);
-  server.onNotFound(handlePortal);
-  server.begin();
+  // Idempotent: registers all routes + begins the HTTP server exactly once
+  // (covers first-boot AP flows where STA never connected yet). The portal
+  // itself needs NO route changes - onNotFound dispatches on
+  // captivePortalActive, and /save is always registered.
+  setupWebServer();
   
   Serial.println("Captive portal started on " + String(apSsid));
 }
@@ -1131,10 +1254,9 @@ void startCaptivePortal() {
 void stopCaptivePortal() {
   captivePortalActive = false;
   dnsServer.stop();
-  server.stop();
-  // Reset web server guard so the normal routes are re-registered on next setupWebServer() call
-  webServerGuardReset = true;
-  setupWebServer();
+  // No server.stop()/re-registration: the HTTP server keeps listening across
+  // mode switches (keepAlive(false) means no clients linger), and re-running
+  // setupWebServer() would leak duplicate handler nodes (it can't un-register).
 }
 
 // ==================== ROTCTL TCP SERVER ====================
@@ -1159,31 +1281,47 @@ void stopRotctlServer() {
   Serial.println("ROTCTL: TCP server stopped");
 }
 
+// Throttled console print for rotctl connect/disconnect events. A pathological
+// accept/disconnect churn (zombie TCP connections) must never drown the USB
+// serial wire - in Oct 2026 an unthrottled loop produced ~11k msgs/s and
+// eroded heap until only the static-string prints survived.
+static unsigned long lastRotctlConsoleMs = 0;
+void rotctlConsole(const char* m) {
+  unsigned long now = millis();
+  if (now - lastRotctlConsoleMs < 1000) return;
+  lastRotctlConsoleMs = now;
+  Serial.println(m);
+  dbgLogCapture("TX", "CON", m);
+}
+
 void checkRotctlClient() {
   // Accept new connection
   if (!rotctlConnected && rotctlServer.hasClient()) {
     if (rotctlClient) rotctlClient.stop();  // Close any lingering client
-    rotctlClient = rotctlServer.available();
+    WiFiClient nc = rotctlServer.available();
+    if (!nc.connected()) {
+      // Zombie/half-dead connection (e.g. peer vanished without a clean
+      // close). Discard it instead of committing: re-accepting dead clients
+      // in a tight loop is what caused the disconnect-spam incident.
+      nc.stop();
+      return;
+    }
+    rotctlClient = nc;
     rotctlConnected = true;
     tcpProtocolBufIdx = 0;  // Reset TCP buffer
     {
-      String m = "ROTCTL: Client connected from " + rotctlClient.remoteIP().toString();
-      Serial.println(m);
-      dbgLogCapture("TX", "CON", m.c_str());  // these bytes also reach the USB serial wire
+      String m = "ROTCTL: Client connected from " + nc.remoteIP().toString();
+      rotctlConsole(m.c_str());
     }
     return;
   }
-  
+
   // Check for disconnection
   if (rotctlConnected && !rotctlClient.connected()) {
     rotctlClient.stop();
     rotctlConnected = false;
     tcpProtocolBufIdx = 0;
-    {
-      const char* m = "ROTCTL: Client disconnected";
-      Serial.println(m);
-      dbgLogCapture("TX", "CON", m);
-    }
+    rotctlConsole("ROTCTL: Client disconnected");
     return;
   }
   
@@ -1401,27 +1539,43 @@ pre{background:#0f0f1e;border:1px solid #333;border-radius:6px;padding:10px;heig
 <h1>AZELCtrl - Protocol Debug Log</h1>
 <div class='sub'>USB serial + TCP protocol traffic, exactly as seen by the device.<br>
 Logging is active while this tab is open and stops when you close it. Nothing is written to the device's flash.</div>
-<div class='bar'><button id='dl'>Download log</button><span id='status'>connecting...</span></div>
+<div class='bar'><button id='dl'>Download log</button><button id='sync'>Sync time</button><span id='status'>connecting...</span></div>
 <pre id='log'></pre>
 <script>
-var seq=-1,pre=document.getElementById('log'),status=document.getElementById('status');
+// NB: must not be named 'status' - top-level `var status` cannot shadow the
+// legacy-unforgeable window.status property, so the element ref was silently
+// discarded and the page stuck on "connecting..." forever.
+var seq=-1,pre=document.getElementById('log'),statusEl=document.getElementById('status'),syncBtnEl=document.getElementById('sync');
 function cls(l){return l.indexOf('] RX')>-1?'rx':(l.indexOf('] TX')>-1?'tx':'ev');}
 function poll(){
   fetch('/debug-log?since='+seq).then(function(r){return r.json();}).then(function(j){
-    seq=j.seq;
+    // j.seq is the session TOTAL (next slot index), not the last delivered
+    // entry's seq: the handler's scan covers slots start..j.seq-1. Track the
+    // highest slot actually scanned so the next poll picks up exactly where
+    // this one left off - no skips, no duplicates.
+    seq = j.seq > 0 ? j.seq - 1 : -1;
     var atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-30;
     for(var i=0;i<j.lines.length;i++){
       var d=document.createElement('span');d.className=cls(j.lines[i]);d.textContent=j.lines[i]+'\n';pre.appendChild(d);
     }
     while(pre.childNodes.length>2000)pre.removeChild(pre.firstChild);
     if(atBottom)pre.scrollTop=pre.scrollHeight;
-    status.textContent='armed - '+j.seq+' entries captured';
-    status.style.color='#7dff9e';
+    statusEl.textContent='armed - '+j.seq+' entries captured'+(j.time?' - '+j.time:' (no time - click Sync)');
+    statusEl.style.color='#7dff9e';
   }).catch(function(){
-    status.textContent='connection lost - retrying';status.style.color='#ff6b6b';
+    statusEl.textContent='connection lost - retrying';statusEl.style.color='#ff6b6b';
   });
 }
 document.getElementById('dl').onclick=function(){window.location='/debug-log-download';};
+// One-click wall-clock sync: sends this browser's epoch time + UTC offset so
+// the device can stamp log lines with real local time (works in AP mode too).
+syncBtnEl.onclick=function(){
+  syncBtnEl.textContent='syncing...';
+  fetch('/set-time?ts='+Date.now()+'&off='+(-new Date().getTimezoneOffset()*60))
+    .then(function(r){return r.json();})
+    .then(function(j){syncBtnEl.textContent=j.ok?'time synced':'sync failed';})
+    .catch(function(){syncBtnEl.textContent='sync failed';});
+};
 poll();setInterval(poll,600);
 </script></body></html>
 )RAWHTML";
@@ -6004,11 +6158,16 @@ String webLastMove = "";
 unsigned long webMoveTime = 0;
 
 void setupWebServer() {
-  // Guard — prevent handler accumulation on multiple calls
+  // ABSOLUTE guard: ESP8266WebServer's server.on() APPENDS handlers to a linked
+  // list and there is no API to remove them, so routes must be registered
+  // exactly once per boot. Re-running this (e.g. after a captive-portal stop)
+  // used to duplicate every handler - each request then re-ran the first
+  // handler plus leaked N-1 unused nodes per cycle (unbounded RAM growth while
+  // WiFi flaps AP<->STA). Mode switching (captive portal vs normal) is done
+  // via runtime flags (captivePortalActive), not by swapping routes.
   static bool webServerStarted = false;
-  if (webServerStarted && !webServerGuardReset) return;
+  if (webServerStarted) return;
   webServerStarted = true;
-  webServerGuardReset = false;
   
   // Disable keep-alive — Chrome opens speculative parallel connections that
   // overwhelm the ESP8266's lwIP stack, causing ERR_CONNECTION_RESET
@@ -6017,6 +6176,10 @@ void setupWebServer() {
   server.on("/", []() {
     sendHtml();
   });
+  
+  // Portal WiFi-save endpoint - registered once for ALL modes. Harmless when
+  // the portal is inactive; only the captive-portal page POSTs to it.
+  server.on("/save", handleSaveWifi);
   
   // Serve favicon from SPIFFS (catches automatic browser /favicon.ico request)
   server.on("/favicon.ico", []() {
@@ -6048,6 +6211,13 @@ void setupWebServer() {
   });
   
   server.onNotFound([]() {
+    // Captive portal active: every unknown URL gets the portal page (phones
+    // probe hijacked DNS names like connect.apple.com - this is what shows
+    // them the setup UI). Flag-based dispatch keeps the route single.
+    if (captivePortalActive) {
+      handlePortal();
+      return;
+    }
     // If the request starts with /files/, serve from SPIFFS
     if (server.uri().startsWith("/files/")) {
       serveSpiffsFile(server.uri());
@@ -6116,17 +6286,26 @@ void setupWebServer() {
     if (server.hasArg("since")) since = server.arg("since").toInt();
     uint32_t oldest = (dbgLogSeq > DBGLOG_MAX_ENTRIES) ? (dbgLogSeq - DBGLOG_MAX_ENTRIES + 1) : 0;
     uint32_t start = (since < 0) ? oldest : (((uint32_t)since + 1 > oldest) ? (uint32_t)since + 1 : oldest);
-    String json = "{\"armed\":true,\"seq\":" + String(dbgLogSeq) + ",\"lines\":[";
+    String json = "{\"armed\":true,\"seq\":" + String(dbgLogSeq) + ",\"time\":";
+    {
+      char devTime[24];
+      json += (formatDeviceTime(devTime, sizeof(devTime))) ? ("\"" + String(devTime) + "\"") : "null";
+    }
+    json += ",\"lines\":[";
     bool first = true;
     int n = 0;
-    for (uint32_t s = start; s <= dbgLogSeq && n < 64; s++) {
+    // Scan written slots only: slot dbgLogSeq is the NEXT write target and
+    // after a ring wrap it still holds the 96-entries-old entry (stale).
+    for (uint32_t s = start; s < dbgLogSeq && n < 64; s++) {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;  // unwritten slot
       const char* d = (e.dir == 'R') ? "RX" : "TX";
       const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
-      char line[DBGLOG_MSG_MAX + 24];
-      snprintf(line, sizeof(line), "[%lu] %s %s %s", (unsigned long)e.t, d, sr, e.msg);
-      char jline[DBGLOG_MSG_MAX + 48];
+      char tsbuf[40];
+      formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
+      char line[DBGLOG_MSG_MAX + 56];
+      snprintf(line, sizeof(line), "%s%s %s %s", tsbuf, d, sr, e.msg);
+      char jline[DBGLOG_MSG_MAX + 112];
       dbgLogJsonEscape(line, jline, sizeof(jline));
       if (!first) json += ",";
       json += "\"";
@@ -6136,6 +6315,29 @@ void setupWebServer() {
       n++;
     }
     json += "]}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
+  });
+
+  // GET /set-time?ts=<epoch-ms>&off=<utc-offset-seconds> — one-click wall-clock
+  // sync from the browser (the "Sync time" button on /debug-usb). Works in AP
+  // mode where NTP cannot reach the device. Persists the display offset.
+  server.on("/set-time", []() {
+    String json = "{\"ok\":false}";
+    if (server.hasArg("ts") && server.hasArg("off")) {
+      uint64_t tsMs = strtoull(server.arg("ts").c_str(), nullptr, 10);
+      int32_t off = server.arg("off").toInt();
+      if (tsMs > 1000000000000ULL) {  // after year 2001
+        timeOffsetSec = off;
+        saveTimeOffset();
+        setTimeRef((uint32_t)(tsMs / 1000), "SYNC");
+        char devTime[24];
+        formatDeviceTime(devTime, sizeof(devTime));
+        json = "{\"ok\":true,\"time\":\"" + String(devTime) + "\"}";
+        Serial.println("TIME: Synced from browser");
+        dbgLogCapture("TX", "CON", "TIME: Synced from browser");
+      }
+    }
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", json);
   });
@@ -6150,30 +6352,49 @@ void setupWebServer() {
     header += "Protocol: " + String(protoName) + " @ " + String(PROTOCOL_BAUD_RATES[protocolBaudIndex]) + " baud\n";
     header += "Hamlib TCP server (port 4533): " + String(hamlibServerEnabled ? "enabled" : "disabled") + "\n";
     header += "Entries: " + String(dbgLogSeq) + ((dbgLogSeq > DBGLOG_MAX_ENTRIES) ? " (ring wrapped - oldest dropped)" : "") + "\n";
-    header += "Timestamps: milliseconds since device boot (no RTC)\n";
+    {
+      char devTime[24];
+      if (timeRefValid()) {
+        char tzbuf[8];
+        snprintf(tzbuf, sizeof(tzbuf), "%c%02d:%02d",
+                 timeOffsetSec >= 0 ? '+' : '-',
+                 abs(timeOffsetSec / 3600), abs((timeOffsetSec % 3600) / 60));
+        header += "Timestamps: [ms since boot] YYYY-MM-DD HH:MM:SS.mmm (local, UTC"
+                  + String(tzbuf) + ")\n";
+        if (formatDeviceTime(devTime, sizeof(devTime))) {
+          header += String("Time source: ") + String(timeSource) + " (now " + String(devTime) + ")\n";
+        }
+      } else {
+        header += "Timestamps: milliseconds since device boot (no RTC)\n";
+        header += "Time: not set - open the debug tab and click \"Sync time\"\n";
+      }
+    }
     header += "---\n";
     // Stream in chunks (setContentLength + sendContent) — no large heap blob
     uint32_t oldest = (dbgLogSeq > DBGLOG_MAX_ENTRIES) ? (dbgLogSeq - DBGLOG_MAX_ENTRIES + 1) : 0;
     size_t total = header.length();
-    char line[DBGLOG_MSG_MAX + 24];
-    for (uint32_t s = oldest; s <= dbgLogSeq; s++) {
+    char tsbuf[40];
+    char line[DBGLOG_MSG_MAX + 56];
+    for (uint32_t s = oldest; s < dbgLogSeq; s++) {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;
       const char* d = (e.dir == 'R') ? "RX" : "TX";
       const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
-      total += (size_t)snprintf(line, sizeof(line), "[%lu] %s %s %s\n", (unsigned long)e.t, d, sr, e.msg);
+      formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
+      total += (size_t)snprintf(line, sizeof(line), "%s%s %s %s\n", tsbuf, d, sr, e.msg);
     }
     server.sendHeader("Content-Disposition", "attachment; filename=\"azelctrl-debug-usb.log\"");
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.setContentLength(total);
     server.send(200, "text/plain");
     server.sendContent(header);
-    for (uint32_t s = oldest; s <= dbgLogSeq; s++) {
+    for (uint32_t s = oldest; s < dbgLogSeq; s++) {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;
       const char* d = (e.dir == 'R') ? "RX" : "TX";
       const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
-      snprintf(line, sizeof(line), "[%lu] %s %s %s\n", (unsigned long)e.t, d, sr, e.msg);
+      formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
+      snprintf(line, sizeof(line), "%s%s %s %s\n", tsbuf, d, sr, e.msg);
       server.sendContent(line);
     }
   });
@@ -6783,6 +7004,7 @@ void setup() {
   loadProtocolSettings();
   loadNetworkSettings();
   loadDisplaySettings();
+  loadTimeOffset();
   Serial.begin(getProtocolBaud());
   delay(200);
   
@@ -6940,6 +7162,9 @@ void loop() {
   
   // Check for TCP client connections
   checkRotctlClient();
+  
+  // Pick up NTP time (debug-log wall-clock timestamps)
+  checkTimeSync();
   
   // Handle web server
   if (!captivePortalActive) {

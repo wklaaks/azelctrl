@@ -1787,7 +1787,10 @@ If your tracking software behaves oddly (timeouts, repeated retries, the antenna
 Notes:
 
 - Logging is stored in RAM only — **nothing is written to the device's flash**, so there is no flash-wear concern. Capture starts when the debug tab polls the device and stops automatically about 5 seconds after the tab is closed.
-- Timestamps are milliseconds since device boot (the device has no RTC). Gaps between a command and its reply are still meaningful for diagnosing timing issues.
+- Each line carries `[<milliseconds since boot>]` plus a wall-clock timestamp (`YYYY-MM-DD HH:MM:SS.mmm`) once the device has a time reference. The device has no battery-backed clock, so the reference is obtained either way:
+  - **Automatic (NTP)** — while connected to a router with internet access, the device syncs from NTP within about a minute of connecting; no action needed.
+  - **Manual** — click **Sync time** in the debug tab. This sends your computer's clock and timezone to the device and works even in AP mode (where NTP cannot reach the device). Your UTC offset is remembered across reboots.
+  Until a reference is set, lines show only the boot-milliseconds prefix, which still lets you measure gaps between a command and its reply. The downloaded log's header states the timestamp format, the UTC offset in use, and the time source.
 - The log holds the most recent 96 lines; for longer sessions, download the log periodically and stitch the files together.
 
 ### 8.5 Configuring via OLED Menus
