@@ -1,8 +1,8 @@
 # AZELCtrl — User Manual
 
-**Version 1.5.3**  
+**Version 1.5.11**  
 **Author: ZS6TW**  
-**Date: August 2026**
+**Date: October 2026**
 
 ---
 
