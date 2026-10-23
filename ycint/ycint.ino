@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.8"
+#define FIRMWARE_VERSION "1.5.9"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -312,17 +312,28 @@ void initTimeNtp() {
 }
 
 // Pick up NTP results once every 30 s while WiFi is connected.
+// The reference is re-baselined SILENTLY each cycle so SNTP step
+// corrections are absorbed, but only GENUINE transitions are logged:
+// first acquisition (none->NTP) or NTP taking over from a manual browser
+// sync (SYNC->NTP). Logging every 30 s would fill the ring with duplicate
+// "NTP synced" entries and push real protocol traffic out of the buffer.
 void checkTimeSync() {
   unsigned long now = millis();
   if (now - lastTimeCheckMs < 30000) return;
   lastTimeCheckMs = now;
   if (WiFi.status() != WL_CONNECTED) return;
   time_t t = time(nullptr);
-  if (t > 1000000000 && (uint32_t)t != timeRefEpoch) {
-    setTimeRef((uint32_t)t, "NTP");
+  if (t <= 1000000000) return;
+  bool fresh = !timeRefValid();
+  bool upgrade = (strcmp(timeSource, "SYNC") == 0);
+  setTimeRef((uint32_t)t, "NTP");
+  if (fresh) {
     Serial.print("TIME: NTP synced, epoch=");
     Serial.println(t);
     dbgLogCapture("TX", "CON", "TIME: NTP synced");
+  } else if (upgrade) {
+    Serial.println("TIME: NTP active (supersedes manual sync)");
+    dbgLogCapture("TX", "CON", "TIME: NTP active (supersedes manual sync)");
   }
 }
 
