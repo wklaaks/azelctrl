@@ -1,8 +1,8 @@
 # AZELCtrl — User Manual
 
-**Version 1.5.11**  
+**Version 1.5.12**  
 **Author: ZS6TW**  
-**Date: October 2026**
+**Date: November 2026**
 
 ---
 
@@ -1771,6 +1771,17 @@ Rotor supports both USB serial and TCP/IP connections.
 
 Many satellite tracking programs support serial connections but not TCP/IP. AZELCtrl's USB serial interface works with any software that supports GS-232A, GS-232B, or Easycom protocols. Simply connect via USB and configure the virtual COM port as you would for any serial rotator controller. Replies are always sent back over the same interface the command arrived on — a serial command is answered on the serial wire, a TCP command over TCP — so the two interfaces never interfere with each other even when both are in use at once.
 
+#### One Tracker at a Time (Built-in Tracker Arbitration)
+
+When the web interface's **built-in tracker** is running, it owns the antennas. Any *move* command arriving from external tracking software during that time (GS-232 `W`, `M`, `Hnnn`, jog commands, Easycom `AZ`/`EL` with a value, Hamlib `P`) is **logged but ignored** — the antenna obeys only the built-in tracker. This prevents two trackers from fighting over the rotator, which previously caused the antennas to swing between two disagreeing targets.
+
+- Ignored commands appear in the Debug USB Log as `RX SER [IGNORED: built-in tracker active] <command>` (or `RX TCP …`), and the sending software still receives a normal `OK` reply, so it does not report errors.
+- **Stop** (`S`, `A`) and **query** commands (`c2`, `AZ`, `H`, …) always pass through — you can always stop the antennas from external software in an emergency.
+- Ownership is released when you press **Stop** in the Tracking tab, close/refresh the tracking tab, or automatically 30 seconds after the last tracking activity (e.g. a crashed browser tab) — external software then resumes normal control.
+- Manual moves from the web **Control** tab are still honoured while tracking is active.
+
+Related log entries: browser-originated moves appear as `RX WEB  setpos az=… el=… [tracker]` (or `[manual]` for Control-tab moves), and ownership changes as `TX CON TRACK: built-in tracker engaged/released`. See the Debug USB Log section below for all tags.
+
 #### Debugging External Tracking Software
 
 If your tracking software behaves oddly (timeouts, repeated retries, the antenna not moving as expected), AZELCtrl can capture the exact protocol exchange so the problem can be pinned down — on the software side or the device side.
@@ -1779,6 +1790,7 @@ If your tracking software behaves oddly (timeouts, repeated retries, the antenna
 2. A new browser tab opens showing a live log of everything that crosses the protocol interfaces, exactly as seen by the device:
    - `RX SER` — a command line received on the USB serial port (control characters shown as `\r`, `\n`)
    - `RX TCP` — a command line received on the TCP interface (port 4533)
+   - `RX WEB` — a move command received from the web interface: `setpos az=… el=… [tracker]` (built-in tracker) or `[manual]` (Control tab)
    - `TX SER` / `TX TCP` — a reply written to that interface
    - `TX DROP` — a reply was generated but had no delivery target (e.g. no TCP client connected); it was **not** sent anywhere
    - `TX CON` — console text printed to the serial wire (e.g. TCP client connect/disconnect notices)
@@ -1881,6 +1893,8 @@ Notes:
 | Favicon not showing in browser tab | Use Chrome/Firefox, or clear browser cache |
 | Tracking stops or becomes unreliable after switching to another browser tab | Browser froze the background tab — ensure **Background Keep-Alive** is enabled in Settings → Tracking Preferences (on by default); tracking resynchronises automatically when you return to the tab |
 | External tracking software misbehaves over USB serial or TCP | Use **Debug USB Log** (Settings → PC Interface) to capture the exact protocol exchange and share the downloaded log with the developer |
+| At pass start (or mid-pass) the antennas swing to a far-too-high elevation, back down, and up again before settling | Firmware **below v1.5.12** had an elevation direction-reversal defect (the auto-stop target was lost when elevation reversed while moving, so the axis ran to the next command). Flash **v1.5.12 or later** — the elevation then stops at the commanded target ±3° on every reversal |
+| External software's moves are ignored while I am tracking with the web interface | This is deliberate single-tracker arbitration (see §8.4, "One Tracker at a Time"). Stop the built-in tracking or close the tab to hand control back; the Debug USB Log shows each ignored command as `[IGNORED: built-in tracker active]` |
 | Web UI shows Az/El of 0 while the OLED shows a fixed position | The position ADC (I2C) is not being detected — open `http://<unit-IP>/diag` in a browser; if it reports `"ads":0`, reseat the OLED/ADC board connector (SDA/SCL lines) and power-cycle the unit. A failed I2C connection also freezes the OLED on its last frame, which is why the display can look "alive" while reporting nothing |
 | Web UI shows a ROTOR OFFLINE banner / OLED shows ROTOR OFFLINE | The Yaesu controller is unplugged or unpowered (its +12 V rail is gone) — reconnect the controller and verify power. If the detection divider (1.3 MΩ + 200 kΩ, §3.3) is not fitted yet, the reading is meaningless: disable **Rotor Power Detection** in Settings until the resistors are installed |
 

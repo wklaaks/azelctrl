@@ -2551,10 +2551,11 @@ async function fetchPos() {
   return await resp.json();
 }
 
-async function setPosition(az, el) {
+async function setPosition(az, el, fromTracking) {
   const body = {};
   if (az !== undefined && az !== null && !isNaN(az)) body.az = az;
   if (el !== undefined && el !== null && !isNaN(el)) body.el = el;
+  if (fromTracking) body.trk = 1;  // tells the device this move comes from the built-in tracker
   if (Object.keys(body).length === 0) throw new Error('Provide at least Az or El');
   const resp = await fetch((getApiBase() || '') + '/setpos', {
     method: 'POST',
@@ -2563,6 +2564,19 @@ async function setPosition(az, el) {
   });
   if (!resp.ok) throw new Error('POST /setpos failed');
   return await resp.json();
+}
+
+// Tell the device whether the built-in tracker currently owns the antennas.
+// While the claim is fresh (10 s keepalive), external move commands arriving
+// over serial/TCP are logged as IGNORED instead of being executed.
+function notifyTrackingState(active) {
+  const api = getApiBase();
+  if (!api) return;
+  fetch(api + '/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: !!active })
+  }).catch(() => {});
 }
 
 async function getElfMode() {
@@ -4262,6 +4276,9 @@ function beginTracking(sat, satrec, now, minEl) {
   btn.className = 'btn btn-danger track-btn';
   btn.textContent = 'Stop';
 
+  // Claim the antennas for the built-in tracker (external moves get ignored)
+  notifyTrackingState(true);
+
   // Invalidate AOS/LOS cache so tracking starts with fresh data
   cachedTime = null;
   cachedAosTime = null;
@@ -4283,7 +4300,7 @@ function beginTracking(sat, satrec, now, minEl) {
       if (aosTop) {
         const aosAz = (aosTop.azimuth * 180 / Math.PI + 360) % 360;
         const aosEl = 0; // AOS is at the horizon — force 0° elevation
-        setPosition(aosAz, aosEl).catch(e => console.warn('Failed to send initial AOS position:', e));
+        setPosition(aosAz, aosEl, true).catch(e => console.warn('Failed to send initial AOS position:', e));
         lastSentAz = aosAz;
         lastSentEl = aosEl;
         lastTargetAz = aosAz;
@@ -4305,6 +4322,7 @@ function beginAstroTracking(bodyName, bodyKey, now, minEl) {
   tracking = true;
   startKeepAliveAudio();
   requestWakeLock();
+  notifyTrackingState(true);
   lastTargetAz = null;
   lastTargetEl = null;
   minDistAchieved = Infinity;
@@ -4322,6 +4340,7 @@ function stopTracking() {
   tracking = false;
   stopKeepAliveAudio();
   releaseWakeLock();
+  notifyTrackingState(false);  // release antenna ownership
   lastSentAz = null;
   lastSentEl = null;
   lastTargetAz = null;
@@ -4861,7 +4880,7 @@ async function computeAndSend(force) {
 
     if (needsCommand && satEl >= 0) {
       try {
-        await setPosition(targetAz, targetEl);
+        await setPosition(targetAz, targetEl, true);
         lastSentAz = targetAz;
         lastSentEl = targetEl;
         lastTargetAz = targetAz;
@@ -4925,6 +4944,14 @@ document.getElementById('manualSetBtn').addEventListener('click', async () => {
   document.getElementById(id).addEventListener('input', function() {
     if (this.value.length > 3) this.value = this.value.slice(0, 3);
   });
+});
+
+// Release antenna ownership if the tab closes/unloads mid-tracking (best effort).
+// The device also expires the claim 30 s after the last keepalive.
+window.addEventListener('beforeunload', () => {
+  if (!tracking) return;
+  const api = getApiBase();
+  if (api) navigator.sendBeacon(api + '/track', JSON.stringify({ active: false }));
 });
 
 // Cached AOS/LOS times (absolute timestamps)
@@ -5156,8 +5183,11 @@ function formatTimeRemaining(totalSeconds) {
 }
 
 // ==================== ROTATOR STATUS POLLING ====================
+let trackKeepaliveTick = 0;
 setInterval(async () => {
   try {
+    // Built-in tracker keepalive: refresh the antenna-ownership claim every 10 s
+    if (tracking && (++trackKeepaliveTick % 10 === 0)) notifyTrackingState(true);
     const pos = await fetchPos();
     const azStr = degStr(pos.az) + '°';
     const elStr = degStr(pos.el) + '°';
@@ -6496,7 +6526,7 @@ setTimeout(() => {
 }, 500);
 
 // App version display (for cache-busting verification)
-document.getElementById('appVersion').textContent = 'v1.5.4';
+document.getElementById('appVersion').textContent = 'v1.5.12';
 
 // ==================== CONFIGURATION SAVE/LOAD ====================
 const CONFIG_KEYS = [

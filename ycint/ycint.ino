@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.11"
+#define FIRMWARE_VERSION "1.5.12"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -488,7 +488,7 @@ static void dbgLogJsonEscape(const char* in, char* out, int maxOut) {
   out[o] = '\0';
 }
 
-// Capture one line while armed. dir: "RX"/"TX", src: "SER"/"TCP"/"CON".
+// Capture one line while armed. dir: "RX"/"TX", src: "SER"/"TCP"/"WEB"/"CON"/"DROP".
 void dbgLogCapture(const char* dir, const char* src, const char* text) {
   if (!dbgLogArmed) return;
   char esc[DBGLOG_MSG_MAX];
@@ -526,6 +526,15 @@ unsigned long protocolAzReverseStart = 0;
 unsigned long protocolElReverseStart = 0;
 String protocolAzPendingDir = "";
 String protocolElPendingDir = "";
+
+// Built-in web tracker ownership: the browser POSTs /track {"active":true} when
+// its tracking starts, refreshes it every 10 s (keepalive + every tracked
+// /setpos), and POSTs {"active":false} on stop. While the claim is fresh,
+// external protocol MOVE commands (serial/TCP) are logged as ignored, so the
+// built-in tracker and an external tracker can never both steer the antennas.
+bool webTrackingActive = false;
+unsigned long webTrackLastMs = 0;
+const unsigned long WEB_TRACK_TIMEOUT_MS = 30000;
 
 // ELF (Elevation Flip / Over-the-top) mode
 // When enabled, transforms satellite coordinates to physical rotator coordinates
@@ -1553,6 +1562,52 @@ void checkProtocolStall() {
   protocolBufIdx = 0;
   protocolBuf[0] = '\0';
   showOledWarning("ERR: NO EOL");
+}
+
+// ==================== WEB TRACKER OWNERSHIP (antenna arbitration) ====================
+// The built-in browser tracker claims the antennas via POST /track and every
+// tracked /setpos ({"trk":1}). While the claim is fresh, external MOVE commands
+// arriving over serial/TCP are LOGGED but IGNORED, so the browser tracker and an
+// external tracker can never both steer the rotator. Stops and queries always
+// pass through — safety first.
+bool webTrackingLive() {
+  return webTrackingActive && (millis() - webTrackLastMs) < WEB_TRACK_TIMEOUT_MS;
+}
+
+void logIgnoredExternalMove(const char* cmd) {
+  char note[PROTOCOL_BUF_SIZE + 48];
+  snprintf(note, sizeof(note), "[IGNORED: built-in tracker active] %s", cmd);
+  dbgLogCapture("RX", protocolRxSource == RX_SRC_SER ? "SER" : "TCP", note);
+}
+
+// Returns true if this GS-232/Easycom command is a MOVE that was suppressed.
+bool blockExternalMove(const char* cmd, int len) {
+  if (len == 0 || !webTrackingLive()) return false;
+  bool isMove = false;
+  if (currentProtocol == PROTO_EASYCOM) {
+    // Easycom: jog tokens (ML/MR/MU/MD), velocity tokens (VL/VR/VU/VD) and
+    // AZ/EL with a value are moves; bare AZ/EL are queries.
+    char t0 = toupper(cmd[0]);
+    char t1 = (len >= 2) ? toupper(cmd[1]) : ' ';
+    if ((t0 == 'M' || t0 == 'V') && (t1 == 'L' || t1 == 'R' || t1 == 'U' || t1 == 'D')) {
+      isMove = true;
+    } else if ((t0 == 'A' && t1 == 'Z' && len > 2) || (t0 == 'E' && t1 == 'L' && len > 2)) {
+      isMove = true;
+    }
+  } else {
+    // GS-232: W/M set position, Hnnn sets heading, U/D/L/R jog, Vnnn sets
+    // elevation. Bare H/V and stops (S/A/E/Z) are queries/safety — pass through.
+    char c = toupper(cmd[0]);
+    if (c == 'U' || c == 'D' || c == 'L' || c == 'R') {
+      isMove = true;
+    } else if ((c == 'W' || c == 'M' || c == 'H' || c == 'V') && len > 1) {
+      isMove = true;
+    }
+  }
+  if (!isMove) return false;
+  logIgnoredExternalMove(cmd);
+  protocolSend("OK");
+  return true;
 }
 
 // ==================== PROGMEM HTML PAGES ====================
@@ -2706,6 +2761,7 @@ void executeProtocolAzMove(float targetAz) {
 #if DEBUG_ENABLED
       Serial.println("DBG:PROT_AZ:ACTION:START_CW");
 #endif
+      protocolAzReversing = false;  // new command supersedes any pending reversal
       executeAzimuthMove("RIGHT");
     } else {
 #if DEBUG_ENABLED
@@ -2729,6 +2785,7 @@ void executeProtocolAzMove(float targetAz) {
 #if DEBUG_ENABLED
       Serial.println("DBG:PROT_AZ:ACTION:START_CCW");
 #endif
+      protocolAzReversing = false;  // new command supersedes any pending reversal
       executeAzimuthMove("LEFT");
     } else {
 #if DEBUG_ENABLED
@@ -2784,12 +2841,25 @@ void executeProtocolElMove(float targetEl) {
   
   if (moveDir == "UP") {
     if (elDirection == DIR_DOWN) {
-      stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
-    } else { executeElevationMove("UP"); }
+      // stopElevation() clears protocolTargetElSet — restore it so the auto-stop
+      // still has a target when the reversed move resumes. Without this, the el
+      // axis slews past the target at full speed until the next opposing command
+      // (seen in tracking logs as horizon→zenith→horizon elevation thrash).
+      stopElevation(); protocolTargetElSet = true;
+      protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
+    } else {
+      protocolElReversing = false;  // new command supersedes any pending reversal
+      executeElevationMove("UP");
+    }
   } else {
     if (elDirection == DIR_UP) {
-      stopElevation(); protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
-    } else { executeElevationMove("DOWN"); }
+      // Same restore as above — keep the target alive across the reversal pause.
+      stopElevation(); protocolTargetElSet = true;
+      protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
+    } else {
+      protocolElReversing = false;  // new command supersedes any pending reversal
+      executeElevationMove("DOWN");
+    }
   }
 }
 
@@ -2866,6 +2936,17 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
     while (*p) {
       if (*p == ',') *p = '.';
       p++;
+    }
+  }
+
+  // Built-in tracker owns the antennas: suppress external move commands
+  // (P = set position, M = move direction). Queries and stops pass through.
+  if (webTrackingLive() && argc >= 1) {
+    char c = args[0][0];
+    if (c == 'P' || c == 'M') {
+      logIgnoredExternalMove(cmd);
+      dpRprt(0);
+      return;
     }
   }
 
@@ -3071,6 +3152,8 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
 
 // Process GS-232A/B commands
 void processGs232Command(const char* cmd, int len) {
+  // Built-in tracker owns the antennas: suppress external move commands.
+  if (blockExternalMove(cmd, len)) return;
   char upper = toupper(cmd[0]);
   
   switch (upper) {
@@ -3287,6 +3370,9 @@ void processGs232Command(const char* cmd, int len) {
 // Process Easycom commands
 void processEasycomCommand(const char* cmd, int len) {
   while (len > 0 && (cmd[len-1] == ' ' || cmd[len-1] == '\t')) len--;
+  
+  // Built-in tracker owns the antennas: suppress external move commands.
+  if (blockExternalMove(cmd, len)) return;
   
   // Parse first token (command identifier)
   int tokenLen = 0;
@@ -6406,7 +6492,7 @@ void setupWebServer() {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;  // unwritten slot
       const char* d = (e.dir == 'R') ? "RX" : "TX";
-      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'W') ? "WEB" : (e.src == 'D') ? "DROP" : "CON";
       char tsbuf[40];
       formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
       char line[DBGLOG_MSG_MAX + 56];
@@ -6485,7 +6571,7 @@ void setupWebServer() {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;
       const char* d = (e.dir == 'R') ? "RX" : "TX";
-      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'W') ? "WEB" : (e.src == 'D') ? "DROP" : "CON";
       formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
       total += (size_t)snprintf(line, sizeof(line), "%s%s %s %s\n", tsbuf, d, sr, e.msg);
     }
@@ -6498,7 +6584,7 @@ void setupWebServer() {
       DbgLogEntry& e = dbgLogBuf[s % DBGLOG_MAX_ENTRIES];
       if (e.len == 0) continue;
       const char* d = (e.dir == 'R') ? "RX" : "TX";
-      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'D') ? "DROP" : "CON";
+      const char* sr = (e.src == 'S') ? "SER" : (e.src == 'T') ? "TCP" : (e.src == 'W') ? "WEB" : (e.src == 'D') ? "DROP" : "CON";
       formatLogPrefix(e.t, tsbuf, sizeof(tsbuf));
       snprintf(line, sizeof(line), "%s%s %s %s\n", tsbuf, d, sr, e.msg);
       server.sendContent(line);
@@ -6617,15 +6703,94 @@ void setupWebServer() {
       return;
     }
     
+    // Built-in tracker commands carry "trk":1 — they (re)claim antenna ownership
+    // so external protocol move commands get logged-but-ignored while tracking.
+    int trkIdx = body.indexOf("\"trk\"");
+    bool fromTracker = false;
+    if (trkIdx >= 0) {
+      int colon = body.indexOf(':', trkIdx);
+      if (colon >= 0) {
+        int start = colon + 1;
+        while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+        if (body.startsWith("1", start)) fromTracker = true;
+      }
+    }
+    if (fromTracker) {
+      webTrackingActive = true;
+      webTrackLastMs = millis();
+    }
+    
     // Execute moves via existing protocol functions (handles ELF transformation)
     if (hasAz) executeProtocolAzMove(targetAz);
     if (hasEl) executeProtocolElMove(targetEl);
     
-    Serial.print("Web /setpos: az="); Serial.print(hasAz ? String(targetAz, 1) : "unchanged");
-    Serial.print(" el="); Serial.println(hasEl ? String(targetEl, 1) : "unchanged");
+    // Debug log: distinguish built-in tracker moves from manual web moves.
+    // (Console Serial.print is NOT used here — it would inject garbage into
+    // the serial wire shared with external GS-232 clients.)
+    {
+      char azStr[12], elStr[12];
+      if (hasAz) snprintf(azStr, sizeof(azStr), "%.1f", targetAz); else strcpy(azStr, "-");
+      if (hasEl) snprintf(elStr, sizeof(elStr), "%.1f", targetEl); else strcpy(elStr, "-");
+      char note[64];
+      snprintf(note, sizeof(note), "setpos az=%s el=%s [%s]", azStr, elStr,
+               fromTracker ? "tracker" : "manual");
+      dbgLogCapture("RX", "WEB", note);
+    }
     
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", "{\"ok\":true}");
+  });
+  
+  // OPTIONS /track — CORS preflight
+  server.on("/track", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+  
+  // POST /track — built-in web tracker claims/releases the antennas.
+  // Body: {"active":true|false}. The claim is refreshed every 10 s by the
+  // browser and by every tracked /setpos; it auto-expires after 30 s without
+  // refresh (crashed tab) so external software is never locked out for long.
+  server.on("/track", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"no body\"}");
+      return;
+    }
+    
+    String body = server.arg("plain");
+    bool hasActive = false;
+    bool activeValue = false;
+    
+    int acIdx = body.indexOf("\"active\"");
+    if (acIdx >= 0) {
+      int colon = body.indexOf(':', acIdx);
+      if (colon >= 0) {
+        int start = colon + 1;
+        while (start < (int)body.length() && (body[start] == ' ' || body[start] == '\t')) start++;
+        if (body.startsWith("true", start)) { activeValue = true; hasActive = true; }
+        else if (body.startsWith("false", start)) { activeValue = false; hasActive = true; }
+      }
+    }
+    
+    if (!hasActive) {
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(400, "application/json", "{\"error\":\"missing active\"}");
+      return;
+    }
+    
+    webTrackingActive = activeValue;
+    webTrackLastMs = millis();
+    
+    char note[48];
+    snprintf(note, sizeof(note), "TRACK: built-in tracker %s", activeValue ? "engaged" : "released");
+    dbgLogCapture("TX", "CON", note);
+    
+    String json = String("{\"active\":") + (activeValue ? "true" : "false") + "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", json);
   });
   
   // OPTIONS /elf — CORS preflight
@@ -7517,14 +7682,17 @@ void loop() {
         shouldStop = true;
       }
       
-      // Stall detection: elevation hasn't changed by 0.5° in the timeout period
-      unsigned long stallTimeout = (elDirection == DIR_UP && currentEl < 1.0F) ? 3000 : 500;
-      if (!shouldStop && millis() - lastElCheck >= stallTimeout) {
+      // Stall detection: elevation hasn't changed by 0.5° over consecutive 500ms
+      // ticks. (The old form compared against lastElCheck AFTER overwriting it,
+      // so the condition was always false and stall protection never fired.)
+      // Allow ~3s of no movement when driving UP near the bottom (gear engagement lag).
+      if (!shouldStop) {
+        int maxStallTicks = (elDirection == DIR_UP && currentEl < 1.0F) ? 6 : 3;
         if (lastElReading >= 0) {
           float elChange = abs(currentEl - lastElReading);
           if (elChange < 0.5F) {
             stallCount++;
-            if (stallCount >= 3) {
+            if (stallCount >= maxStallTicks) {
               shouldStop = true;
             }
           } else {
@@ -7542,6 +7710,7 @@ void loop() {
         stopElevation();
         protocolTargetElSet = false;
         lastElReading = -1;
+        stallCount = 0;
       }
     }
   }
