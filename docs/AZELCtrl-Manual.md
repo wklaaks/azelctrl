@@ -1,6 +1,6 @@
 # AZELCtrl — User Manual
 
-**Version 1.5.14**  
+**Version 1.5.15**  
 **Author: ZS6TW**  
 **Date: November 2026**
 
@@ -1806,7 +1806,7 @@ If your tracking software behaves oddly (timeouts, repeated retries, the antenna
    - `EL-ZONE` / `AZ-ZONE` — a command arrived with the axis already inside the stop tolerance; no movement was started
    - `[OVERFLOW]` / `[STALL: …]` — a received line was too long or never terminated; it was discarded
 3. Reproduce the odd behaviour with your tracking software running.
-4. Click **Download log** in the debug tab to save the capture as a `.log` file. Share the file when reporting a problem.
+4. Click **Download log** in the debug tab to save the capture as a `.log` file — the file contains the **complete session**: everything accumulated in the view since the tab was opened, not just the last few seconds held in the device's memory. (If you click it immediately after opening the tab, before any traffic has accumulated, you get only the device's last ~96 buffered lines.) Share the file when reporting a problem.
 5. Close the debug tab to stop logging.
 
 Notes:

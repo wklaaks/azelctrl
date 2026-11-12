@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.14"
+#define FIRMWARE_VERSION "1.5.15"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -1690,6 +1690,12 @@ Logging is active while this tab is open and stops when you close it. Nothing is
 // legacy-unforgeable window.status property, so the element ref was silently
 // discarded and the page stuck on "connecting..." forever.
 var seq=-1,pre=document.getElementById('log'),statusEl=document.getElementById('status'),syncBtnEl=document.getElementById('sync');
+// Complete session capture. The device-side ring holds only ~96 entries
+// (~30 s of busy traffic), which is why downloads used to come out
+// incomplete while copy/paste from the view gave everything: the view
+// accumulates client-side. Download now exports THIS buffer instead.
+// 20000 lines ~= an hour of busy tracking.
+var allLines=[],MAXLINES=20000;
 function cls(l){return l.indexOf('] RX')>-1?'rx':(l.indexOf('] TX')>-1?'tx':'ev');}
 function poll(){
   fetch('/debug-log?since='+seq).then(function(r){return r.json();}).then(function(j){
@@ -1701,7 +1707,9 @@ function poll(){
     var atBottom=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-30;
     for(var i=0;i<j.lines.length;i++){
       var d=document.createElement('span');d.className=cls(j.lines[i]);d.textContent=j.lines[i]+'\n';pre.appendChild(d);
+      allLines.push(j.lines[i]);
     }
+    while(allLines.length>MAXLINES)allLines.shift();
     while(pre.childNodes.length>2000)pre.removeChild(pre.firstChild);
     if(atBottom)pre.scrollTop=pre.scrollHeight;
     statusEl.textContent='armed - '+j.seq+' entries captured'+(j.time?' - '+j.time:' (no time - click Sync)');
@@ -1710,7 +1718,20 @@ function poll(){
     statusEl.textContent='connection lost - retrying';statusEl.style.color='#ff6b6b';
   });
 }
-document.getElementById('dl').onclick=function(){window.location='/debug-log-download';};
+document.getElementById('dl').onclick=function(){
+  // Export the complete accumulated session (what the view shows), not the
+  // device's short ring window. Fall back to the server-side ring download
+  // only if the page was just opened and nothing has accumulated yet.
+  if(!allLines.length){window.location='/debug-log-download';return;}
+  var hdr='AZELCtrl Protocol Debug Log\nLines: '+allLines.length+' (complete session since tab opened)\n'+
+          'Downloaded: '+new Date().toLocaleString()+'\n'+statusEl.textContent+'\n---\n';
+  var blob=new Blob([hdr+allLines.join('\n')+'\n'],{type:'text/plain'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='azelctrl-debug-usb.log';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},5000);
+};
 // One-click wall-clock sync: sends this browser's epoch time + UTC offset so
 // the device can stamp log lines with real local time (works in AP mode too).
 syncBtnEl.onclick=function(){
