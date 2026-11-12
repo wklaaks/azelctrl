@@ -1,6 +1,6 @@
 # AZELCtrl — User Manual
 
-**Version 1.5.12**  
+**Version 1.5.13**  
 **Author: ZS6TW**  
 **Date: November 2026**
 
@@ -1893,7 +1893,7 @@ Notes:
 | Favicon not showing in browser tab | Use Chrome/Firefox, or clear browser cache |
 | Tracking stops or becomes unreliable after switching to another browser tab | Browser froze the background tab — ensure **Background Keep-Alive** is enabled in Settings → Tracking Preferences (on by default); tracking resynchronises automatically when you return to the tab |
 | External tracking software misbehaves over USB serial or TCP | Use **Debug USB Log** (Settings → PC Interface) to capture the exact protocol exchange and share the downloaded log with the developer |
-| At pass start (or mid-pass) the antennas swing to a far-too-high elevation, back down, and up again before settling | Firmware **below v1.5.12** had an elevation direction-reversal defect (the auto-stop target was lost when elevation reversed while moving, so the axis ran to the next command). Flash **v1.5.12 or later** — the elevation then stops at the commanded target ±3° on every reversal |
+| At pass start (or mid-pass) the elevation keeps climbing/slewing far past the commanded value and only comes back on the next command | Firmware **below v1.5.13** could lose the elevation auto-stop target: the target was cleared whenever the axis was stopped and restarted mid-motion (this happened on a repeated same-direction move command — exactly what tracking software sends every few seconds — and on direction reversals in v1.5.12 and earlier). From **v1.5.13** the elevation stops at the commanded target ±3° on *every* move, in every direction, regardless of command cadence |
 | External software's moves are ignored while I am tracking with the web interface | This is deliberate single-tracker arbitration (see §8.4, "One Tracker at a Time"). Stop the built-in tracking or close the tab to hand control back; the Debug USB Log shows each ignored command as `[IGNORED: built-in tracker active]` |
 | Web UI shows Az/El of 0 while the OLED shows a fixed position | The position ADC (I2C) is not being detected — open `http://<unit-IP>/diag` in a browser; if it reports `"ads":0`, reseat the OLED/ADC board connector (SDA/SCL lines) and power-cycle the unit. A failed I2C connection also freezes the OLED on its last frame, which is why the display can look "alive" while reporting nothing |
 | Web UI shows a ROTOR OFFLINE banner / OLED shows ROTOR OFFLINE | The Yaesu controller is unplugged or unpowered (its +12 V rail is gone) — reconnect the controller and verify power. If the detection divider (1.3 MΩ + 200 kΩ, §3.3) is not fitted yet, the reading is meaningless: disable **Rotor Power Detection** in Settings until the resistors are installed |

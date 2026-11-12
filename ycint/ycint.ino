@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.12"
+#define FIRMWARE_VERSION "1.5.13"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -2082,7 +2082,12 @@ void stopElevation() {
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
   elEngageStart = 0;  // Clear engagement timer
-  protocolTargetElSet = false;  // Clear so tolerance check works on next target
+  // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit
+  // stop commands, matching stopAzimuth(). Clearing it here silently DISARMED the
+  // elevation auto-stop: any path that stopped+restarted the axis (e.g. a repeated
+  // same-direction move command) then ran the motor past the target at full speed
+  // until the next opposing command (the pass-start/mid-pass elevation runaway
+  // captured in the tracking logs).
   protocolElReversing = false;
   // Clear movement indicator if elevation was moving
   if (currentMove == "UP" || currentMove == "DOWN" || currentMove == "EL POT") {
@@ -2103,9 +2108,10 @@ void stopAll() {
 }
 
 void executeAzimuthMove(String dir) {
-  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction
-  bool needStop = (azDirection != DIR_STOPPED && azDirection != DIR_CCW && dir == "LEFT") ||
-                  (azDirection != DIR_STOPPED && azDirection != DIR_CW  && dir == "RIGHT");
+  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction.
+  // (The old condition was inverted — same stop+restart glitch as the elevation side.)
+  bool needStop = (azDirection == DIR_CCW && dir == "RIGHT") ||
+                  (azDirection == DIR_CW  && dir == "LEFT");
   if (needStop) {
     stopAzimuth();
   } else if (azDirection == DIR_STOPPED) {
@@ -2145,9 +2151,12 @@ void executeAzimuthMove(String dir) {
 }
 
 void executeElevationMove(String dir) {
-  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction
-  bool needStop = (elDirection != DIR_STOPPED && elDirection != DIR_DOWN && dir == "UP") ||
-                  (elDirection != DIR_STOPPED && elDirection != DIR_UP  && dir == "DOWN");
+  // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction.
+  // (The old condition was inverted: it stopped+restarted the axis when it was ALREADY
+  // moving in the requested direction — visible as relay chatter on repeated jog
+  // commands — and skipped the stop for a genuine opposite-direction request.)
+  bool needStop = (elDirection == DIR_DOWN && dir == "UP") ||
+                  (elDirection == DIR_UP  && dir == "DOWN");
   if (needStop) {
     stopElevation();
   } else if (elDirection == DIR_STOPPED) {
@@ -2188,8 +2197,15 @@ void executeElevationMove(String dir) {
 
 void executeMove(String dir) {
   if (dir == "LEFT" || dir == "RIGHT") {
+    // Manual jog cancels any pending protocol target for the jogged axis —
+    // otherwise a stale auto-stop target would kill the jog the moment the
+    // axis crosses it (jogs away from the target would stop almost instantly).
+    protocolTargetAzSet = false;
+    protocolAzReversing = false;
     executeAzimuthMove(dir);
   } else if (dir == "UP" || dir == "DOWN") {
+    protocolTargetElSet = false;
+    protocolElReversing = false;
     executeElevationMove(dir);
   }
 }
@@ -2841,11 +2857,11 @@ void executeProtocolElMove(float targetEl) {
   
   if (moveDir == "UP") {
     if (elDirection == DIR_DOWN) {
-      // stopElevation() clears protocolTargetElSet — restore it so the auto-stop
-      // still has a target when the reversed move resumes. Without this, the el
-      // axis slews past the target at full speed until the next opposing command
-      // (seen in tracking logs as horizon→zenith→horizon elevation thrash).
-      stopElevation(); protocolTargetElSet = true;
+      // True reversal: stop, then pause and resume in the new direction (the
+      // loop performs the delayed resume). protocolTargetElSet — armed above —
+      // survives the stop, so the auto-stop still fires at the target after
+      // the resume.
+      stopElevation();
       protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
     } else {
       protocolElReversing = false;  // new command supersedes any pending reversal
@@ -2853,8 +2869,8 @@ void executeProtocolElMove(float targetEl) {
     }
   } else {
     if (elDirection == DIR_UP) {
-      // Same restore as above — keep the target alive across the reversal pause.
-      stopElevation(); protocolTargetElSet = true;
+      // Same as above — the armed target survives the reversal stop/pause.
+      stopElevation();
       protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
     } else {
       protocolElReversing = false;  // new command supersedes any pending reversal
@@ -3076,15 +3092,17 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
       if (argc >= 2) {
         String dir = args[1];
         dir.toUpperCase();
-        if (dir == "LEFT" || dir == "CCW") executeAzimuthMove("LEFT");
-        else if (dir == "RIGHT" || dir == "CW") executeAzimuthMove("RIGHT");
-        else if (dir == "UP") executeElevationMove("UP");
-        else if (dir == "DOWN") executeElevationMove("DOWN");
+        // startMove() routes through executeMove, which cancels any stale
+        // protocol target for the jogged axis and pauses before reversals.
+        if (dir == "LEFT" || dir == "CCW") startMove("LEFT");
+        else if (dir == "RIGHT" || dir == "CW") startMove("RIGHT");
+        else if (dir == "UP") startMove("UP");
+        else if (dir == "DOWN") startMove("DOWN");
         else {
           // Numeric direction
           int d = atoi(args[1]);
-          if (d == 1 || d == -1) executeAzimuthMove(d > 0 ? "RIGHT" : "LEFT");
-          else if (d == 2 || d == -2) executeElevationMove(d > 0 ? "UP" : "DOWN");
+          if (d == 1 || d == -1) startMove(d > 0 ? "RIGHT" : "LEFT");
+          else if (d == 2 || d == -2) startMove(d > 0 ? "UP" : "DOWN");
         }
       }
       dpRprt(0);
@@ -3334,10 +3352,12 @@ void processGs232Command(const char* cmd, int len) {
     }
     case 'E':  // Stop elevation only
       stopElevation();
+      protocolTargetElSet = false;  // explicit user stop cancels the target
       protocolSend("OK");
       break;
     case 'Z':  // Stop azimuth only
       stopAzimuth();
+      protocolTargetAzSet = false;  // explicit user stop cancels the target
       protocolSend("OK");
       break;
     case 'X': {
@@ -3467,11 +3487,13 @@ void processEasycomCommand(const char* cmd, int len) {
   // SA — stop azimuth
   else if (strcmp(token, "SA") == 0) {
     stopAzimuth();
+    protocolTargetAzSet = false;  // explicit user stop cancels the target
     protocolSend("OK");
   }
   // SE — stop elevation
   else if (strcmp(token, "SE") == 0) {
     stopElevation();
+    protocolTargetElSet = false;  // explicit user stop cancels the target
     protocolSend("OK");
   }
   // S — all stop (also accepted by hamlib)
