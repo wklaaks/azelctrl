@@ -1,6 +1,6 @@
 # AZELCtrl — User Manual
 
-**Version 1.5.13**  
+**Version 1.5.14**  
 **Author: ZS6TW**  
 **Date: November 2026**
 
@@ -1793,7 +1793,17 @@ If your tracking software behaves oddly (timeouts, repeated retries, the antenna
    - `RX WEB` — a move command received from the web interface: `setpos az=… el=… [tracker]` (built-in tracker) or `[manual]` (Control tab)
    - `TX SER` / `TX TCP` — a reply written to that interface
    - `TX DROP` — a reply was generated but had no delivery target (e.g. no TCP client connected); it was **not** sent anywhere
-   - `TX CON` — console text printed to the serial wire (e.g. TCP client connect/disconnect notices)
+   - `TX CON` — console text: TCP client connect/disconnect notices, tracker ownership changes (`TRACK: …`), and internal **firmware event** lines (below)
+
+   **Firmware event lines** (`DBG …`, ring only — never written to the serial wire) show what the movement engine decided, so a misbehaving pass can be reconstructed after the fact:
+   - `EL-TGT` / `AZ-TGT` — an auto-stop target was armed or changed (the value is in physical rotator coordinates; with ELF mode on, both satellite and physical values are shown)
+   - `EL-MOV` / `AZ-MOV` — a motor actually started, with direction and current position
+   - `EL-STP` / `AZ-STP` — a motor actually stopped, with the direction it was moving
+   - `EL-AUTO` / `AZ-AUTO` — the auto-stop fired at its target (`tol` = within tolerance, `crossed` = the axis passed the target); if the axis runs away *without* an `EL-AUTO` line, its target was never armed or was cancelled — the neighbouring `EL-TGT`/`EL-CAN`/`EL-LIM` lines show which
+   - `EL-REV` / `EL-RES` — a direction-reversal pause started and, one second later, resumed
+   - `EL-CAN` / `AZ-CAN` — a manual jog cancelled the pending auto-stop target (deliberate)
+   - `EL-LIM` — the elevation limit/stall watchdog stopped the axis (`lim-lo`/`lim-hi` = hard limit reached, `stall` = no movement detected)
+   - `EL-ZONE` / `AZ-ZONE` — a command arrived with the axis already inside the stop tolerance; no movement was started
    - `[OVERFLOW]` / `[STALL: …]` — a received line was too long or never terminated; it was discarded
 3. Reproduce the odd behaviour with your tracking software running.
 4. Click **Download log** in the debug tab to save the capture as a `.log` file. Share the file when reporting a problem.

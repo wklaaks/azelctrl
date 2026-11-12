@@ -93,7 +93,7 @@ const char* spiffsCoastlineFile = "/world_coastline.js.gz";
 #define ROT_EEPROM_MAGIC_VAL 0x5A
 
 // ==================== FIRMWARE VERSION ====================
-#define FIRMWARE_VERSION "1.5.13"
+#define FIRMWARE_VERSION "1.5.14"
 #define FIRMWARE_DATE __DATE__
 
 // ==================== NETWORK PROTOCOL SERVER ====================
@@ -500,6 +500,21 @@ void dbgLogCapture(const char* dir, const char* src, const char* text) {
   e.len = (uint8_t)strlen(esc);
   memcpy(e.msg, esc, e.len + 1);
   dbgLogSeq++;
+}
+
+// Log an internal firmware event (motor state, auto-stop decisions) to the
+// debug ring as a CON entry. Ring-only — never written to the serial wire.
+// Keep these SPARSE (state transitions only, not per-tick telemetry): the ring
+// is 96 entries and the USB log view accumulates browser-side, so chatty
+// events would crowd out the RX/TX traffic they are meant to correlate with.
+void dbgEvent(const char* fmt, ...) {
+  if (!dbgLogArmed) return;
+  char buf[DBGLOG_MSG_MAX];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  dbgLogCapture("TX", "CON", buf);
 }
 
 // Protocol target tracking — auto-stop when target is reached
@@ -2065,10 +2080,15 @@ bool calAzValid = false, calElValid = false;
 
 // ====================== MOVEMENT CONTROL ======================
 void stopAzimuth() {
+  bool wasMoving = (azDirection != DIR_STOPPED);
+  bool wasCW = (azDirection == DIR_CW);
   digitalWrite(AZ_ENABLE, LOW);
   digitalWrite(AZ_DIR_CW, HIGH);
   azDirection = DIR_STOPPED;
   azEngageStart = 0;  // Clear engagement timer
+  if (wasMoving) {
+    dbgEvent("DBG AZ-STP c=%.1f was-%s", displayAzimuth(currentAz), wasCW ? "RIGHT" : "LEFT");
+  }
   // Don't clear protocolTargetAzSet here — it's cleared by auto-stop or explicit stop commands
   protocolAzReversing = false;
   // Clear movement indicator if azimuth was moving
@@ -2078,10 +2098,15 @@ void stopAzimuth() {
 }
 
 void stopElevation() {
+  bool wasMoving = (elDirection != DIR_STOPPED);
+  bool wasUp = (elDirection == DIR_UP);
   digitalWrite(EL_ENABLE, LOW);
   digitalWrite(EL_DIR_UP, HIGH);
   elDirection = DIR_STOPPED;
   elEngageStart = 0;  // Clear engagement timer
+  if (wasMoving) {
+    dbgEvent("DBG EL-STP c=%.1f was-%s", currentEl, wasUp ? "UP" : "DN");
+  }
   // Don't clear protocolTargetElSet here — it's cleared by auto-stop or explicit
   // stop commands, matching stopAzimuth(). Clearing it here silently DISARMED the
   // elevation auto-stop: any path that stopped+restarted the axis (e.g. a repeated
@@ -2108,6 +2133,7 @@ void stopAll() {
 }
 
 void executeAzimuthMove(String dir) {
+  bool wasStopped = (azDirection == DIR_STOPPED);
   // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction.
   // (The old condition was inverted — same stop+restart glitch as the elevation side.)
   bool needStop = (azDirection == DIR_CCW && dir == "RIGHT") ||
@@ -2148,9 +2174,13 @@ void executeAzimuthMove(String dir) {
     digitalWrite(AZ_DIR_CW, LOW);
     digitalWrite(AZ_ENABLE, HIGH);
   }
+  if (wasStopped || needStop) {
+    dbgEvent("DBG AZ-MOV %s c=%.1f", dir.c_str(), displayAzimuth(currentAz));
+  }
 }
 
 void executeElevationMove(String dir) {
+  bool wasStopped = (elDirection == DIR_STOPPED);
   // Only stop if actually moving in a DIFFERENT direction — skip if idle or same direction.
   // (The old condition was inverted: it stopped+restarted the axis when it was ALREADY
   // moving in the requested direction — visible as relay chatter on repeated jog
@@ -2193,6 +2223,9 @@ void executeElevationMove(String dir) {
     digitalWrite(EL_DIR_UP, HIGH);
     digitalWrite(EL_ENABLE, HIGH);
   }
+  if (wasStopped || needStop) {
+    dbgEvent("DBG EL-MOV %s c=%.1f", dir.c_str(), currentEl);
+  }
 }
 
 void executeMove(String dir) {
@@ -2200,10 +2233,12 @@ void executeMove(String dir) {
     // Manual jog cancels any pending protocol target for the jogged axis —
     // otherwise a stale auto-stop target would kill the jog the moment the
     // axis crosses it (jogs away from the target would stop almost instantly).
+    if (protocolTargetAzSet) dbgEvent("DBG AZ-CAN jog c=%.1f", displayAzimuth(currentAz));
     protocolTargetAzSet = false;
     protocolAzReversing = false;
     executeAzimuthMove(dir);
   } else if (dir == "UP" || dir == "DOWN") {
+    if (protocolTargetElSet) dbgEvent("DBG EL-CAN jog c=%.1f", currentEl);
     protocolTargetElSet = false;
     protocolElReversing = false;
     executeElevationMove(dir);
@@ -2703,8 +2738,15 @@ void executeProtocolAzMove(float targetAz) {
     return;
   }
   
-  protocolTargetAz = physTarget;
-  protocolTargetAzSet = true;
+  {
+    bool azTgtWasSet = protocolTargetAzSet;
+    float azTgtPrev = protocolTargetAz;
+    protocolTargetAz = physTarget;
+    protocolTargetAzSet = true;
+    if (!azTgtWasSet || fabsf(physTarget - azTgtPrev) > 0.5F) {
+      dbgEvent("DBG AZ-TGT %.1f", physTarget);
+    }
+  }
 #if DEBUG_ENABLED
   Serial.print("DBG:PROT_AZ:RECEIVED:target="); Serial.print(targetAz);
   Serial.print(" curRaw="); Serial.print(currentAz);
@@ -2772,6 +2814,7 @@ void executeProtocolAzMove(float targetAz) {
       Serial.println("DBG:PROT_AZ:ACTION:REVERSAL_CW");
 #endif
       stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "RIGHT";
+      dbgEvent("DBG AZ-REV to-RIGHT c=%.1f t=%.1f", displayAzimuth(currentAz), physTarget);
     } else if (azDirection != DIR_CW) {
       // Not currently moving — start CW movement
 #if DEBUG_ENABLED
@@ -2796,6 +2839,7 @@ void executeProtocolAzMove(float targetAz) {
       Serial.println("DBG:PROT_AZ:ACTION:REVERSAL_CCW");
 #endif
       stopAzimuth(); protocolAzReversing = true; protocolAzReverseStart = millis(); protocolAzPendingDir = "LEFT";
+      dbgEvent("DBG AZ-REV to-LEFT c=%.1f t=%.1f", displayAzimuth(currentAz), physTarget);
     } else if (azDirection != DIR_CCW) {
       // Not currently moving — start CCW movement
 #if DEBUG_ENABLED
@@ -2813,6 +2857,7 @@ void executeProtocolAzMove(float targetAz) {
 #if DEBUG_ENABLED
     Serial.println("DBG:PROT_AZ:ACTION:STOPPED (at target)");
 #endif
+    dbgEvent("DBG AZ-ZONE c=%.1f t=%.1f", displayAzimuth(currentAz), physTarget);
     stopAzimuth(); protocolTargetAzSet = false;
   }
 }
@@ -2840,8 +2885,14 @@ void executeProtocolElMove(float targetEl) {
     return;
   }
   
+  bool elTgtWasSet = protocolTargetElSet;
+  float elTgtPrev = protocolTargetEl;
   protocolTargetEl = physTarget;
   protocolTargetElSet = true;
+  if (!elTgtWasSet || fabsf(physTarget - elTgtPrev) > 0.5F) {
+    if (elfMode) dbgEvent("DBG EL-TGT sat=%.1f phys=%.1f", targetEl, physTarget);
+    else dbgEvent("DBG EL-TGT %.1f", physTarget);
+  }
   
   // Convert satellite-space direction to physical direction
   // In ELF mode: satellite UP = physical DOWN (Real El = 180 - Sat El)
@@ -2851,6 +2902,7 @@ void executeProtocolElMove(float targetEl) {
   } else if (diff < -1.0) {
     moveDir = elfMode ? "UP" : "DOWN";
   } else {
+    dbgEvent("DBG EL-ZONE c=%.1f t=%.1f", currentEl, physTarget);
     stopElevation(); protocolTargetElSet = false;
     return;
   }
@@ -2862,6 +2914,7 @@ void executeProtocolElMove(float targetEl) {
       // survives the stop, so the auto-stop still fires at the target after
       // the resume.
       stopElevation();
+      dbgEvent("DBG EL-REV to-UP c=%.1f t=%.1f", currentEl, protocolTargetEl);
       protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "UP";
     } else {
       protocolElReversing = false;  // new command supersedes any pending reversal
@@ -2871,6 +2924,7 @@ void executeProtocolElMove(float targetEl) {
     if (elDirection == DIR_UP) {
       // Same as above — the armed target survives the reversal stop/pause.
       stopElevation();
+      dbgEvent("DBG EL-REV to-DN c=%.1f t=%.1f", currentEl, protocolTargetEl);
       protocolElReversing = true; protocolElReverseStart = millis(); protocolElPendingDir = "DOWN";
     } else {
       protocolElReversing = false;  // new command supersedes any pending reversal
@@ -3040,8 +3094,14 @@ void processDefaultProtocolCommand(const char* cmd, int len) {
         float physTargetEl = elfEl(targetEl);
         
         // Always update protocol targets for auto-stop (physical coords)
+        if (!protocolTargetAzSet || fabsf(physTargetAz - protocolTargetAz) > 0.5F) {
+          dbgEvent("DBG AZ-TGT %.1f", physTargetAz);
+        }
         protocolTargetAz = physTargetAz;
         protocolTargetAzSet = true;
+        if (!protocolTargetElSet || fabsf(physTargetEl - protocolTargetEl) > 0.5F) {
+          dbgEvent("DBG EL-TGT %.1f", physTargetEl);
+        }
         protocolTargetEl = physTargetEl;
         protocolTargetElSet = true;
         
@@ -7556,12 +7616,14 @@ void loop() {
       if (protocolAzReversing) {
         if (millis() - protocolAzReverseStart >= (unsigned long)(protocolReverseDelay * 1000)) {
           protocolAzReversing = false;
+          dbgEvent("DBG AZ-RES %s c=%.1f", protocolAzPendingDir.c_str(), displayAzimuth(currentAz));
           executeAzimuthMove(protocolAzPendingDir);
         }
       }
       if (protocolElReversing) {
         if (millis() - protocolElReverseStart >= (unsigned long)(protocolReverseDelay * 1000)) {
           protocolElReversing = false;
+          dbgEvent("DBG EL-RES %s c=%.1f", protocolElPendingDir.c_str(), currentEl);
           executeElevationMove(protocolElPendingDir);
         }
       }
@@ -7572,6 +7634,7 @@ void loop() {
         if (diff > 180.0) diff -= 360.0;
         if (diff < -180.0) diff += 360.0;
         if (abs(diff) <= 1.0) {
+          dbgEvent("DBG AZ-AUTO c=%.1f t=%.1f", currentAzDisplay, protocolTargetAz);
           stopAzimuth();
           protocolTargetAzSet = false;
         }
@@ -7579,6 +7642,7 @@ void loop() {
       if (protocolTargetElSet && !protocolElReversing) {
         float diff = protocolTargetEl - currentEl;
         if (abs(diff) <= 1.0) {
+          dbgEvent("DBG EL-AUTO c=%.1f t=%.1f", currentEl, protocolTargetEl);
           stopElevation();
           protocolTargetElSet = false;
         }
@@ -7656,6 +7720,7 @@ void loop() {
           #if DEBUG_ENABLED
           Serial.println("DBG:AUTO_AZ:STOP!");
           #endif
+          dbgEvent("DBG AZ-AUTO c=%.1f t=%.1f %s", curAzDisplay, protocolTargetAz, crossed ? "crossed" : "tol");
           stopAzimuth();
           protocolTargetAzSet = false;
         }
@@ -7677,6 +7742,7 @@ void loop() {
           #if DEBUG_ENABLED
           Serial.println("DBG:AUTO_EL:STOP!");
           #endif
+          dbgEvent("DBG EL-AUTO c=%.1f t=%.1f %s", currentEl, protocolTargetEl, crossed ? "crossed" : "tol");
           stopElevation();
           protocolTargetElSet = false;
         }
@@ -7695,13 +7761,16 @@ void loop() {
     if (millis() - lastElCheck >= 500) {
       lastElCheck = millis();
       bool shouldStop = false;
+      const char* stopReason = "?";
       
       // Hard limit: DOWN at bottom (< 0.5°) or UP at top (> 179.5°)
       if (elDirection == DIR_DOWN && currentEl < 0.5F) {
         shouldStop = true;
+        stopReason = "lim-lo";
       }
       if (elDirection == DIR_UP && currentEl > 179.5F) {
         shouldStop = true;
+        stopReason = "lim-hi";
       }
       
       // Stall detection: elevation hasn't changed by 0.5° over consecutive 500ms
@@ -7716,6 +7785,7 @@ void loop() {
             stallCount++;
             if (stallCount >= maxStallTicks) {
               shouldStop = true;
+              stopReason = "stall";
             }
           } else {
             stallCount = 0;
@@ -7729,6 +7799,8 @@ void loop() {
         Serial.print("DBG:EL_LIMIT:STOP:el="); Serial.print(currentEl);
         Serial.print(" dir="); Serial.println(elDirection == DIR_UP ? "UP" : "DOWN");
         #endif
+        dbgEvent("DBG EL-LIM %s c=%.1f %s", stopReason, currentEl,
+                 elDirection == DIR_UP ? "UP" : "DN");
         stopElevation();
         protocolTargetElSet = false;
         lastElReading = -1;
